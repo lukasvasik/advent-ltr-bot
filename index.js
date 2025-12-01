@@ -5,12 +5,15 @@ import {
   REST,
   Routes,
   SlashCommandBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ====== CESTA K SOUBORU S ID ZPRÁVY ======
+// ====== CESTA K SOUBORU S ID ZPRÁV ======
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONFIG_PATH = path.join(__dirname, 'calendar.json');
@@ -25,95 +28,61 @@ if (!TOKEN) {
 }
 if (!CLIENT_ID || !GUILD_ID) {
   console.warn(
-    '⚠️ CLIENT_ID nebo GUILD_ID chybí – slash commandy se nemusí zaregistrovat.'
+    '⚠️ CLIENT_ID nebo GUILD_ID chybí – slash command /setup se nemusí zaregistrovat.'
   );
 }
 
 // ====== ADVENTNÍ DATA ======
-
-// TADY SI DOPLŇ TRASY PRO JEDNOTLIVÉ DNY.
-// ZATÍM JE TAM JEN DEN 1 JAKO PŘÍKLAD.
+// TADY si doplň 24 dní – ukázka pro den 1 a 2:
 const YEAR = new Date().getFullYear();
 
 const ROUTES = [
   {
     day: 1,
-    mapUrl: 'https://example.com/mapa-den-1', // odkaz na mapu trasy
-    teaserImage: 'https://example.com/den1-teaser.png', // otazník
-    activeImage: 'https://example.com/den1-aktivni.png', // aktivní karta
+    mapUrl: 'https://example.com/mapa-den-1', // odkaz na mapu (třeba Imgur/TruckersMP map)
+    teaserImage: 'https://example.com/den1-teaser.png',   // otazník
+    activeImage: 'https://example.com/den1-aktivni.png',  // detail karty
     expiredImage: 'https://example.com/den1-expired.png', // po termínu
     from: 'TruckersMP HQ',
     to: 'Brno',
     distance: '500 km',
   },
-  // ZKOPÍRUJ A UPRAV PRO DNY 2–24
-  // {
-  //   day: 2,
-  //   mapUrl: 'https://example.com/mapa-den-2',
-  //   teaserImage: 'https://example.com/den2-teaser.png',
-  //   activeImage: 'https://example.com/den2-aktivni.png',
-  //   expiredImage: 'https://example.com/den2-expired.png',
-  //   from: 'Místo A',
-  //   to: 'Místo B',
-  //   distance: 'xxx km',
-  // },
+  {
+    day: 2,
+    mapUrl: 'https://example.com/mapa-den-2',
+    teaserImage: 'https://example.com/den2-teaser.png',
+    activeImage: 'https://example.com/den2-aktivni.png',
+    expiredImage: 'https://example.com/den2-expired.png',
+    from: 'Praha',
+    to: 'Berlin',
+    distance: '650 km',
+  },
+  // → ZKOPÍRUJ A UPRAV PRO DNY 3–24
 ];
 
-// 10:00 CET (Praha) = 09:00 UTC → Railway běží v UTC
+// 10:00 CET = 09:00 UTC (Railway běží v UTC)
 function getWindow(day) {
-  const start = Date.UTC(YEAR, 11, day, 9, 0, 0); // 1-based měsíc prosinec = 11
-  const end = Date.UTC(YEAR, 11, day + 1, 9, 0, 0);
+  const start = Date.UTC(YEAR, 11, day, 9, 0, 0);      // 1.12. = month 11
+  const end = Date.UTC(YEAR, 11, day + 1, 9, 0, 0);    // další den 09:00 UTC
   return { start, end };
 }
 
-// Vrací { route, phase } kde phase = 'TEASER' | 'ACTIVE' | 'EXPIRED'
-function getCurrentState(now = new Date()) {
-  if (!ROUTES.length) return null;
-
-  const nowMs = now.getTime();
-  const windows = ROUTES.map((route) => ({
-    route,
-    ...getWindow(route.day),
-  }));
-
-  // seřadíme podle dne (pro jistotu)
-  windows.sort((a, b) => a.route.day - b.route.day);
-
-  // před prvním dnem → teaser prvního
-  if (nowMs < windows[0].start) {
-    return { route: windows[0].route, phase: 'TEASER' };
-  }
-
-  for (let i = 0; i < windows.length; i++) {
-    const { route, start, end } = windows[i];
-
-    if (nowMs >= start && nowMs < end) {
-      // přímo v okně dne → aktivní
-      return { route, phase: 'ACTIVE' };
-    }
-
-    if (nowMs >= end) {
-      const next = windows[i + 1];
-      if (!next || nowMs < next.start) {
-        // po skončení dne, ale před dalším začátkem → expired
-        return { route, phase: 'EXPIRED' };
-      }
-    }
-  }
-
-  // po skončení všech dní → expired posledního
-  const last = windows[windows.length - 1];
-  return { route: last.route, phase: 'EXPIRED' };
-}
-
-function buildEmbed(state) {
-  const { route, phase } = state;
+// phase = 'TEASER' | 'ACTIVE' | 'EXPIRED'
+function getPhaseForRoute(route, nowMs) {
   const { start, end } = getWindow(route.day);
 
+  if (nowMs < start) return 'TEASER';
+  if (nowMs >= start && nowMs < end) return 'ACTIVE';
+  return 'EXPIRED';
+}
+
+// Hezký embed podle dne a fáze
+function buildEmbed(route, phase) {
+  const { start, end } = getWindow(route.day);
   const startDate = new Date(start);
   const endDate = new Date(end);
 
-  // jednoduchý formát času: 1.12. 10:00 – 2.12. 10:00 (pro Prahu)
+  // prostý čas: 1.12. 10:00 – 2.12. 10:00 (Praha)
   const timeText = `${startDate.getUTCDate()}.12. ${String(
     startDate.getUTCHours() + 1
   ).padStart(2, '0')}:00 – ${endDate.getUTCDate()}.12. ${String(
@@ -122,38 +91,40 @@ function buildEmbed(state) {
 
   let description = '';
   let imageUrl = '';
-  let color = 0xffc04d; // zlatavá
+  let color = 0xffc04d; // zlatá
 
   if (phase === 'TEASER') {
     description =
-      `Adventní trasa **#${route.day}** je zatím skrytá.\n` +
+      `🔒 Adventní trasa **#${route.day}** je zatím skrytá.\n` +
       `Odemkne se v čase **${timeText}**.\n\n` +
       `Připrav se – za odjetí získáš TICKET do tomboly! 🎟️`;
     imageUrl = route.teaserImage;
+    color = 0xffc04d;
   } else if (phase === 'ACTIVE') {
     description =
+      `🟢 **Trasa je právě AKTIVNÍ!**\n\n` +
       `**Start:** ${route.from}\n` +
       `**Cíl:** ${route.to}\n` +
       `**Délka:** ${route.distance}\n` +
       `**Čas:** ${timeText}\n\n` +
-      `Klikni na odkaz nahoře a otevři si mapu trasy 👇`;
+      `Použij tlačítko níže a otevři si mapu trasy 👇`;
     imageUrl = route.activeImage;
-    color = 0x4caf50; // zelená pro aktivní
+    color = 0x4caf50; // zelená
   } else if (phase === 'EXPIRED') {
     description =
-      `Čas pro adventní trasu **#${route.day}** už vypršel ⏰\n` +
+      `⛔ Adventní trasa **#${route.day}** už skončila.\n` +
       `Sleduj další okénka, ať ti nic neuteče!`;
     imageUrl = route.expiredImage;
-    color = 0xaa0000;
+    color = 0xaa0000; // tmavě červená
   }
 
   const embed = {
     title: `🎄 Adventní trasa #${route.day}`,
     description,
-    url: route.mapUrl,
+    url: route.mapUrl || null,
     color,
     footer: {
-      text: 'Merry Christmas from LTR <3',
+      text: `Merry Christmas from LTR • Den ${route.day}`,
     },
   };
 
@@ -164,30 +135,46 @@ function buildEmbed(state) {
   return embed;
 }
 
+// URL tlačítko na mapu trasy
+function buildComponents(route) {
+  if (!route.mapUrl) return [];
+
+  const button = new ButtonBuilder()
+    .setLabel('Klikni pro mapu trasy')
+    .setStyle(ButtonStyle.Link)
+    .setURL(route.mapUrl);
+
+  const row = new ActionRowBuilder().addComponents(button);
+  return [row];
+}
+
 // ====== PRÁCE S calendar.json ======
+// Struktura: { messages: [ { day, channelId, messageId }, ... ] }
+
 function loadCalendarConfig() {
   try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-      if (!raw) return null;
-      return JSON.parse(raw);
-    }
+    if (!fs.existsSync(CONFIG_PATH)) return null;
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.messages || !Array.isArray(parsed.messages)) return null;
+    return parsed;
   } catch (err) {
     console.error('Chyba při čtení calendar.json:', err);
+    return null;
   }
-  return null;
 }
 
 function saveCalendarConfig(config) {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
-    console.log('calendar.json uložen:', config);
+    console.log('calendar.json uložen.');
   } catch (err) {
     console.error('Chyba při zápisu calendar.json:', err);
   }
 }
 
-// ====== DISCORD BOT A SLASH COMMAND /setup ======
+// ====== DISCORD BOT ======
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
@@ -195,7 +182,7 @@ const client = new Client({
 const commands = [
   new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('Vytvoří nebo obnoví adventní kalendář v tomto kanálu.'),
+    .setDescription('Vytvoří 24 adventních okének v tomto kanálu.'),
 ].map((c) => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -221,98 +208,145 @@ async function registerCommands() {
 }
 
 let calendarConfig = loadCalendarConfig();
-let lastKey = null;
+// Mapování: day → lastKey (např. "1-ACTIVE")
+const lastKeys = {};
+// Cache kanálů a zpráv, ať to nemusíme furt fetchovat
+const channelCache = new Map();
 
-async function getCalendarMessage() {
-  if (!calendarConfig) return null;
+// ====== AUTO-UPDATE VŠECH OKÉNEK ======
+async function updateAllWindows() {
+  if (!calendarConfig || !calendarConfig.messages) return;
+  const now = new Date();
+  const nowMs = now.getTime();
 
-  const { channelId, messageId } = calendarConfig;
-  try {
-    const channel = await client.channels.fetch(channelId);
-    if (!channel || !channel.isTextBased()) {
-      console.warn('Kanál pro kalendář není textový nebo neexistuje.');
-      return null;
+  for (const entry of calendarConfig.messages) {
+    const route = ROUTES.find((r) => r.day === entry.day);
+    if (!route) continue;
+
+    const phase = getPhaseForRoute(route, nowMs);
+    const key = `${route.day}-${phase}`;
+    if (lastKeys[route.day] === key) {
+      continue; // nic nového pro tenhle den
     }
 
-    const message = await channel.messages.fetch(messageId);
-    return message;
-  } catch (err) {
-    console.error('Nepodařilo se načíst zprávu kalendáře:', err);
-    return null;
+    // najdeme kanál (z cache nebo fetch)
+    let channel = channelCache.get(entry.channelId);
+    if (!channel) {
+      try {
+        channel = await client.channels.fetch(entry.channelId);
+        if (!channel || !channel.isTextBased()) {
+          console.warn('Kanál není textový nebo neexistuje:', entry.channelId);
+          continue;
+        }
+        channelCache.set(entry.channelId, channel);
+      } catch (err) {
+        console.error('Chyba při fetchi kanálu:', err);
+        continue;
+      }
+    }
+
+    // načteme zprávu pro ten den
+    let message;
+    try {
+      message = await channel.messages.fetch(entry.messageId);
+    } catch (err) {
+      console.error(
+        `Chyba při načítání zprávy pro den ${route.day}:`,
+        err.message
+      );
+      continue;
+    }
+
+    const embed = buildEmbed(route, phase);
+    const components = buildComponents(route);
+
+    try {
+      await message.edit({ embeds: [embed], components });
+      lastKeys[route.day] = key;
+      console.log(
+        `[${now.toISOString()}] Aktualizováno okénko den ${route.day}, fáze ${phase}`
+      );
+    } catch (err) {
+      console.error(
+        `Chyba při editaci zprávy pro den ${route.day}:`,
+        err.message
+      );
+    }
   }
 }
 
-async function updateCalendarIfNeeded() {
-  if (!calendarConfig) return;
-
-  const now = new Date();
-  const state = getCurrentState(now);
-  if (!state) {
-    // žádná trasa – nic neaktualizujeme
-    return;
-  }
-
-  const key = `${state.route.day}-${state.phase}`;
-  if (key === lastKey) {
-    // Stav se nezměnil, není třeba spamovat edit
-    return;
-  }
-
-  const message = await getCalendarMessage();
-  if (!message) return;
-
-  const embed = buildEmbed(state);
-
-  await message.edit({ embeds: [embed] });
-  lastKey = key;
-  console.log(
-    `[${now.toISOString()}] Aktualizován kalendář: den ${state.route.day}, fáze ${state.phase}`
-  );
-}
-
-// ====== HANDLER SLASH COMMANDU /setup ======
+// ====== /setup – vytvoří 24 okének v kanálu ======
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== 'setup') return;
 
-  const state = getCurrentState(new Date());
-  if (!state) {
+  if (!ROUTES.length) {
     await interaction.reply({
-      content: 'Momentálně není nastavena žádná adventní trasa.',
+      content: 'Nemám žádné trasy v ROUTES – doplň je prosím do index.js.',
       ephemeral: true,
     });
     return;
   }
 
-  const embed = buildEmbed(state);
+  const channel = interaction.channel;
+  if (!channel || !channel.isTextBased()) {
+    await interaction.reply({
+      content: 'Tento typ kanálu nepodporuji pro kalendář.',
+      ephemeral: true,
+    });
+    return;
+  }
 
-  // Vytvoříme novou zprávu jako kalendář
-  const reply = await interaction.reply({
-    content: '🎄 Adventní kalendář LTR',
-    embeds: [embed],
-    fetchReply: true,
+  await interaction.reply({
+    content: 'Vytvářím adventní kalendář… 🎄',
+    ephemeral: true,
   });
 
-  calendarConfig = {
-    channelId: reply.channel.id,
-    messageId: reply.id,
-  };
-  saveCalendarConfig(calendarConfig);
-  lastKey = `${state.route.day}-${state.phase}`;
+  const nowMs = Date.now();
+  const messages = [];
 
-  console.log('Kalendář nastaven v kanálu', reply.channel.id);
+  // Chceme, aby ODSPODA bylo: Den 1, nad ním Den 2, ... až Den 24 nahoře.
+  // Discord řadí starší zprávy nahoru, novější dolů.
+  // Takže pošleme nejdřív den 24, pak 23,... až 1.
+  const sortedRoutes = [...ROUTES].sort((a, b) => a.day - b.day);
+  const reversed = sortedRoutes.slice().reverse();
+
+  for (const route of reversed) {
+    const phase = getPhaseForRoute(route, nowMs);
+    const embed = buildEmbed(route, phase);
+    const components = buildComponents(route);
+
+    const msg = await channel.send({ embeds: [embed], components });
+    messages.push({
+      day: route.day,
+      channelId: channel.id,
+      messageId: msg.id,
+    });
+  }
+
+  calendarConfig = { messages };
+  saveCalendarConfig(calendarConfig);
+
+  // po vytvoření rovnou uděláme update (pro jistotu)
+  await updateAllWindows();
+
+  await interaction.followUp({
+    content:
+      'Adventní kalendář byl vytvořen. Okénka se budou automaticky aktualizovat podle času. 🎁',
+    ephemeral: true,
+  });
 });
 
 // ====== START BOTA ======
 client.once('ready', () => {
   console.log(`✅ Přihlášen jako ${client.user.tag}`);
 
-  // hned po startu zkusíme aktualizovat
-  updateCalendarIfNeeded().catch(console.error);
+  // Hned po startu se pokusíme vše aktualizovat
+  updateAllWindows().catch(console.error);
 
-  // pak kontrola každou minutu
+  // Potom kontrola každou minutu
   setInterval(() => {
-    updateCalendarIfNeeded().catch(console.error);
+    updateAllWindows().catch(console.error);
   }, 60 * 1000);
 });
 
