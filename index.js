@@ -791,9 +791,11 @@ async function autoUpdate() {
   const activeEmbed = buildEmbed(route, "ACTIVE");
   const activeButton = buildButton(route);
 
-  const msg = await channel.send({
-    embeds: [activeEmbed],
-    components: activeButton
+const msg = await channel.send({
+  content: '@everyone',
+  embeds: [activeEmbed],
+  components: activeButton,
+  allowedMentions: { parse: ['everyone'] } // jistota, že ping proběhne
   });
 
   config.messages[todaysDay] = msg.id;
