@@ -7,7 +7,9 @@ import {
   SlashCommandBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  AttachmentBuilder,
+  PermissionFlagsBits
 } from 'discord.js';
 
 import fs from 'fs';
@@ -39,7 +41,7 @@ if (!JOBS_CHANNEL_ID) console.warn('⚠️ JOBS_CHANNEL_ID chybí – žetony se
 // ADVENT: ROUTES – 21 dní
 // ─────────────────────────────────────────────
 
-// Fixujeme rok 2025, protože trasy máš pro konkrétní prosinec
+// Fixnuto na rok 2025 dle tvého rozpisu
 const YEAR = 2025;
 
 const ROUTES = [
@@ -582,7 +584,11 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("leaderboard")
-    .setDescription("Zobrazí TOP 10 řidičů podle žetonů.")
+    .setDescription("Zobrazí TOP 10 řidičů podle žetonů."),
+  new SlashCommandBuilder()
+    .setName("admin-dump")
+    .setDescription("Exportuje tokens.json se žetony (jen admin).")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -600,7 +606,7 @@ async function registerCommands() {
 }
 
 // ─────────────────────────────────────────────
-// Slash commandy: /setup, /zetony, /preview, /leaderboard
+// Slash commandy: /setup, /zetony, /preview, /leaderboard, /admin-dump
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -620,10 +626,10 @@ client.on("interactionCreate", async interaction => {
     const userTokens = getUserTokens(interaction.user.id);
 
     await interaction.reply({
-      ephemeral: true,
+      content: `📣 ${interaction.user}, tady je tvůj aktuální stav žetonů:`,
       embeds: [
         {
-          title: "💰 Tvoje žetony",
+          title: "💰 Stav žetonů",
           description:
             `🥇 Zlaté: **${userTokens.gold}**\n` +
             `🥈 Stříbrné: **${userTokens.silver}**\n` +
@@ -663,13 +669,11 @@ client.on("interactionCreate", async interaction => {
     const entries = Object.entries(tokens);
     if (entries.length === 0) {
       await interaction.reply({
-        content: "📉 Ještě nikdo nezískal žádné žetony.",
-        ephemeral: true
+        content: `📉 Zatím nikdo nezískal žádné žetony.`,
       });
       return;
     }
 
-    // Seřadíme podle skóre (gold*3 + silver), pak podle gold, pak silver
     const sorted = entries.sort(([, a], [, b]) => {
       const scoreA = getUserScore(a);
       const scoreB = getUserScore(b);
@@ -699,6 +703,7 @@ client.on("interactionCreate", async interaction => {
     }
 
     await interaction.reply({
+      content: `🏁 Žebříček vyžádal: ${interaction.user}`,
       embeds: [
         {
           title: "🏆 TOP 10 řidičů podle žetonů",
@@ -706,6 +711,30 @@ client.on("interactionCreate", async interaction => {
           color: 0xf1c40f
         }
       ]
+    });
+    return;
+  }
+
+  if (interaction.commandName === "admin-dump") {
+    // bezpečnost: zkontrolujeme, že má admin práva, i když to Discord filtruje
+    if (!interaction.memberPermissions || !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({
+        content: "⛔ Tento příkaz je jen pro administrátory.",
+        ephemeral: true
+      });
+      return;
+    }
+
+    const jsonText = JSON.stringify(tokens, null, 2);
+    const file = new AttachmentBuilder(
+      Buffer.from(jsonText, 'utf8'),
+      { name: `tokens-${Date.now()}.json` }
+    );
+
+    await interaction.reply({
+      content: "📤 Tady máš aktuální zálohu žetonů (tokens.json).",
+      files: [file],
+      ephemeral: true
     });
     return;
   }
