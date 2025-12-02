@@ -586,6 +586,17 @@ const commands = [
     .setName("leaderboard")
     .setDescription("Zobrazí TOP 10 řidičů podle žetonů."),
   new SlashCommandBuilder()
+    .setName("publish_day")
+    .setDescription("Ručně zveřejní vybraný adventní den v tomto kanálu.")
+    .addIntegerOption(o =>
+      o
+        .setName("den")
+        .setDescription("Číslo dne (1–21)")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(21)
+    ),
+  new SlashCommandBuilder()
     .setName("admin-dump")
     .setDescription("Exportuje tokens.json se žetony (jen admin).")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -606,7 +617,7 @@ async function registerCommands() {
 }
 
 // ─────────────────────────────────────────────
-// Slash commandy: /setup, /zetony, /preview, /leaderboard, /admin-dump
+// Slash commandy
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -715,6 +726,40 @@ client.on("interactionCreate", async interaction => {
     return;
   }
 
+  if (interaction.commandName === "publish_day") {
+    const day = interaction.options.getInteger("den");
+    const route = ROUTES.find(r => r.day === day);
+
+    if (!route) {
+      await interaction.reply({
+        content: `❌ Nemám žádná data pro den ${day}.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    // nastavíme adventní kanál na aktuální
+    config.channelId = interaction.channel.id;
+
+    const activeEmbed = buildEmbed(route, "ACTIVE");
+    const activeButton = buildButton(route);
+
+    const msg = await interaction.reply({
+      content: '@everyone',
+      embeds: [activeEmbed],
+      components: activeButton,
+      allowedMentions: { parse: ['everyone'] },
+      fetchReply: true
+    });
+
+    config.messages[day] = msg.id;
+    config.lastPublishedDay = day;
+    saveConfig(config);
+
+    console.log(`🛠 Ručně publikován den ${day} v kanálu ${interaction.channel.id}.`);
+    return;
+  }
+
   if (interaction.commandName === "admin-dump") {
     // bezpečnost: zkontrolujeme, že má admin práva, i když to Discord filtruje
     if (!interaction.memberPermissions || !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
@@ -791,11 +836,11 @@ async function autoUpdate() {
   const activeEmbed = buildEmbed(route, "ACTIVE");
   const activeButton = buildButton(route);
 
-const msg = await channel.send({
-  content: '@everyone',
-  embeds: [activeEmbed],
-  components: activeButton,
-  allowedMentions: { parse: ['everyone'] } // jistota, že ping proběhne
+  const msg = await channel.send({
+    content: '@everyone',
+    embeds: [activeEmbed],
+    components: activeButton,
+    allowedMentions: { parse: ['everyone'] }
   });
 
   config.messages[todaysDay] = msg.id;
