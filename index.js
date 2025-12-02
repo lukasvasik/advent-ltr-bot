@@ -76,7 +76,7 @@ const ROUTES = [
     day: 4,
     activeImage: "https://i.imgur.com/H6laRTj.png",
     expiredImage: "https://i.imgur.com/1VqFXCy.png",
-    mapUrl: "https://your-cdn.com/advent/map04.png",
+    mapUrl: "https://i.imgur.com/rtzyTpt.png",
     from: "Paříž",
     to: "Štrasburk",
     distance: "621 km"
@@ -94,7 +94,7 @@ const ROUTES = [
     day: 6,
     activeImage: "https://i.imgur.com/MJhu8Hr.png",
     expiredImage: "https://i.imgur.com/bRHJZGT.png",
-    mapUrl: "https://your-cdn.com/advent/map06.png",
+    mapUrl: "https://i.imgur.com/mi4s5V9.png",
     from: "Kolín",
     to: "Lyon",
     distance: "699 km"
@@ -103,7 +103,7 @@ const ROUTES = [
     day: 7,
     activeImage: "https://i.imgur.com/jZMBBLG.png",
     expiredImage: "https://i.imgur.com/2sVdU9S.png",
-    mapUrl: "https://your-cdn.com/advent/map07.png",
+    mapUrl: "https://i.imgur.com/WCMIzc8.png",
     from: "Lyon",
     to: "Milán",
     distance: "522 km"
