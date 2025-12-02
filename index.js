@@ -31,7 +31,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// ⚠️ ZDE: pokud v env není JOBS_CHANNEL_ID, použijeme natvrdo tvé ID kanálu.
+// Pokud v env není JOBS_CHANNEL_ID, použijeme natvrdo ID, co jsi poslal
 const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
 
 if (!TOKEN) throw new Error('❌ DISCORD_TOKEN chybí.');
@@ -452,7 +452,6 @@ function cityMatches(tbValue, expected) {
 // ─────────────────────────────────────────────
 // ŽETONY – práce s tokens.json (TB nick based)
 // ─────────────────────────────────────────────
-//
 // Struktura tokens:
 // {
 //   "Lukiten06": {
@@ -715,6 +714,9 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages
+    // MessageContent intent není nutný pro embed-only webhooky,
+    // ale můžeš ho přidat, pokud chceš pracovat s message.content
+    // GatewayIntentBits.MessageContent
   ]
 });
 
@@ -1081,33 +1083,59 @@ client.on("interactionCreate", async interaction => {
             break;
           }
 
-          if (!message.embeds || message.embeds.length === 0) continue;
-          const embed = message.embeds[0];
-          if (!embed.fields || embed.fields.length === 0) continue;
+          processed++;
 
-          const fromField = embed.fields.find(f => f.name.toLowerCase().includes('odkud'));
-          const toField   = embed.fields.find(f => f.name.toLowerCase().includes('kam'));
-          if (!fromField || !toField) continue;
+          if (!message.embeds || message.embeds.length === 0) {
+            console.log(`[ANALYZE] ${message.id}: žádný embed`);
+            continue;
+          }
+          const embed = message.embeds[0];
+          if (!embed.fields || embed.fields.length === 0) {
+            console.log(`[ANALYZE] ${message.id}: embed bez fields`);
+            continue;
+          }
+
+          const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
+          const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
+          if (!fromField || !toField) {
+            console.log(`[ANALYZE] ${message.id}: nenašel jsem pole Odkud/Kam`);
+            continue;
+          }
 
           const from = normalizeLocation(fromField.value);
           const to   = normalizeLocation(toField.value);
           const ts   = message.createdTimestamp;
 
+          console.log(
+            `[ANALYZE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
+          );
+
+          // Obousměrná kontrola trasy
           const reward = REWARDS.find(r =>
-            cityMatches(from, r.from) &&
-            cityMatches(to, r.to) &&
+            (
+              (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
+              (cityMatches(from, r.to) && cityMatches(to, r.from))
+            ) &&
             ts >= r.start &&
             ts < r.end
           );
 
-          if (!reward) continue;
+          if (!reward) {
+            console.log(`[ANALYZE] ${message.id}: žádná shoda v REWARDS`);
+            continue;
+          }
 
           const tbName = extractTbNameFromEmbed(embed);
-          if (!tbName) continue;
+          if (!tbName) {
+            console.log(`[ANALYZE] ${message.id}: nenašel jsem TB nick`);
+            continue;
+          }
 
+          console.log(
+            `[ANALYZE] ${message.id}: ODMĚŇUJI tbName="${tbName}" route="${reward.from} ↔ ${reward.to}" silver=${reward.silver}, gold=${reward.gold}`
+          );
           addTokens(tbName, reward.silver, reward.gold);
           rewarded++;
-          processed++;
         }
 
         lastId = messages[messages.length - 1].id;
@@ -1162,31 +1190,42 @@ client.on('messageCreate', async (message) => {
   const embed = message.embeds[0];
   if (!embed.fields) return;
 
-  const fromField = embed.fields.find(f => f.name.toLowerCase().includes('odkud'));
-  const toField   = embed.fields.find(f => f.name.toLowerCase().includes('kam'));
+  const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
+  const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
   if (!fromField || !toField) return;
 
   const from = normalizeLocation(fromField.value);
   const to   = normalizeLocation(toField.value);
   const ts   = message.createdTimestamp;
 
+  console.log(
+    `[LIVE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
+  );
+
   const reward = REWARDS.find(r =>
-    cityMatches(from, r.from) &&
-    cityMatches(to, r.to) &&
+    (
+      (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
+      (cityMatches(from, r.to) && cityMatches(to, r.from))
+    ) &&
     ts >= r.start &&
     ts < r.end
   );
 
-  if (!reward) return;
+  if (!reward) {
+    console.log(`[LIVE] ${message.id}: žádná shoda v REWARDS`);
+    return;
+  }
 
   const tbName = extractTbNameFromEmbed(embed);
   if (!tbName) {
-    console.log("Nenašel jsem TB nickname v embedu, odměna nepřipsána.");
+    console.log(`[LIVE] ${message.id}: nenašel jsem TB nickname v embedu, odměna nepřipsána.`);
     return;
   }
 
   addTokens(tbName, reward.silver, reward.gold);
-  console.log(`Žetony: ${tbName} +${reward.silver}🥈 +${reward.gold}🥇 za trasu ${from} → ${to}`);
+  console.log(
+    `[LIVE] ${message.id}: Žetony: ${tbName} +${reward.silver}🥈 +${reward.gold}🥇 za trasu ${from} ↔ ${to}`
+  );
 });
 
 // ─────────────────────────────────────────────
