@@ -30,12 +30,17 @@ const TOKENS_PATH = path.join(__dirname, 'tokens.json');
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID; // kanál s TrucksBook webhookem
+
+// ⚠️ ZDE: pokud v env není JOBS_CHANNEL_ID, použijeme natvrdo tvé ID kanálu.
+const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
 
 if (!TOKEN) throw new Error('❌ DISCORD_TOKEN chybí.');
 if (!CLIENT_ID) console.warn('⚠️ CLIENT_ID chybí (slash commandy se nemusí zaregistrovat).');
 if (!GUILD_ID) console.warn('⚠️ GUILD_ID chybí (slash commandy se nemusí zaregistrovat).');
-if (!JOBS_CHANNEL_ID) console.warn('⚠️ JOBS_CHANNEL_ID chybí – žetony se nebudou počítat.');
+
+if (!process.env.JOBS_CHANNEL_ID) {
+  console.warn('⚠️ JOBS_CHANNEL_ID není nastaven v env, používám natvrdo 1149900706543833208.');
+}
 
 // ─────────────────────────────────────────────
 // ADVENT: ROUTES – 21 dní
@@ -1238,6 +1243,7 @@ async function autoUpdate() {
 // ─────────────────────────────────────────────
 client.once("ready", () => {
   console.log(`Bot přihlášen jako ${client.user.tag}`);
+  console.log(`Používám JOBS_CHANNEL_ID = ${JOBS_CHANNEL_ID}`);
   autoUpdate().catch(console.error);
   setInterval(() => autoUpdate().catch(console.error), 60 * 1000);
 });
