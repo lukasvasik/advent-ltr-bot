@@ -331,6 +331,120 @@ function normalizeLocation(raw) {
 }
 
 // ─────────────────────────────────────────────
+// Normalizace měst + aliasy (Praha/Prague atd.)
+// ─────────────────────────────────────────────
+const CITY_SYNONYMS = {
+  // Praha / Prague
+  'praha': 'prague',
+  'prague': 'prague',
+
+  // Berlín / Berlin
+  'berlin': 'berlin',
+  'berlin germany': 'berlin',
+  'berlin de': 'berlin',
+  'berlín': 'berlin',
+
+  // Amsterdam
+  'amsterdam': 'amsterdam',
+
+  // Paříž / Paris
+  'pariz': 'paris',
+  'paříž': 'paris',
+  'paris': 'paris',
+
+  // Štrasburk / Strasbourg
+  'strasbourg': 'strasbourg',
+  'strasburg': 'strasbourg',
+  'štrasburk': 'strasbourg',
+
+  // Kolín / Cologne
+  'kolin': 'cologne',
+  'kolín': 'cologne',
+  'cologne': 'cologne',
+
+  // Lyon
+  'lyon': 'lyon',
+
+  // Milán / Milan
+  'milan': 'milan',
+  'milán': 'milan',
+
+  // Lublaň / Ljubljana
+  'ljubljana': 'ljubljana',
+  'lublan': 'ljubljana',
+  'lublaň': 'ljubljana',
+
+  // Budapešť / Budapest
+  'budapest': 'budapest',
+  'budapešť': 'budapest',
+
+  // TruckersMP HQ
+  'truckersmp hq': 'truckersmp hq',
+
+  // Brno
+  'brno': 'brno',
+
+  // Vídeň / Vienna
+  'wien': 'vienna',
+  'vienna': 'vienna',
+  'vídeň': 'vienna',
+
+  // Salzburg
+  'salzburg': 'salzburg',
+
+  // Zürich / Zurich
+  'zurich': 'zurich',
+  'zuerich': 'zurich',
+  'zürich': 'zurich',
+
+  // Frankfurt
+  'frankfurt': 'frankfurt',
+
+  // Kodaň / Copenhagen
+  'kodaň': 'copenhagen',
+  'koda': 'copenhagen',
+  'copenhagen': 'copenhagen',
+
+  // Duisburg
+  'duisburg': 'duisburg',
+
+  // Calais
+  'calais': 'calais',
+
+  // Londýn / London
+  'london': 'london',
+  'londyn': 'london',
+  'londýn': 'london',
+
+  // Varšava / Warsaw
+  'warsaw': 'warsaw',
+  'varšava': 'warsaw',
+  'varsava': 'warsaw',
+
+  // Bratislava
+  'bratislava': 'bratislava'
+};
+
+function normalizeCityName(raw) {
+  if (!raw) return '';
+  const base = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+  return CITY_SYNONYMS[base] ?? base;
+}
+
+function cityMatches(tbValue, expected) {
+  const a = normalizeCityName(tbValue);
+  const b = normalizeCityName(expected);
+  if (!a || !b) return false;
+  return a === b;
+}
+
+// ─────────────────────────────────────────────
 // ŽETONY – práce s tokens.json (TB nick based)
 // ─────────────────────────────────────────────
 //
@@ -688,7 +802,14 @@ async function registerCommands() {
 function extractTbNameFromEmbed(embed) {
   if (!embed) return null;
 
-  // 1) field "Řidič" / "Driver"
+  // 1) author.name – u TB webhooku to bývá nick
+  if (embed.author && embed.author.name) {
+    let v = String(embed.author.name).trim();
+    v = v.replace(/[*_`~]/g, '');
+    return v;
+  }
+
+  // 2) fallback – případné pole "Řidič" / "Driver"
   if (embed.fields && embed.fields.length > 0) {
     const driverField = embed.fields.find(f =>
       f.name &&
@@ -699,16 +820,9 @@ function extractTbNameFromEmbed(embed) {
     );
     if (driverField && driverField.value) {
       let v = String(driverField.value).trim();
-      v = v.replace(/[*_`~]/g, ''); // odstranění markdownu
+      v = v.replace(/[*_`~]/g, '');
       return v;
     }
-  }
-
-  // 2) embed.author.name
-  if (embed.author && embed.author.name) {
-    let v = String(embed.author.name).trim();
-    v = v.replace(/[*_`~]/g, '');
-    return v;
   }
 
   return null;
@@ -736,7 +850,7 @@ client.on("interactionCreate", async interaction => {
 
     if (totalSilver === 0 && totalGold === 0) {
       await interaction.reply({
-        content: `📣 ${interaction.user}, zatím u tebe neeviduji žádné žetony.\nUjisti se, že máš přes **/link** propojený svůj TB nickname a že jsi jel adventní trasy.`,
+        content: `${interaction.user}, zatím u tebe neeviduji žádné žetony.\nUjisti se, že máš přes /link propojený svůj TB nickname a že jsi jel adventní trasy.`
       });
       return;
     }
@@ -791,7 +905,7 @@ client.on("interactionCreate", async interaction => {
     const entries = Object.entries(tokens);
     if (entries.length === 0) {
       await interaction.reply({
-        content: `📉 Zatím nikdo nezískal žádné žetony.`,
+        content: `📉 Zatím nikdo nezískal žádné žetony.`
       });
       return;
     }
@@ -809,7 +923,7 @@ client.on("interactionCreate", async interaction => {
     const lines = [];
     for (let i = 0; i < top.length; i++) {
       const [tbName, data] = top[i];
-      let label = tbName;
+      let label;
 
       if (data.discordId) {
         label = `<@${data.discordId}> (${tbName})`;
@@ -845,7 +959,7 @@ client.on("interactionCreate", async interaction => {
     saveTokens(tokens);
 
     await interaction.reply({
-      content: `✅ Propojil jsem tvůj Discord účet ${interaction.user} s TB nickem **${tbNick}**.\nVšechny žetony pod tímto TB nickem se ti nyní počítají do `/zetony`.`,
+      content: `✅ Propojil jsem tvůj Discord účet ${interaction.user} s TB nickem **${tbNick}**.\nVšechny žetony pod tímto TB nickem se ti nyní počítají do příkazu /zetony.`,
       ephemeral: true
     });
     return;
@@ -869,7 +983,7 @@ client.on("interactionCreate", async interaction => {
     saveTokens(tokens);
 
     await interaction.reply({
-      content: `✅ Propojil jsem uživatele ${user} s TB nickem **${tbNick}**.`,
+      content: `✅ Propojil jsem uživatele ${user} s TB nickem **${tbNick}**.`
     });
     return;
   }
@@ -975,8 +1089,8 @@ client.on("interactionCreate", async interaction => {
           const ts   = message.createdTimestamp;
 
           const reward = REWARDS.find(r =>
-            r.from === from &&
-            r.to === to &&
+            cityMatches(from, r.from) &&
+            cityMatches(to, r.to) &&
             ts >= r.start &&
             ts < r.end
           );
@@ -1010,7 +1124,6 @@ client.on("interactionCreate", async interaction => {
   }
 
   if (interaction.commandName === "admin-dump") {
-    // bezpečnost: zkontrolujeme, že má admin práva, i když to Discord filtruje
     if (!interaction.memberPermissions || !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
         content: "⛔ Tento příkaz je jen pro administrátory.",
@@ -1053,8 +1166,8 @@ client.on('messageCreate', async (message) => {
   const ts   = message.createdTimestamp;
 
   const reward = REWARDS.find(r =>
-    r.from === from &&
-    r.to === to &&
+    cityMatches(from, r.from) &&
+    cityMatches(to, r.to) &&
     ts >= r.start &&
     ts < r.end
   );
