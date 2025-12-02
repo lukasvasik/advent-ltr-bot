@@ -49,16 +49,16 @@ const ROUTES = [
     day: 1,
     activeImage: "https://i.imgur.com/HPMLtys.png",
     expiredImage: "https://i.imgur.com/khFtCVK.png",
-    mapUrl: "https://your-cdn.com/advent/map01.png",
-    from: "Start den 1",
-    to: "Cíl den 1",
-    distance: "XXX km"
+    mapUrl: "https://i.imgur.com/rk0hYlg.png",
+    from: "Praha",
+    to: "Berlín",
+    distance: "513 km"
   },
   {
     day: 2,
     activeImage: "https://i.imgur.com/F42xYm8.png",
     expiredImage: "https://i.imgur.com/8MZchL2.png",
-    mapUrl: "https://your-cdn.com/advent/map02.png",
+    mapUrl: "https://i.imgur.com/Vte3eqd.png",
     from: "Berlín",
     to: "Amsterdam",
     distance: "632 km"
@@ -67,7 +67,7 @@ const ROUTES = [
     day: 3,
     activeImage: "https://i.imgur.com/UmaYyrl.png",
     expiredImage: "https://i.imgur.com/wwQLKHC.png",
-    mapUrl: "https://your-cdn.com/advent/map03.png",
+    mapUrl: "https://i.imgur.com/ACIvvu2.png",
     from: "Amsterdam",
     to: "Paříž",
     distance: "534 km"
