@@ -39,7 +39,7 @@ if (!JOBS_CHANNEL_ID) console.warn('⚠️ JOBS_CHANNEL_ID chybí – žetony se
 // ADVENT: ROUTES – 21 dní
 // ─────────────────────────────────────────────
 
-// Pro jistotu fixujeme rok 2025, protože máš pevně dané termíny 2.12.–22.12.2025
+// Fixujeme rok 2025, protože trasy máš pro konkrétní prosinec
 const YEAR = 2025;
 
 const ROUTES = [
@@ -238,7 +238,7 @@ const ROUTES = [
 // ADVENT – pomocné funkce
 // ─────────────────────────────────────────────
 
-// Začínáme 2.12. → den 1 = 2.12.
+// Začínáme 2.12. → den 1 = 2.12. 10:00 CET
 function getWindow(day) {
   const start = Date.UTC(YEAR, 11, day + 1, 9, 0, 0); // 10:00 CET = 09:00 UTC
   const end   = Date.UTC(YEAR, 11, day + 2, 9, 0, 0);
@@ -343,17 +343,32 @@ function saveTokens(tokens) {
 
 let tokens = loadTokens();
 
+// 3 stříbrné -> 1 zlatý (automaticky)
 function addTokens(userId, silver, gold) {
   if (!tokens[userId]) {
     tokens[userId] = { silver: 0, gold: 0 };
   }
+
+  // Přičtení základních odměn
   tokens[userId].silver += silver;
   tokens[userId].gold += gold;
+
+  // Automatická konverze 3 stříbrné -> 1 zlatý
+  while (tokens[userId].silver >= 3) {
+    tokens[userId].silver -= 3;
+    tokens[userId].gold += 1;
+  }
+
   saveTokens(tokens);
 }
 
 function getUserTokens(userId) {
   return tokens[userId] || { silver: 0, gold: 0 };
+}
+
+// pro leaderboard – skóre = zlaté*3 + stříbrné
+function getUserScore(t) {
+  return t.gold * 3 + t.silver;
 }
 
 // ─────────────────────────────────────────────
@@ -532,7 +547,6 @@ const REWARDS = [
 
 function normalizeLocation(raw) {
   if (!raw) return '';
-  // odstraní emoji/vlajky na začátku
   return raw.replace(/^[^A-Za-zÀ-ž]+/, '').trim();
 }
 
@@ -565,7 +579,10 @@ const commands = [
         .setRequired(true)
         .setMinValue(1)
         .setMaxValue(21)
-    )
+    ),
+  new SlashCommandBuilder()
+    .setName("leaderboard")
+    .setDescription("Zobrazí TOP 10 řidičů podle žetonů.")
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -583,7 +600,7 @@ async function registerCommands() {
 }
 
 // ─────────────────────────────────────────────
-// Slash commandy: /setup, /zetony, /preview
+// Slash commandy: /setup, /zetony, /preview, /leaderboard
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -608,8 +625,9 @@ client.on("interactionCreate", async interaction => {
         {
           title: "💰 Tvoje žetony",
           description:
+            `🥇 Zlaté: **${userTokens.gold}**\n` +
             `🥈 Stříbrné: **${userTokens.silver}**\n` +
-            `🥇 Zlaté: **${userTokens.gold}**`,
+            `📊 Body: **${getUserScore(userTokens)}** (1🥇 = 3 body, 1🥈 = 1 bod)`,
           color: 0xffc04d
         }
       ]
@@ -637,6 +655,57 @@ client.on("interactionCreate", async interaction => {
       embeds: [embed],
       components,
       ephemeral: true
+    });
+    return;
+  }
+
+  if (interaction.commandName === "leaderboard") {
+    const entries = Object.entries(tokens);
+    if (entries.length === 0) {
+      await interaction.reply({
+        content: "📉 Ještě nikdo nezískal žádné žetony.",
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Seřadíme podle skóre (gold*3 + silver), pak podle gold, pak silver
+    const sorted = entries.sort(([, a], [, b]) => {
+      const scoreA = getUserScore(a);
+      const scoreB = getUserScore(b);
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      if (b.gold !== a.gold) return b.gold - a.gold;
+      return b.silver - a.silver;
+    });
+
+    const top = sorted.slice(0, 10);
+
+    const lines = [];
+    for (let i = 0; i < top.length; i++) {
+      const [userId, data] = top[i];
+      let userTag = `<@${userId}>`;
+
+      try {
+        const user = await client.users.fetch(userId);
+        userTag = user ? `<@${user.id}>` : `Neznámý uživatel (${userId})`;
+      } catch {
+        userTag = `Neznámý uživatel (${userId})`;
+      }
+
+      const score = getUserScore(data);
+      lines.push(
+        `**${i + 1}.** ${userTag} — 🥇 **${data.gold}** | 🥈 **${data.silver}** (📊 **${score}** bodů)`
+      );
+    }
+
+    await interaction.reply({
+      embeds: [
+        {
+          title: "🏆 TOP 10 řidičů podle žetonů",
+          description: lines.join("\n"),
+          color: 0xf1c40f
+        }
+      ]
     });
     return;
   }
