@@ -332,7 +332,19 @@ function buildButton(route) {
 
 function normalizeLocation(raw) {
   if (!raw) return '';
-  return raw.replace(/^[^A-Za-zÀ-ž]+/, '').trim();
+
+  let s = String(raw).trim();
+
+  // 1) Custom emoji typu <:flag_cz:1234567890> nebo <a:něco:123...>
+  s = s.replace(/^<a?:[^>]+>\s*/, '');
+
+  // 2) Textové emoji typu :flag_cz: (přesně to, co vidíme v logu)
+  s = s.replace(/^:[^:\s]+:\s*/, '');
+
+  // 3) Zbytek – smaž cokoliv ne-písmeno na začátku (např. skutečný 🇨🇿 znak)
+  s = s.replace(/^[^A-Za-zÀ-ž]+/, '');
+
+  return s.trim();
 }
 
 // ─────────────────────────────────────────────
