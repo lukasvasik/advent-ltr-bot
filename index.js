@@ -36,9 +36,11 @@ if (!GUILD_ID) console.warn('⚠️ GUILD_ID chybí (slash commandy se nemusí z
 if (!JOBS_CHANNEL_ID) console.warn('⚠️ JOBS_CHANNEL_ID chybí – žetony se nebudou počítat.');
 
 // ─────────────────────────────────────────────
-// ADVENT: ROUTES – 21 dní (převzaté od tebe)
+// ADVENT: ROUTES – 21 dní
 // ─────────────────────────────────────────────
-const YEAR = new Date().getFullYear(); // advent poběží vždy pro aktuální rok
+
+// Pro jistotu fixujeme rok 2025, protože máš pevně dané termíny 2.12.–22.12.2025
+const YEAR = 2025;
 
 const ROUTES = [
   {
@@ -236,9 +238,9 @@ const ROUTES = [
 // ADVENT – pomocné funkce
 // ─────────────────────────────────────────────
 
-// Chceš začínat 2.12 → den 1 = 2.12 (CET 10:00 = UTC 09:00)
+// Začínáme 2.12. → den 1 = 2.12.
 function getWindow(day) {
-  const start = Date.UTC(YEAR, 11, day + 1, 9, 0, 0);
+  const start = Date.UTC(YEAR, 11, day + 1, 9, 0, 0); // 10:00 CET = 09:00 UTC
   const end   = Date.UTC(YEAR, 11, day + 2, 9, 0, 0);
   return { start, end };
 }
@@ -269,7 +271,7 @@ function buildEmbed(route, state) {
   const st = new Date(start);
   const en = new Date(end);
 
-  const timeText = `${st.getUTCDate()}.12. ${String(st.getUTCHours() + 1).padStart(2,'0')}:00 – ${en.getUTCDate()}.12. ${String(en.getUTCHours() + 1).padStart(2,'0')}:00`;
+  const timeText = `${st.getUTCDate()}.12. ${String(st.getUTCHours() + 1).padStart(2, '0')}:00 – ${en.getUTCDate()}.12. ${String(en.getUTCHours() + 1).padStart(2, '0')}:00`;
 
   let description = "";
   let imageUrl = "";
@@ -528,16 +530,22 @@ const REWARDS = [
   }
 ];
 
-// odstranění vlajek/emoji z názvu města
 function normalizeLocation(raw) {
   if (!raw) return '';
+  // odstraní emoji/vlajky na začátku
   return raw.replace(/^[^A-Za-zÀ-ž]+/, '').trim();
 }
 
 // ─────────────────────────────────────────────
 // DISCORD BOT – setup
 // ─────────────────────────────────────────────
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages
+  ]
+});
+
 let config = loadConfig() || { channelId: null, lastPublishedDay: 0, messages: {} };
 
 const commands = [
@@ -546,7 +554,18 @@ const commands = [
     .setDescription("Nastaví kanál pro adventní kalendář."),
   new SlashCommandBuilder()
     .setName("zetony")
-    .setDescription("Ukáže tvůj stav žetonů.")
+    .setDescription("Ukáže tvůj stav žetonů."),
+  new SlashCommandBuilder()
+    .setName("preview")
+    .setDescription("Náhled adventní trasy pro konkrétní den.")
+    .addIntegerOption(o =>
+      o
+        .setName("den")
+        .setDescription("Číslo dne (1–21)")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(21)
+    )
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -564,7 +583,7 @@ async function registerCommands() {
 }
 
 // ─────────────────────────────────────────────
-// Slash commandy: /setup a /zetony
+// Slash commandy: /setup, /zetony, /preview
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -594,6 +613,30 @@ client.on("interactionCreate", async interaction => {
           color: 0xffc04d
         }
       ]
+    });
+    return;
+  }
+
+  if (interaction.commandName === "preview") {
+    const day = interaction.options.getInteger("den");
+    const route = ROUTES.find(r => r.day === day);
+
+    if (!route) {
+      await interaction.reply({
+        content: `❌ Nemám žádná data pro den ${day}.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    const embed = buildEmbed(route, "ACTIVE");
+    const components = buildButton(route);
+
+    await interaction.reply({
+      content: `🧪 Náhled adventní trasy pro den ${day}:`,
+      embeds: [embed],
+      components,
+      ephemeral: true
     });
     return;
   }
