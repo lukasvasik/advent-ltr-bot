@@ -507,6 +507,19 @@ function ensureTbEntry(tbName) {
   return tokens[tbName];
 }
 
+// 🔎 Najde existující TB záznam case-insensitive
+function findExistingTbKey(tbNickInput) {
+  if (!tbNickInput) return null;
+  const target = tbNickInput.trim().toLowerCase();
+
+  for (const key of Object.keys(tokens)) {
+    if (key.trim().toLowerCase() === target) {
+      return key;
+    }
+  }
+  return null;
+}
+
 // 3 stříbrné -> 1 zlatý (automaticky)
 function addTokens(tbName, silver, gold) {
   if (!tbName) return;
@@ -973,12 +986,16 @@ client.on("interactionCreate", async interaction => {
     const tbNickRaw = interaction.options.getString("tb_nick");
     const tbNick = tbNickRaw.trim();
 
-    const entry = ensureTbEntry(tbNick);
+    // najdi existující TB key case-insensitive, nebo použij nový
+    const existingKey = findExistingTbKey(tbNick);
+    const keyToUse = existingKey || tbNick;
+
+    const entry = ensureTbEntry(keyToUse);
     entry.discordId = interaction.user.id;
     saveTokens(tokens);
 
     await interaction.reply({
-      content: `✅ Propojil jsem tvůj Discord účet ${interaction.user} s TB nickem **${tbNick}**.\nVšechny žetony pod tímto TB nickem se ti nyní počítají do příkazu /zetony.`,
+      content: `✅ Propojil jsem tvůj Discord účet ${interaction.user} s TB nickem **${keyToUse}**.\nVšechny žetony pod tímto TB nickem se ti nyní počítají do příkazu /zetony.`,
       ephemeral: true
     });
     return;
@@ -997,12 +1014,15 @@ client.on("interactionCreate", async interaction => {
     const tbNickRaw = interaction.options.getString("tb_nick");
     const tbNick = tbNickRaw.trim();
 
-    const entry = ensureTbEntry(tbNick);
+    const existingKey = findExistingTbKey(tbNick);
+    const keyToUse = existingKey || tbNick;
+
+    const entry = ensureTbEntry(keyToUse);
     entry.discordId = user.id;
     saveTokens(tokens);
 
     await interaction.reply({
-      content: `✅ Propojil jsem uživatele ${user} s TB nickem **${tbNick}**.`
+      content: `✅ Propojil jsem uživatele ${user} s TB nickem **${keyToUse}**.`
     });
     return;
   }
