@@ -34,6 +34,9 @@ const GUILD_ID = process.env.GUILD_ID;
 // Pokud v env není JOBS_CHANNEL_ID, použijeme natvrdo ID, co jsi poslal
 const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
 
+// role za 5 zlatých žetonů
+const GOLD_ROLE_ID = '1445291140348772372';
+
 if (!TOKEN) throw new Error('❌ DISCORD_TOKEN chybí.');
 if (!CLIENT_ID) console.warn('⚠️ CLIENT_ID chybí (slash commandy se nemusí zaregistrovat).');
 if (!GUILD_ID) console.warn('⚠️ GUILD_ID chybí (slash commandy se nemusí zaregistrovat).');
@@ -739,11 +742,33 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages
-    // MessageContent intent není nutný pro embed-only webhooky,
-    // ale můžeš ho přidat, pokud chceš pracovat s message.content
     // GatewayIntentBits.MessageContent
   ]
 });
+
+// helper: přidá členovi roli za 5+ zlatých žetonů
+async function tryAssignGoldRoleForTb(tbName) {
+  const entry = tokens[tbName];
+  if (!entry) return;
+  if (entry.gold < 5) return;         // potřebujeme alespoň 5 zlatých
+  if (!entry.discordId) return;       // není propojený Discord
+  if (!GUILD_ID) return;
+  if (!GOLD_ROLE_ID) return;
+
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const member = await guild.members.fetch(entry.discordId);
+    if (!member.roles.cache.has(GOLD_ROLE_ID)) {
+      await member.roles.add(
+        GOLD_ROLE_ID,
+        'Získáno alespoň 5 zlatých žetonů v adventním kalendáři'
+      );
+      console.log(`🎖 Přidávám roli GOLD uživateli ${entry.discordId} (TB ${tbName})`);
+    }
+  } catch (err) {
+    console.warn(`Nemohu přidat roli GOLD pro TB ${tbName}:`, err.message);
+  }
+}
 
 let config = loadConfig() || { channelId: null, lastPublishedDay: 0, messages: {} };
 
@@ -986,13 +1011,15 @@ client.on("interactionCreate", async interaction => {
     const tbNickRaw = interaction.options.getString("tb_nick");
     const tbNick = tbNickRaw.trim();
 
-    // najdi existující TB key case-insensitive, nebo použij nový
     const existingKey = findExistingTbKey(tbNick);
     const keyToUse = existingKey || tbNick;
 
     const entry = ensureTbEntry(keyToUse);
     entry.discordId = interaction.user.id;
     saveTokens(tokens);
+
+    // pokud už má 5+ zlatých, přidej roli
+    tryAssignGoldRoleForTb(keyToUse);
 
     await interaction.reply({
       content: `✅ Propojil jsem tvůj Discord účet ${interaction.user} s TB nickem **${keyToUse}**.\nVšechny žetony pod tímto TB nickem se ti nyní počítají do příkazu /zetony.`,
@@ -1020,6 +1047,9 @@ client.on("interactionCreate", async interaction => {
     const entry = ensureTbEntry(keyToUse);
     entry.discordId = user.id;
     saveTokens(tokens);
+
+    // i tady – kdyby už měl 5+ goldů z historie
+    tryAssignGoldRoleForTb(keyToUse);
 
     await interaction.reply({
       content: `✅ Propojil jsem uživatele ${user} s TB nickem **${keyToUse}**.`
@@ -1167,6 +1197,7 @@ client.on("interactionCreate", async interaction => {
             `[ANALYZE] ${message.id}: ODMĚŇUJI tbName="${tbName}" route="${reward.from} ↔ ${reward.to}" silver=${reward.silver}, gold=${reward.gold}`
           );
           addTokens(tbName, reward.silver, reward.gold);
+          tryAssignGoldRoleForTb(tbName);
           rewarded++;
         }
 
@@ -1255,6 +1286,8 @@ client.on('messageCreate', async (message) => {
   }
 
   addTokens(tbName, reward.silver, reward.gold);
+  tryAssignGoldRoleForTb(tbName);
+
   console.log(
     `[LIVE] ${message.id}: Žetony: ${tbName} +${reward.silver}🥈 +${reward.gold}🥇 za trasu ${from} ↔ ${to}`
   );
