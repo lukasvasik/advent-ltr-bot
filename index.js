@@ -862,7 +862,7 @@ function extractTbNameFromEmbed(embed) {
   // 1) author.name – u TB webhooku to bývá nick
   if (embed.author && embed.author.name) {
     let v = String(embed.author.name).trim();
-    v = v.replace(/[*_`~]/g, '');
+    v = v.replace(/[`~]/g, ''); // nechává * a _ být
     return v;
   }
 
