@@ -23,6 +23,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONFIG_PATH = path.join(__dirname, 'calendar.json');
 const TOKENS_PATH = path.join(__dirname, 'tokens.json');
+const PROCESSED_PATH = path.join(__dirname, 'processed.json');
 
 // ─────────────────────────────────────────────
 // ENV VARS
@@ -341,7 +342,7 @@ function normalizeLocation(raw) {
   // 1) Custom emoji typu <:flag_cz:1234567890> nebo <a:něco:123...>
   s = s.replace(/^<a?:[^>]+>\s*/, '');
 
-  // 2) Textové emoji typu :flag_cz: (přesně to, co vidíme v logu)
+  // 2) Textové emoji typu :flag_cz:
   s = s.replace(/^:[^:\s]+:\s*/, '');
 
   // 3) Zbytek – smaž cokoliv ne-písmeno na začátku (např. skutečný 🇨🇿 znak)
@@ -467,16 +468,6 @@ function cityMatches(tbValue, expected) {
 // ─────────────────────────────────────────────
 // ŽETONY – práce s tokens.json (TB nick based)
 // ─────────────────────────────────────────────
-// Struktura tokens:
-// {
-//   "Lukiten06": {
-//     tbName: "Lukiten06",
-//     discordId: "1234567890" | null,
-//     silver: 0,
-//     gold: 0
-//   },
-//   ...
-// }
 
 function loadTokens() {
   try {
@@ -736,6 +727,38 @@ const REWARDS = [
 ];
 
 // ─────────────────────────────────────────────
+// PROCESSED – zprávy, které už dostaly odměnu
+// ─────────────────────────────────────────────
+function loadProcessedMessages() {
+  try {
+    if (!fs.existsSync(PROCESSED_PATH)) return {};
+    return JSON.parse(fs.readFileSync(PROCESSED_PATH, 'utf8'));
+  } catch (err) {
+    console.error('Chyba při čtení processed.json:', err);
+    return {};
+  }
+}
+
+function saveProcessedMessages(map) {
+  try {
+    fs.writeFileSync(PROCESSED_PATH, JSON.stringify(map, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Chyba při zápisu processed.json:', err);
+  }
+}
+
+let processedMessages = loadProcessedMessages();
+
+function isMessageAlreadyProcessed(messageId) {
+  return !!processedMessages[messageId];
+}
+
+function markMessageProcessed(messageId) {
+  processedMessages[messageId] = true;
+  saveProcessedMessages(processedMessages);
+}
+
+// ─────────────────────────────────────────────
 // DISCORD BOT – setup
 // ─────────────────────────────────────────────
 const client = new Client({
@@ -772,6 +795,9 @@ async function tryAssignGoldRoleForTb(tbName) {
 
 let config = loadConfig() || { channelId: null, lastPublishedDay: 0, messages: {} };
 
+// ─────────────────────────────────────────────
+// Slash commandy – definice
+// ─────────────────────────────────────────────
 const commands = [
   new SlashCommandBuilder()
     .setName("setup")
@@ -792,7 +818,14 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("leaderboard")
-    .setDescription("Zobrazí TOP 10 řidičů podle žetonů."),
+    .setDescription("Zobrazí žebříček řidičů podle žetonů.")
+    .addIntegerOption(o =>
+      o
+        .setName("strana")
+        .setDescription("Číslo strany (1 = top 1–10, 2 = 11–20, ...)")
+        .setRequired(false)
+        .setMinValue(1)
+    ),
   new SlashCommandBuilder()
     .setName("link")
     .setDescription("Propojí tvůj Discord účet s TB nickname.")
@@ -819,6 +852,16 @@ const commands = [
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder()
+    .setName("unlink")
+    .setDescription("ADMIN: odstraní propojení TB nicku s Discord účtem.")
+    .addStringOption(o =>
+      o
+        .setName("tb_nick")
+        .setDescription("TB nickname, který chceš odpojit")
+        .setRequired(true)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder()
     .setName("publish_day")
     .setDescription("Ručně zveřejní vybraný adventní den v tomto kanálu.")
     .addIntegerOption(o =>
@@ -831,7 +874,7 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("analyzovat")
-    .setDescription("ADMIN: projde historii zakázek a přepočítá žetony od začátku eventu.")
+    .setDescription("ADMIN: projde historii zakázek od začátku eventu a doplní chybějící žetony.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder()
     .setName("admin-dump")
@@ -883,6 +926,109 @@ function extractTbNameFromEmbed(embed) {
   }
 
   return null;
+}
+
+// ─────────────────────────────────────────────
+// Funkce pro analýzu historie zakázek
+// ─────────────────────────────────────────────
+async function analyzeJobs() {
+  if (!JOBS_CHANNEL_ID) {
+    throw new Error("Není nastaven JOBS_CHANNEL_ID, nemohu analyzovat historii.");
+  }
+
+  const channel = await client.channels.fetch(JOBS_CHANNEL_ID);
+  if (!channel || !channel.isTextBased()) {
+    throw new Error("Kanál zakázek není textový nebo neexistuje.");
+  }
+
+  let lastId = null;
+  let scanned = 0;
+  let rewarded = 0;
+  let stop = false;
+
+  while (!stop) {
+    const fetched = await channel.messages.fetch({
+      limit: 100,
+      before: lastId ?? undefined
+    });
+
+    if (fetched.size === 0) break;
+
+    const messages = Array.from(fetched.values());
+    for (const message of messages) {
+      // pokud je zpráva starší než začátek eventu, končíme
+      if (message.createdTimestamp < EVENT_START) {
+        stop = true;
+        break;
+      }
+
+      scanned++;
+
+      // už zpracovaná – přeskoč
+      if (isMessageAlreadyProcessed(message.id)) {
+        // volitelný log:
+        // console.log(`[ANALYZE] ${message.id}: už zpracovaná, přeskočeno.`);
+        continue;
+      }
+
+      if (!message.embeds || message.embeds.length === 0) {
+        console.log(`[ANALYZE] ${message.id}: žádný embed`);
+        continue;
+      }
+      const embed = message.embeds[0];
+      if (!embed.fields || embed.fields.length === 0) {
+        console.log(`[ANALYZE] ${message.id}: embed bez fields`);
+        continue;
+      }
+
+      const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
+      const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
+      if (!fromField || !toField) {
+        console.log(`[ANALYZE] ${message.id}: nenašel jsem pole Odkud/Kam`);
+        continue;
+      }
+
+      const from = normalizeLocation(fromField.value);
+      const to   = normalizeLocation(toField.value);
+      const ts   = message.createdTimestamp;
+
+      console.log(
+        `[ANALYZE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
+      );
+
+      const reward = REWARDS.find(r =>
+        (
+          (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
+          (cityMatches(from, r.to) && cityMatches(to, r.from))
+        ) &&
+        ts >= r.start &&
+        ts < r.end
+      );
+
+      if (!reward) {
+        console.log(`[ANALYZE] ${message.id}: žádná shoda v REWARDS`);
+        continue;
+      }
+
+      const tbName = extractTbNameFromEmbed(embed);
+      if (!tbName) {
+        console.log(`[ANALYZE] ${message.id}: nenašel jsem TB nick`);
+        continue;
+      }
+
+      console.log(
+        `[ANALYZE] ${message.id}: ODMĚŇUJI tbName="${tbName}" route="${reward.from} ↔ ${reward.to}" silver=${reward.silver}, gold=${reward.gold}`
+      );
+      addTokens(tbName, reward.silver, reward.gold);
+      tryAssignGoldRoleForTb(tbName);
+      markMessageProcessed(message.id);
+      rewarded++;
+    }
+
+    lastId = messages[messages.length - 1].id;
+  }
+
+  return { scanned, rewarded };
 }
 
 // ─────────────────────────────────────────────
@@ -959,6 +1105,15 @@ client.on("interactionCreate", async interaction => {
   }
 
   if (interaction.commandName === "leaderboard") {
+    const page = interaction.options.getInteger("strana") ?? 1;
+    if (page < 1) {
+      await interaction.reply({
+        content: "❌ Číslo strany musí být minimálně 1.",
+        ephemeral: true
+      });
+      return;
+    }
+
     const entries = Object.entries(tokens);
     if (entries.length === 0) {
       await interaction.reply({
@@ -975,22 +1130,30 @@ client.on("interactionCreate", async interaction => {
       return b.silver - a.silver;
     });
 
-    const top = sorted.slice(0, 10);
+    const pageSize = 10;
+    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+
+    if (page > totalPages) {
+      await interaction.reply({
+        content: `❌ Maximální dostupná strana je **${totalPages}**.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    const startIndex = (page - 1) * pageSize;
+    const top = sorted.slice(startIndex, startIndex + pageSize);
 
     const lines = [];
     for (let i = 0; i < top.length; i++) {
       const [tbName, data] = top[i];
-      let label;
 
-      if (data.discordId) {
-        label = `<@${data.discordId}> (${tbName})`;
-      } else {
-        label = `${tbName} (TB)`;
-      }
+      // pokud je propojený Discord, zobraz jen Discord uživatele, jinak TB nick
+      const label = data.discordId ? `<@${data.discordId}>` : tbName;
 
       const score = getUserScore(data);
       lines.push(
-        `**${i + 1}.** ${label} — 🥇 **${data.gold}** | 🥈 **${data.silver}** (📊 **${score}** bodů)`
+        `**${startIndex + i + 1}.** ${label} — 🥇 **${data.gold}** | 🥈 **${data.silver}** (📊 **${score}** bodů)`
       );
     }
 
@@ -998,8 +1161,11 @@ client.on("interactionCreate", async interaction => {
       content: `🏁 Žebříček vyžádal: ${interaction.user}`,
       embeds: [
         {
-          title: "🏆 TOP 10 řidičů podle žetonů",
+          title: "🏆 Žebříček řidičů podle žetonů",
           description: lines.join("\n"),
+          footer: {
+            text: `Strana ${page} / ${totalPages} (zobrazuji ${pageSize} na stránku)`
+          },
           color: 0xf1c40f
         }
       ]
@@ -1015,6 +1181,17 @@ client.on("interactionCreate", async interaction => {
     const keyToUse = existingKey || tbNick;
 
     const entry = ensureTbEntry(keyToUse);
+
+    // TB nick už je propojený s jiným Discord účtem
+    if (entry.discordId && entry.discordId !== interaction.user.id) {
+      await interaction.reply({
+        content: `⛔ TB nick **${keyToUse}** je už propojený s jiným Discord účtem.\n` +
+                 `Pokud je to chyba, kontaktuj prosím administrátora.`,
+        ephemeral: true
+      });
+      return;
+    }
+
     entry.discordId = interaction.user.id;
     saveTokens(tokens);
 
@@ -1045,6 +1222,13 @@ client.on("interactionCreate", async interaction => {
     const keyToUse = existingKey || tbNick;
 
     const entry = ensureTbEntry(keyToUse);
+
+    if (entry.discordId && entry.discordId !== user.id) {
+      console.log(
+        `ADMIN-LINK: TB ${keyToUse} se přepojuje z Discord ID ${entry.discordId} na ${user.id}`
+      );
+    }
+
     entry.discordId = user.id;
     saveTokens(tokens);
 
@@ -1053,6 +1237,47 @@ client.on("interactionCreate", async interaction => {
 
     await interaction.reply({
       content: `✅ Propojil jsem uživatele ${user} s TB nickem **${keyToUse}**.`
+    });
+    return;
+  }
+
+  if (interaction.commandName === "unlink") {
+    if (!interaction.memberPermissions || !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({
+        content: "⛔ Tento příkaz je jen pro administrátory.",
+        ephemeral: true
+      });
+      return;
+    }
+
+    const tbNickRaw = interaction.options.getString("tb_nick");
+    const tbNick = tbNickRaw.trim();
+
+    const existingKey = findExistingTbKey(tbNick);
+    if (!existingKey) {
+      await interaction.reply({
+        content: `❌ TB nick **${tbNick}** v evidenci žetonů vůbec neexistuje.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    const entry = ensureTbEntry(existingKey);
+    if (!entry.discordId) {
+      await interaction.reply({
+        content: `ℹ️ TB nick **${existingKey}** aktuálně není propojený s žádným Discord účtem.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    const oldDiscordId = entry.discordId;
+    entry.discordId = null;
+    saveTokens(tokens);
+
+    await interaction.reply({
+      content: `✅ Zrušil jsem propojení TB nicku **${existingKey}** s Discord účtem <@${oldDiscordId}>.`,
+      ephemeral: true
     });
     return;
   }
@@ -1109,103 +1334,17 @@ client.on("interactionCreate", async interaction => {
     }
 
     await interaction.reply({
-      content: "🔍 Začínám analyzovat historii zakázek... to může chvíli trvat.",
+      content: "🔍 Začínám analyzovat historii zakázek od začátku eventu. Žetony zůstanou zachované, jen doplním chybějící.",
       ephemeral: true
     });
 
     try {
-      const channel = await client.channels.fetch(JOBS_CHANNEL_ID);
-      if (!channel || !channel.isTextBased()) {
-        await interaction.followUp({
-          content: "❌ Kanál zakázek není textový nebo neexistuje.",
-          ephemeral: true
-        });
-        return;
-      }
-
-      // reset žetonů a přepočet od začátku eventu
-      tokens = {};
-      let lastId = null;
-      let processed = 0;
-      let rewarded = 0;
-      let stop = false;
-
-      while (!stop) {
-        const fetched = await channel.messages.fetch({
-          limit: 100,
-          before: lastId ?? undefined
-        });
-
-        if (fetched.size === 0) break;
-
-        const messages = Array.from(fetched.values());
-        for (const message of messages) {
-          if (message.createdTimestamp < EVENT_START) {
-            stop = true;
-            break;
-          }
-
-          processed++;
-
-          if (!message.embeds || message.embeds.length === 0) {
-            console.log(`[ANALYZE] ${message.id}: žádný embed`);
-            continue;
-          }
-          const embed = message.embeds[0];
-          if (!embed.fields || embed.fields.length === 0) {
-            console.log(`[ANALYZE] ${message.id}: embed bez fields`);
-            continue;
-          }
-
-          const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
-          const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
-          if (!fromField || !toField) {
-            console.log(`[ANALYZE] ${message.id}: nenašel jsem pole Odkud/Kam`);
-            continue;
-          }
-
-          const from = normalizeLocation(fromField.value);
-          const to   = normalizeLocation(toField.value);
-          const ts   = message.createdTimestamp;
-
-          console.log(
-            `[ANALYZE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
-          );
-
-          // Obousměrná kontrola trasy
-          const reward = REWARDS.find(r =>
-            (
-              (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
-              (cityMatches(from, r.to) && cityMatches(to, r.from))
-            ) &&
-            ts >= r.start &&
-            ts < r.end
-          );
-
-          if (!reward) {
-            console.log(`[ANALYZE] ${message.id}: žádná shoda v REWARDS`);
-            continue;
-          }
-
-          const tbName = extractTbNameFromEmbed(embed);
-          if (!tbName) {
-            console.log(`[ANALYZE] ${message.id}: nenašel jsem TB nick`);
-            continue;
-          }
-
-          console.log(
-            `[ANALYZE] ${message.id}: ODMĚŇUJI tbName="${tbName}" route="${reward.from} ↔ ${reward.to}" silver=${reward.silver}, gold=${reward.gold}`
-          );
-          addTokens(tbName, reward.silver, reward.gold);
-          tryAssignGoldRoleForTb(tbName);
-          rewarded++;
-        }
-
-        lastId = messages[messages.length - 1].id;
-      }
+      const { scanned, rewarded } = await analyzeJobs();
 
       await interaction.followUp({
-        content: `✅ Analýza dokončena.\nZpracováno zpráv: **${processed}**\nPřiděleno odměn: **${rewarded}**.`,
+        content: `✅ Analýza dokončena.\n` +
+                 `Prohlédnuto zpráv: **${scanned}**\n` +
+                 `Nově přiděleno odměn: **${rewarded}**.`,
         ephemeral: true
       });
     } catch (err) {
@@ -1250,6 +1389,12 @@ client.on('messageCreate', async (message) => {
   if (!JOBS_CHANNEL_ID || message.channel.id !== JOBS_CHANNEL_ID) return;
   if (!message.embeds || message.embeds.length === 0) return;
 
+  // už zpracovaná zpráva – neodměňovat znovu
+  if (isMessageAlreadyProcessed(message.id)) {
+    console.log(`[LIVE] ${message.id}: zpráva už byla dříve zpracovaná, přeskočeno.`);
+    return;
+  }
+
   const embed = message.embeds[0];
   if (!embed.fields) return;
 
@@ -1287,6 +1432,7 @@ client.on('messageCreate', async (message) => {
 
   addTokens(tbName, reward.silver, reward.gold);
   tryAssignGoldRoleForTb(tbName);
+  markMessageProcessed(message.id);
 
   console.log(
     `[LIVE] ${message.id}: Žetony: ${tbName} +${reward.silver}🥈 +${reward.gold}🥇 za trasu ${from} ↔ ${to}`
@@ -1348,8 +1494,25 @@ async function autoUpdate() {
 client.once("ready", () => {
   console.log(`Bot přihlášen jako ${client.user.tag}`);
   console.log(`Používám JOBS_CHANNEL_ID = ${JOBS_CHANNEL_ID}`);
+
+  // Adventní kalendář
   autoUpdate().catch(console.error);
   setInterval(() => autoUpdate().catch(console.error), 60 * 1000);
+
+  // Pokud bys chtěl automatickou reanalýzu každých 10 minut,
+  // stačí odkomentovat následující blok:
+
+  /*
+  setInterval(async () => {
+    try {
+      console.log('[AUTO-ANALYZE] Spouštím automatickou reanalýzu zakázek...');
+      const { scanned, rewarded } = await analyzeJobs();
+      console.log(`[AUTO-ANALYZE] Hotovo. Prohlédnuto ${scanned} zpráv, nových odměn: ${rewarded}.`);
+    } catch (err) {
+      console.error('[AUTO-ANALYZE] Chyba:', err);
+    }
+  }, 10 * 60 * 1000);
+  */
 });
 
 registerCommands();
