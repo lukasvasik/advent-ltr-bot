@@ -495,8 +495,6 @@ function normalizeCityName(raw) {
   return base;
 }
 
-  return CITY_SYNONYMS[base] ?? base;
-}
 
 function cityMatches(tbValue, expected) {
   const a = normalizeCityName(tbValue);
