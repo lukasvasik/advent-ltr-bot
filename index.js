@@ -38,6 +38,9 @@ const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
 // role za 5 zlatých žetonů
 const GOLD_ROLE_ID = '1445291140348772372';
 
+// firemní barva (např. pro statistické embed)
+const BRAND_COLOR = 0xFF2C57;
+
 if (!TOKEN) throw new Error('❌ DISCORD_TOKEN chybí.');
 if (!CLIENT_ID) console.warn('⚠️ CLIENT_ID chybí (slash commandy se nemusí zaregistrovat).');
 if (!GUILD_ID) console.warn('⚠️ GUILD_ID chybí (slash commandy se nemusí zaregistrovat).');
@@ -97,7 +100,7 @@ const ROUTES = [
     day: 5,
     activeImage: "https://i.imgur.com/Xu5P2ZY.png",
     expiredImage: "https://i.imgur.com/NOTmajb.png",
-    mapUrl: "https://your-cdn.com/advent/map05.png",
+    mapUrl: "https://i.imgur.com/Y0iuQ6v.png",
     from: "Štrasburk",
     to: "Kolín",
     distance: "306 km"
@@ -124,7 +127,7 @@ const ROUTES = [
     day: 8,
     activeImage: "https://i.imgur.com/CPd8bx7.png",
     expiredImage: "https://i.imgur.com/iMgqrFQ.png",
-    mapUrl: "https://your-cdn.com/advent/map08.png",
+    mapUrl: "https://i.imgur.com/uJQv3X4.png",
     from: "Milán",
     to: "Lublaň",
     distance: "627 km"
@@ -133,7 +136,7 @@ const ROUTES = [
     day: 9,
     activeImage: "https://i.imgur.com/NJCEWIN.png",
     expiredImage: "https://i.imgur.com/XgUjvXJ.png",
-    mapUrl: "https://your-cdn.com/advent/map09.png",
+    mapUrl: "https://i.imgur.com/wuYKtsB.png",
     from: "Lublaň",
     to: "Budapešť",
     distance: "447 km"
@@ -142,7 +145,7 @@ const ROUTES = [
     day: 10,
     activeImage: "https://i.imgur.com/s7Qv0nR.png",
     expiredImage: "https://i.imgur.com/iY64co5.png",
-    mapUrl: "https://your-cdn.com/advent/map10.png",
+    mapUrl: "https://i.imgur.com/46zLtoh.png",
     from: "Budapešť",
     to: "TruckersMP HQ",
     distance: "658 km"
@@ -151,7 +154,7 @@ const ROUTES = [
     day: 11,
     activeImage: "https://i.imgur.com/lICL8XB.png",
     expiredImage: "https://i.imgur.com/k5yywz7.png",
-    mapUrl: "https://your-cdn.com/advent/map11.png",
+    mapUrl: "https://i.imgur.com/VMdvMrR.png",
     from: "TruckersMP HQ",
     to: "Brno",
     distance: "290 km"
@@ -160,7 +163,7 @@ const ROUTES = [
     day: 12,
     activeImage: "https://i.imgur.com/4F9Uhla.png",
     expiredImage: "https://i.imgur.com/PMnCoiN.png",
-    mapUrl: "https://your-cdn.com/advent/map12.png",
+    mapUrl: "https://i.imgur.com/kLxeQ3F.png",
     from: "Vídeň",
     to: "Salzburg",
     distance: "313 km"
@@ -169,7 +172,7 @@ const ROUTES = [
     day: 13,
     activeImage: "https://i.imgur.com/mzJgMie.png",
     expiredImage: "https://i.imgur.com/aFX9ooX.png",
-    mapUrl: "https://your-cdn.com/advent/map13.png",
+    mapUrl: "https://i.imgur.com/cgzzfdO.png",
     from: "Salzburg",
     to: "Zürich",
     distance: "534 km"
@@ -178,7 +181,7 @@ const ROUTES = [
     day: 14,
     activeImage: "https://i.imgur.com/RSMQ3ks.png",
     expiredImage: "https://i.imgur.com/pU3qOrR.png",
-    mapUrl: "https://your-cdn.com/advent/map14.png",
+    mapUrl: "https://i.imgur.com/34QOZIg.png",
     from: "Zürich",
     to: "Frankfurt",
     distance: "580 km"
@@ -187,7 +190,7 @@ const ROUTES = [
     day: 15,
     activeImage: "https://i.imgur.com/KxdrtRw.png",
     expiredImage: "https://i.imgur.com/Gz3X9JY.png",
-    mapUrl: "https://your-cdn.com/advent/map15.png",
+    mapUrl: "https://i.imgur.com/RFNNHrX.png",
     from: "Kodaň",
     to: "Duisburg",
     distance: "743 km"
@@ -196,7 +199,7 @@ const ROUTES = [
     day: 16,
     activeImage: "https://i.imgur.com/Lc5WzMW.png",
     expiredImage: "https://i.imgur.com/A1KfHuP.png",
-    mapUrl: "https://your-cdn.com/advent/map16.png",
+    mapUrl: "https://i.imgur.com/NVfE1Vf.png",
     from: "Duisburg",
     to: "Calais",
     distance: "375 km"
@@ -205,7 +208,7 @@ const ROUTES = [
     day: 17,
     activeImage: "https://i.imgur.com/mEO6zLj.png",
     expiredImage: "https://i.imgur.com/q8uPN07.png",
-    mapUrl: "https://your-cdn.com/advent/map17.png",
+    mapUrl: "https://i.imgur.com/SJTyKxc.png",
     from: "Calais",
     to: "Londýn",
     distance: "266 km"
@@ -214,7 +217,7 @@ const ROUTES = [
     day: 18,
     activeImage: "https://i.imgur.com/OwsdAOn.png",
     expiredImage: "https://i.imgur.com/uB0FHye.png",
-    mapUrl: "https://your-cdn.com/advent/map18.png",
+    mapUrl: "https://i.imgur.com/DR04Iu3.png",
     from: "Londýn",
     to: "Varšava",
     distance: "1618 km"
@@ -223,7 +226,7 @@ const ROUTES = [
     day: 19,
     activeImage: "https://i.imgur.com/FwWkUYu.png",
     expiredImage: "https://i.imgur.com/ocyDw42.png",
-    mapUrl: "https://your-cdn.com/advent/map19.png",
+    mapUrl: "https://i.imgur.com/xtcuyAG.jpeg",
     from: "Varšava",
     to: "Bratislava",
     distance: "374 km"
@@ -232,7 +235,7 @@ const ROUTES = [
     day: 20,
     activeImage: "https://i.imgur.com/ze8qXT0.png",
     expiredImage: "https://i.imgur.com/9DDSvNw.png",
-    mapUrl: "https://your-cdn.com/advent/map20.png",
+    mapUrl: "https://i.imgur.com/PCUVGpA.png",
     from: "Bratislava",
     to: "TruckersMP HQ",
     distance: "411 km"
@@ -241,7 +244,7 @@ const ROUTES = [
     day: 21,
     activeImage: "https://i.imgur.com/ipFuQd0.png",
     expiredImage: "https://i.imgur.com/5UzWT4x.png",
-    mapUrl: "https://your-cdn.com/advent/map21.png",
+    mapUrl: "https://i.imgur.com/CNihvFx.png",
     from: "TruckersMP HQ",
     to: "Praha",
     distance: "308 km"
@@ -289,7 +292,7 @@ function buildEmbed(route, state) {
 
   let description = "";
   let imageUrl = "";
-  const color = 16731212;
+  const color = 16731212; // adventní barva, nechávám jak je
 
   if (state === "ACTIVE") {
     description =
@@ -376,11 +379,14 @@ const CITY_SYNONYMS = {
   // Štrasburk / Strasbourg
   'strasbourg': 'strasbourg',
   'strasburg': 'strasbourg',
+  'strassburg': 'strasbourg',
   'štrasburk': 'strasbourg',
 
-  // Kolín / Cologne
+  // Kolín / Cologne / Köln
   'kolin': 'cologne',
   'kolín': 'cologne',
+  'koln': 'cologne',
+  'köln': 'cologne',
   'cologne': 'cologne',
 
   // Lyon
@@ -467,6 +473,7 @@ function cityMatches(tbValue, expected) {
 
 // ─────────────────────────────────────────────
 // ŽETONY – práce s tokens.json (TB nick based)
+// + STATISTIKY (km, počet zakázek, trasy)
 // ─────────────────────────────────────────────
 
 function loadTokens() {
@@ -489,14 +496,32 @@ function saveTokens(tokensObj) {
 
 let tokens = loadTokens();
 
+function ensureStats(entry) {
+  if (!entry.stats) {
+    entry.stats = {
+      totalJobs: 0,
+      totalKm: 0,
+      routes: {} // routeKey -> { jobs, totalKm }
+    };
+  }
+}
+
+// TB nick
 function ensureTbEntry(tbName) {
   if (!tokens[tbName]) {
     tokens[tbName] = {
       tbName,
       discordId: null,
       silver: 0,
-      gold: 0
+      gold: 0,
+      stats: {
+        totalJobs: 0,
+        totalKm: 0,
+        routes: {}
+      }
     };
+  } else {
+    ensureStats(tokens[tbName]);
   }
   return tokens[tbName];
 }
@@ -535,21 +560,137 @@ function getUserScore(entry) {
   return entry.gold * 3 + entry.silver;
 }
 
-// sečte žetony pro daný Discord účet
+// sečte žetony a statistiky pro daný Discord účet
 function getTokensForDiscordUser(discordId) {
   let totalSilver = 0;
   let totalGold = 0;
+  let totalJobs = 0;
+  let totalKm = 0;
   const details = [];
 
   for (const [tbName, data] of Object.entries(tokens)) {
     if (data.discordId === discordId) {
       totalSilver += data.silver;
       totalGold += data.gold;
-      details.push({ tbName, silver: data.silver, gold: data.gold });
+
+      if (data.stats) {
+        totalJobs += data.stats.totalJobs || 0;
+        totalKm += data.stats.totalKm || 0;
+      }
+
+      details.push({
+        tbName,
+        silver: data.silver,
+        gold: data.gold
+      });
     }
   }
 
-  return { totalSilver, totalGold, details };
+  return { totalSilver, totalGold, details, totalJobs, totalKm };
+}
+
+// najde oblíbenou trasu uživatele (podle počtu zakázek)
+function getFavoriteRouteForDiscordUser(discordId) {
+  let bestRoute = null;
+  let bestJobs = 0;
+
+  for (const [, data] of Object.entries(tokens)) {
+    if (data.discordId !== discordId || !data.stats || !data.stats.routes) continue;
+
+    for (const [routeKey, rStats] of Object.entries(data.stats.routes)) {
+      const jobs = rStats.jobs || 0;
+      if (jobs > bestJobs) {
+        bestJobs = jobs;
+        bestRoute = routeKey;
+      }
+    }
+  }
+
+  return { routeKey: bestRoute, jobs: bestJobs };
+}
+
+// statistika trasy pro TB nick
+function buildRouteKey(from, to) {
+  const a = normalizeCityName(from) || from;
+  const b = normalizeCityName(to) || to;
+  return `${a} -> ${b}`;
+}
+
+// vytáhne km z embedu TB, pokud jsou k dispozici
+function extractDistanceKmFromEmbed(embed) {
+  if (!embed) return null;
+  const fields = embed.fields || [];
+
+  const distanceField = fields.find(f =>
+    f.name &&
+    typeof f.name === 'string' &&
+    (
+      f.name.toLowerCase().includes('uznaná vzdálenost') ||
+      f.name.toLowerCase().includes('uznana vzdalenost') ||
+      f.name.toLowerCase().includes('distance')
+    )
+  );
+
+  const candidates = [];
+
+  if (distanceField && distanceField.value) {
+    candidates.push(String(distanceField.value));
+  }
+  if (embed.description) {
+    candidates.push(String(embed.description));
+  }
+
+  for (const text of candidates) {
+    const cleaned = text.replace(/\s+/g, ' ');
+    const m = cleaned.match(/(\d[\d\s.,]*)\s*km/i);
+    if (m) {
+      const numStr = m[1].replace(/\s+/g, '').replace(',', '.');
+      const km = Number(numStr);
+      if (!Number.isNaN(km) && km >= 0) return km;
+    }
+  }
+
+  return null;
+}
+
+// doplnění statistik pro jednu odměněnou zakázku
+function recordJobStats(tbName, from, to, embed) {
+  const entry = ensureTbEntry(tbName);
+  const stats = entry.stats;
+  const routeKey = buildRouteKey(from, to);
+
+  let km = extractDistanceKmFromEmbed(embed);
+
+  // fallback – zkusit vzdálenost z ROUTES (podle města)
+  if (km == null) {
+    const routeDef = ROUTES.find(r =>
+      (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
+      (cityMatches(from, r.to) && cityMatches(to, r.from))
+    );
+    if (routeDef && routeDef.distance) {
+      const m = String(routeDef.distance).match(/(\d[\d\s]*)/);
+      if (m) {
+        const numStr = m[1].replace(/\s+/g, '');
+        const parsed = Number(numStr);
+        if (!Number.isNaN(parsed)) km = parsed;
+      }
+    }
+  }
+
+  if (!Number.isFinite(km)) km = 0;
+
+  stats.totalJobs += 1;
+  stats.totalKm += km;
+
+  if (!stats.routes[routeKey]) {
+    stats.routes[routeKey] = {
+      jobs: 0,
+      totalKm: 0
+    };
+  }
+
+  stats.routes[routeKey].jobs += 1;
+  stats.routes[routeKey].totalKm += km;
 }
 
 // ─────────────────────────────────────────────
@@ -818,13 +959,24 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("leaderboard")
-    .setDescription("Zobrazí žebříček řidičů podle žetonů.")
+    .setDescription("Zobrazí žebříček řidičů – žetony, kilometry nebo počet zakázek.")
     .addIntegerOption(o =>
       o
         .setName("strana")
         .setDescription("Číslo strany (1 = top 1–10, 2 = 11–20, ...)")
         .setRequired(false)
         .setMinValue(1)
+    )
+    .addStringOption(o =>
+      o
+        .setName("typ")
+        .setDescription("Typ žebříčku")
+        .addChoices(
+          { name: "Žetony (body)", value: "tokens" },
+          { name: "Kilometry", value: "km" },
+          { name: "Počet zakázek", value: "jobs" }
+        )
+        .setRequired(false)
     ),
   new SlashCommandBuilder()
     .setName("link")
@@ -879,6 +1031,29 @@ const commands = [
   new SlashCommandBuilder()
     .setName("admin-dump")
     .setDescription("Exportuje tokens.json se žetony (jen admin).")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder()
+    .setName("addpoints")
+    .setDescription("ADMIN: ručně přidá body (žetony) uživateli.")
+    .addUserOption(o =>
+      o
+        .setName("uzivatel")
+        .setDescription("Discord uživatel, kterému chceš přidat body")
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o
+        .setName("body")
+        .setDescription("Kolik bodů přidat (1🥇 = 3 body, 1🥈 = 1 bod)")
+        .setRequired(true)
+        .setMinValue(1)
+    )
+    .addStringOption(o =>
+      o
+        .setName("tb_nick")
+        .setDescription("Volitelné: konkrétní TB nick, na který body připíšu")
+        .setRequired(false)
+    )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -905,7 +1080,7 @@ function extractTbNameFromEmbed(embed) {
   // 1) author.name – u TB webhooku to bývá nick
   if (embed.author && embed.author.name) {
     let v = String(embed.author.name).trim();
-    v = v.replace(/[`~]/g, ''); // nechává * a _ být
+    // už neodstraňuju speciální znaky, jen trim
     return v;
   }
 
@@ -920,7 +1095,6 @@ function extractTbNameFromEmbed(embed) {
     );
     if (driverField && driverField.value) {
       let v = String(driverField.value).trim();
-      v = v.replace(/[*_`~]/g, '');
       return v;
     }
   }
@@ -966,8 +1140,6 @@ async function analyzeJobs() {
 
       // už zpracovaná – přeskoč
       if (isMessageAlreadyProcessed(message.id)) {
-        // volitelný log:
-        // console.log(`[ANALYZE] ${message.id}: už zpracovaná, přeskočeno.`);
         continue;
       }
 
@@ -1019,8 +1191,14 @@ async function analyzeJobs() {
       console.log(
         `[ANALYZE] ${message.id}: ODMĚŇUJI tbName="${tbName}" route="${reward.from} ↔ ${reward.to}" silver=${reward.silver}, gold=${reward.gold}`
       );
+
+      // Statistika jízdy (jobs/km)
+      recordJobStats(tbName, from, to, embed);
+
+      // Žetony
       addTokens(tbName, reward.silver, reward.gold);
       tryAssignGoldRoleForTb(tbName);
+
       markMessageProcessed(message.id);
       rewarded++;
     }
@@ -1049,7 +1227,7 @@ client.on("interactionCreate", async interaction => {
   }
 
   if (interaction.commandName === "zetony") {
-    const { totalSilver, totalGold, details } = getTokensForDiscordUser(interaction.user.id);
+    const { totalSilver, totalGold, details, totalJobs, totalKm } = getTokensForDiscordUser(interaction.user.id);
 
     if (totalSilver === 0 && totalGold === 0) {
       await interaction.reply({
@@ -1063,6 +1241,15 @@ client.on("interactionCreate", async interaction => {
       `• **${d.tbName}** — 🥇 ${d.gold}, 🥈 ${d.silver}`
     );
 
+    const { routeKey, jobs } = getFavoriteRouteForDiscordUser(interaction.user.id);
+
+    let statsText = "";
+    statsText += `🚚 Zakázky v eventu: **${totalJobs}**\n`;
+    statsText += `🧭 Ujeté kilometry: **${totalKm} km**\n`;
+    if (routeKey && jobs > 0) {
+      statsText += `⭐ Nejčastější trasa: **${routeKey}** (**${jobs}×**)\n`;
+    }
+
     await interaction.reply({
       content: `📣 ${interaction.user}, tady je tvůj aktuální stav žetonů:`,
       embeds: [
@@ -1072,8 +1259,10 @@ client.on("interactionCreate", async interaction => {
             `🥇 Zlaté: **${totalGold}**\n` +
             `🥈 Stříbrné: **${totalSilver}**\n` +
             `📊 Body: **${score}** (1🥇 = 3 body, 1🥈 = 1 bod)\n\n` +
+            statsText +
+            `\n` +
             (lines.length ? `Rozpis podle TB nicků:\n${lines.join('\n')}` : ""),
-          color: 0xffc04d
+          color: BRAND_COLOR
         }
       ]
     });
@@ -1106,6 +1295,8 @@ client.on("interactionCreate", async interaction => {
 
   if (interaction.commandName === "leaderboard") {
     const page = interaction.options.getInteger("strana") ?? 1;
+    const type = interaction.options.getString("typ") ?? "tokens";
+
     if (page < 1) {
       await interaction.reply({
         content: "❌ Číslo strany musí být minimálně 1.",
@@ -1123,11 +1314,29 @@ client.on("interactionCreate", async interaction => {
     }
 
     const sorted = entries.sort(([, a], [, b]) => {
+      let metricA = 0;
+      let metricB = 0;
+
+      if (type === "km") {
+        metricA = (a.stats && a.stats.totalKm) || 0;
+        metricB = (b.stats && b.stats.totalKm) || 0;
+      } else if (type === "jobs") {
+        metricA = (a.stats && a.stats.totalJobs) || 0;
+        metricB = (b.stats && b.stats.totalJobs) || 0;
+      } else {
+        // tokens (body)
+        const scoreA = getUserScore(a);
+        const scoreB = getUserScore(b);
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        if (b.gold !== a.gold) return b.gold - a.gold;
+        return b.silver - a.silver;
+      }
+
+      // km / jobs – čisté porovnání, při shodě fallback na tokeny
+      if (metricB !== metricA) return metricB - metricA;
       const scoreA = getUserScore(a);
       const scoreB = getUserScore(b);
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      if (b.gold !== a.gold) return b.gold - a.gold;
-      return b.silver - a.silver;
+      return scoreB - scoreA;
     });
 
     const pageSize = 10;
@@ -1148,25 +1357,40 @@ client.on("interactionCreate", async interaction => {
     for (let i = 0; i < top.length; i++) {
       const [tbName, data] = top[i];
 
-      // pokud je propojený Discord, zobraz jen Discord uživatele, jinak TB nick
       const label = data.discordId ? `<@${data.discordId}>` : tbName;
 
-      const score = getUserScore(data);
-      lines.push(
-        `**${startIndex + i + 1}.** ${label} — 🥇 **${data.gold}** | 🥈 **${data.silver}** (📊 **${score}** bodů)`
-      );
+      if (type === "km") {
+        const km = (data.stats && data.stats.totalKm) || 0;
+        lines.push(
+          `**${startIndex + i + 1}.** ${label} — 🧭 **${km} km**`
+        );
+      } else if (type === "jobs") {
+        const jobs = (data.stats && data.stats.totalJobs) || 0;
+        lines.push(
+          `**${startIndex + i + 1}.** ${label} — 🚚 **${jobs} zakázek**`
+        );
+      } else {
+        const score = getUserScore(data);
+        lines.push(
+          `**${startIndex + i + 1}.** ${label} — 🥇 **${data.gold}** | 🥈 **${data.silver}** (📊 **${score}** bodů)`
+        );
+      }
     }
+
+    let title = "🏆 Žebříček řidičů podle žetonů";
+    if (type === "km") title = "🏆 Žebříček řidičů podle kilometrů";
+    if (type === "jobs") title = "🏆 Žebříček řidičů podle počtu zakázek";
 
     await interaction.reply({
       content: `🏁 Žebříček vyžádal: ${interaction.user}`,
       embeds: [
         {
-          title: "🏆 Žebříček řidičů podle žetonů",
+          title,
           description: lines.join("\n"),
           footer: {
             text: `Strana ${page} / ${totalPages} (zobrazuji ${pageSize} na stránku)`
           },
-          color: 0xf1c40f
+          color: BRAND_COLOR
         }
       ]
     });
@@ -1380,6 +1604,60 @@ client.on("interactionCreate", async interaction => {
     });
     return;
   }
+
+  if (interaction.commandName === "addpoints") {
+    if (!interaction.memberPermissions || !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({
+        content: "⛔ Tento příkaz je jen pro administrátory.",
+        ephemeral: true
+      });
+      return;
+    }
+
+    const user = interaction.options.getUser("uzivatel");
+    const points = interaction.options.getInteger("body");
+    const tbNickRaw = interaction.options.getString("tb_nick");
+
+    let tbNameToUse = null;
+
+    if (tbNickRaw) {
+      const tbNick = tbNickRaw.trim();
+      const existingKey = findExistingTbKey(tbNick);
+      tbNameToUse = existingKey || tbNick;
+
+      const entry = ensureTbEntry(tbNameToUse);
+      // přepojení TB nicku na daného uživatele
+      entry.discordId = user.id;
+      saveTokens(tokens);
+    } else {
+      // najdi TB nick podle propojeného Discord účtu
+      const match = Object.entries(tokens).find(([, data]) => data.discordId === user.id);
+      if (!match) {
+        await interaction.reply({
+          content: `❌ Uživatel ${user} nemá žádný propojený TB nick.\nPoužij prosím nejdřív /link nebo zadej parametr **tb_nick**.`,
+          ephemeral: true
+        });
+        return;
+      }
+      tbNameToUse = match[0];
+    }
+
+    const addGold = Math.floor(points / 3);
+    const addSilver = points % 3;
+
+    addTokens(tbNameToUse, addSilver, addGold);
+    tryAssignGoldRoleForTb(tbNameToUse);
+
+    await interaction.reply({
+      content:
+        `✅ Přidal jsem uživateli ${user} celkem **${points} bodů** ` +
+        `(➕ 🥇 **${addGold}**, ➕ 🥈 **${addSilver}**) ` +
+        `na TB nick **${tbNameToUse}**.\n` +
+        `Body se promítají do žebříčku stejně jako žetony (1🥇 = 3 body, 1🥈 = 1 bod).`,
+      ephemeral: false
+    });
+    return;
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -1430,6 +1708,10 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
+  // Statistika jízdy (jobs/km)
+  recordJobStats(tbName, from, to, embed);
+
+  // Žetony
   addTokens(tbName, reward.silver, reward.gold);
   tryAssignGoldRoleForTb(tbName);
   markMessageProcessed(message.id);
@@ -1499,10 +1781,7 @@ client.once("ready", () => {
   autoUpdate().catch(console.error);
   setInterval(() => autoUpdate().catch(console.error), 60 * 1000);
 
-  // Pokud bys chtěl automatickou reanalýzu každých 10 minut,
-  // stačí odkomentovat následující blok:
-
-  /*
+  // Automatická reanalýza každých 10 minut
   setInterval(async () => {
     try {
       console.log('[AUTO-ANALYZE] Spouštím automatickou reanalýzu zakázek...');
@@ -1512,7 +1791,6 @@ client.once("ready", () => {
       console.error('[AUTO-ANALYZE] Chyba:', err);
     }
   }, 10 * 60 * 1000);
-  */
 });
 
 registerCommands();
