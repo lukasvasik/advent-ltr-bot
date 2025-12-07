@@ -1234,7 +1234,10 @@ async function analyzeJobs() {
 
       const from = normalizeLocation(fromField.value);
       const to   = normalizeLocation(toField.value);
-      const ts   = message.createdTimestamp;
+
+      // pojistka na čas – vezmi createdTimestamp, případně fallback
+      let ts = message.createdTimestamp || (message.createdAt ? message.createdAt.getTime() : null);
+      if (!ts) ts = Date.now();
 
       console.log(
         `[ANALYZE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
@@ -1326,8 +1329,6 @@ async function fullAnalyzeJobs() {
 
       scanned++;
 
-      // ⚠️ na rozdíl od analyzeJobs NEkontrolujeme isMessageAlreadyProcessed
-
       if (!message.embeds || message.embeds.length === 0) {
         continue;
       }
@@ -1344,7 +1345,10 @@ async function fullAnalyzeJobs() {
 
       const from = normalizeLocation(fromField.value);
       const to   = normalizeLocation(toField.value);
-      const ts   = message.createdTimestamp;
+
+      // pojistka na čas
+      let ts = message.createdTimestamp || (message.createdAt ? message.createdAt.getTime() : null);
+      if (!ts) ts = Date.now();
 
       const reward = REWARDS.find(r =>
         (
@@ -1901,7 +1905,10 @@ client.on('messageCreate', async (message) => {
 
   const from = normalizeLocation(fromField.value);
   const to   = normalizeLocation(toField.value);
-  const ts   = message.createdTimestamp;
+
+  // pojistka na čas
+  let ts = message.createdTimestamp || (message.createdAt ? message.createdAt.getTime() : null);
+  if (!ts) ts = Date.now();
 
   console.log(
     `[LIVE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
