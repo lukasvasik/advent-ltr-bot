@@ -361,60 +361,68 @@ const CITY_SYNONYMS = {
   // Praha / Prague
   'praha': 'prague',
   'prague': 'prague',
+  'prag': 'prague',
 
   // Berlín / Berlin
   'berlin': 'berlin',
-  'berlin germany': 'berlin',
-  'berlin de': 'berlin',
   'berlín': 'berlin',
+  'berl': 'berlin',
 
   // Amsterdam
   'amsterdam': 'amsterdam',
+  'amsterodam': 'amsterdam',
 
   // Paříž / Paris
-  'pariz': 'paris',
-  'paříž': 'paris',
   'paris': 'paris',
+  'pariz': 'paris',
 
   // Štrasburk / Strasbourg
   'strasbourg': 'strasbourg',
   'strasburg': 'strasbourg',
   'strassburg': 'strasbourg',
+  'strasburk': 'strasbourg',
   'štrasburk': 'strasbourg',
 
   // Kolín / Cologne / Köln
+  'cologne': 'cologne',
   'kolin': 'cologne',
   'kolín': 'cologne',
   'koln': 'cologne',
   'köln': 'cologne',
-  'cologne': 'cologne',
+  'kol': 'cologne',
+  'koln am rhein': 'cologne',
 
   // Lyon
   'lyon': 'lyon',
 
   // Milán / Milan
   'milan': 'milan',
+  'milano': 'milan',
   'milán': 'milan',
 
   // Lublaň / Ljubljana
   'ljubljana': 'ljubljana',
-  'lublan': 'ljubljana',
+  'lublana': 'ljubljana',
+  'lubljana': 'ljubljana',
   'lublaň': 'ljubljana',
 
   // Budapešť / Budapest
   'budapest': 'budapest',
-  'budapešť': 'budapest',
+  'budapeste': 'budapest',
+  'budapest hu': 'budapest',
+  'budapest hungary': 'budapest',
 
   // TruckersMP HQ
   'truckersmp hq': 'truckersmp hq',
+  'tmp hq': 'truckersmp hq',
 
   // Brno
   'brno': 'brno',
 
   // Vídeň / Vienna
-  'wien': 'vienna',
   'vienna': 'vienna',
-  'vídeň': 'vienna',
+  'wien': 'vienna',
+  'vieden': 'vienna',
 
   // Salzburg
   'salzburg': 'salzburg',
@@ -422,15 +430,18 @@ const CITY_SYNONYMS = {
   // Zürich / Zurich
   'zurich': 'zurich',
   'zuerich': 'zurich',
-  'zürich': 'zurich',
+  'zurich ch': 'zurich',
+  'zurych': 'zurich',
 
   // Frankfurt
   'frankfurt': 'frankfurt',
+  'frankfurt am main': 'frankfurt',
 
   // Kodaň / Copenhagen
-  'kodaň': 'copenhagen',
-  'koda': 'copenhagen',
   'copenhagen': 'copenhagen',
+  'kobenhavn': 'copenhagen',
+  'kobenhaven': 'copenhagen',
+  'kodan': 'copenhagen',
 
   // Duisburg
   'duisburg': 'duisburg',
@@ -441,25 +452,48 @@ const CITY_SYNONYMS = {
   // Londýn / London
   'london': 'london',
   'londyn': 'london',
-  'londýn': 'london',
+  'londres': 'london',
 
   // Varšava / Warsaw
   'warsaw': 'warsaw',
-  'varšava': 'warsaw',
+  'warshaw': 'warsaw',
+  'warszawa': 'warsaw',
   'varsava': 'warsaw',
+  'varsovia': 'warsaw',
 
   // Bratislava
-  'bratislava': 'bratislava'
+  'bratislava': 'bratislava',
+  'pressburg': 'bratislava'
 };
+
 
 function normalizeCityName(raw) {
   if (!raw) return '';
+
   const base = raw
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')   // pryč diakritika
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')       // cokoliv jiného → mezera
     .trim();
+
+  if (!base) return '';
+
+  // 1) přesná shoda
+  if (CITY_SYNONYMS[base]) {
+    return CITY_SYNONYMS[base];
+  }
+
+  // 2) „chytrá“ shoda – když base obsahuje nějaký klíč ze synonym
+  for (const [key, canonical] of Object.entries(CITY_SYNONYMS)) {
+    if (base.includes(key)) {
+      return canonical;
+    }
+  }
+
+  // fallback
+  return base;
+}
 
   return CITY_SYNONYMS[base] ?? base;
 }
