@@ -1184,7 +1184,6 @@ function extractTbNameFromEmbed(embed) {
   // 1) author.name – u TB webhooku to bývá nick
   if (embed.author && embed.author.name) {
     let v = String(embed.author.name).trim();
-    // nechávám všechny znaky, jen ořežu mezery
     return v;
   }
 
@@ -1244,6 +1243,7 @@ async function analyzeJobs() {
 
       // už zpracovaná – přeskoč
       if (isMessageAlreadyProcessed(message.id)) {
+        console.log(`[ANALYZE] ${message.id}: už dříve zpracovaná, přeskočeno.`);
         continue;
       }
 
@@ -1251,66 +1251,73 @@ async function analyzeJobs() {
         console.log(`[ANALYZE] ${message.id}: žádný embed`);
         continue;
       }
-      const embed = message.embeds[0];
-      if (!embed.fields || embed.fields.length === 0) {
-        console.log(`[ANALYZE] ${message.id}: embed bez fields`);
-        continue;
-      }
 
-      const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
-      const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
-      if (!fromField || !toField) {
-        console.log(`[ANALYZE] ${message.id}: nenašel jsem pole Odkud/Kam`);
-        continue;
-      }
-
-      const from = normalizeLocation(fromField.value);
-      const to   = normalizeLocation(toField.value);
-
-      // pojistka na čas – vezmi createdTimestamp, případně fallback
       let ts = message.createdTimestamp || (message.createdAt ? message.createdAt.getTime() : null);
       if (!ts) ts = Date.now();
 
-      console.log(
-        `[ANALYZE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
-      );
+      let messageRewarded = 0;
 
-      const reward = REWARDS.find(r =>
-        (
-          (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
-          (cityMatches(from, r.to) && cityMatches(to, r.from))
-        ) &&
-        ts >= r.start &&
-        ts < r.end
-      );
+      for (const embed of message.embeds) {
+        if (!embed.fields || embed.fields.length === 0) {
+          console.log(`[ANALYZE] ${message.id}: embed bez fields`);
+          continue;
+        }
 
-      if (!reward) {
-        console.log(`[ANALYZE] ${message.id}: žádná shoda v REWARDS`);
-        continue;
+        const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
+        const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
+        if (!fromField || !toField) {
+          console.log(`[ANALYZE] ${message.id}: nenašel jsem pole Odkud/Kam v jednom z embedů`);
+          continue;
+        }
+
+        const from = normalizeLocation(fromField.value);
+        const to   = normalizeLocation(toField.value);
+
+        console.log(
+          `[ANALYZE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
+        );
+
+        const reward = REWARDS.find(r =>
+          (
+            (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
+            (cityMatches(from, r.to) && cityMatches(to, r.from))
+          ) &&
+          ts >= r.start &&
+          ts < r.end
+        );
+
+        if (!reward) {
+          console.log(`[ANALYZE] ${message.id}: žádná shoda v REWARDS pro tento embed`);
+          continue;
+        }
+
+        const tbName = extractTbNameFromEmbed(embed);
+        if (!tbName) {
+          console.log(`[ANALYZE] ${message.id}: nenašel jsem TB nick pro tento embed`);
+          continue;
+        }
+
+        console.log(
+          `[ANALYZE] ${message.id}: ODMĚŇUJI tbName="${tbName}" route="${reward.from} ↔ ${reward.to}" silver=${reward.silver}, gold=${reward.gold}`
+        );
+
+        // statistika jízdy (jobs/km)
+        recordJobStats(tbName, from, to, embed);
+
+        // auto-link podle jména
+        await tryAutoLinkTbToDiscord(tbName);
+
+        // žetony
+        addTokens(tbName, reward.silver, reward.gold);
+        await tryAssignGoldRoleForTb(tbName);
+
+        messageRewarded++;
       }
 
-      const tbName = extractTbNameFromEmbed(embed);
-      if (!tbName) {
-        console.log(`[ANALYZE] ${message.id}: nenašel jsem TB nick`);
-        continue;
+      if (messageRewarded > 0) {
+        markMessageProcessed(message.id);
+        rewarded += messageRewarded;
       }
-
-      console.log(
-        `[ANALYZE] ${message.id}: ODMĚŇUJI tbName="${tbName}" route="${reward.from} ↔ ${reward.to}" silver=${reward.silver}, gold=${reward.gold}`
-      );
-
-      // statistika jízdy (jobs/km)
-      recordJobStats(tbName, from, to, embed);
-
-      // auto-link podle jména
-      await tryAutoLinkTbToDiscord(tbName);
-
-      // žetony
-      addTokens(tbName, reward.silver, reward.gold);
-      await tryAssignGoldRoleForTb(tbName);
-
-      markMessageProcessed(message.id);
-      rewarded++;
     }
 
     lastId = messages[messages.length - 1].id;
@@ -1364,52 +1371,59 @@ async function fullAnalyzeJobs() {
       if (!message.embeds || message.embeds.length === 0) {
         continue;
       }
-      const embed = message.embeds[0];
-      if (!embed.fields || embed.fields.length === 0) {
-        continue;
-      }
 
-      const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
-      const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
-      if (!fromField || !toField) {
-        continue;
-      }
-
-      const from = normalizeLocation(fromField.value);
-      const to   = normalizeLocation(toField.value);
-
-      // pojistka na čas
       let ts = message.createdTimestamp || (message.createdAt ? message.createdAt.getTime() : null);
       if (!ts) ts = Date.now();
 
-      const reward = REWARDS.find(r =>
-        (
-          (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
-          (cityMatches(from, r.to) && cityMatches(to, r.from))
-        ) &&
-        ts >= r.start &&
-        ts < r.end
-      );
+      let messageRewarded = 0;
 
-      if (!reward) {
-        continue;
+      for (const embed of message.embeds) {
+        if (!embed.fields || embed.fields.length === 0) {
+          continue;
+        }
+
+        const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
+        const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
+        if (!fromField || !toField) {
+          continue;
+        }
+
+        const from = normalizeLocation(fromField.value);
+        const to   = normalizeLocation(toField.value);
+
+        const reward = REWARDS.find(r =>
+          (
+            (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
+            (cityMatches(from, r.to) && cityMatches(to, r.from))
+          ) &&
+          ts >= r.start &&
+          ts < r.end
+        );
+
+        if (!reward) {
+          continue;
+        }
+
+        const tbName = extractTbNameFromEmbed(embed);
+        if (!tbName) {
+          continue;
+        }
+
+        // statistiky (jobs/km)
+        recordJobStats(tbName, from, to, embed);
+        // auto-link dle jména
+        await tryAutoLinkTbToDiscord(tbName);
+        // žetony
+        addTokens(tbName, reward.silver, reward.gold);
+        await tryAssignGoldRoleForTb(tbName);
+
+        messageRewarded++;
       }
 
-      const tbName = extractTbNameFromEmbed(embed);
-      if (!tbName) {
-        continue;
+      if (messageRewarded > 0) {
+        markMessageProcessed(message.id);
+        rewarded += messageRewarded;
       }
-
-      // statistiky (jobs/km)
-      recordJobStats(tbName, from, to, embed);
-      // auto-link dle jména
-      await tryAutoLinkTbToDiscord(tbName);
-      // žetony
-      addTokens(tbName, reward.silver, reward.gold);
-      await tryAssignGoldRoleForTb(tbName);
-
-      markMessageProcessed(message.id);
-      rewarded++;
     }
 
     lastId = messages[messages.length - 1].id;
@@ -1777,7 +1791,7 @@ client.on("interactionCreate", async interaction => {
       await interaction.followUp({
         content: `✅ Analýza dokončena.\n` +
                  `Prohlédnuto zpráv: **${scanned}**\n` +
-                 `Nově přiděleno odměn: **${rewarded}**.`,
+                 `Nově přiděleno odměn (embedů): **${rewarded}**.`,
         ephemeral: true
       });
     } catch (err) {
@@ -1822,7 +1836,7 @@ client.on("interactionCreate", async interaction => {
         content:
           `✅ Full analýza dokončena.\n` +
           `Prohlédnuto zpráv: **${scanned}**\n` +
-          `Přiděleno odměn: **${rewarded}**.\n` +
+          `Přiděleno odměn (embedů): **${rewarded}**.\n` +
           `Všechny žetony, kilometry a počty zakázek byly spočítány znovu.`,
         ephemeral: true
       });
@@ -1928,58 +1942,65 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  const embed = message.embeds[0];
-  if (!embed.fields) return;
-
-  const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
-  const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
-  if (!fromField || !toField) return;
-
-  const from = normalizeLocation(fromField.value);
-  const to   = normalizeLocation(toField.value);
-
-  // pojistka na čas
   let ts = message.createdTimestamp || (message.createdAt ? message.createdAt.getTime() : null);
   if (!ts) ts = Date.now();
 
-  console.log(
-    `[LIVE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
-  );
+  let messageRewarded = 0;
 
-  const reward = REWARDS.find(r =>
-    (
-      (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
-      (cityMatches(from, r.to) && cityMatches(to, r.from))
-    ) &&
-    ts >= r.start &&
-    ts < r.end
-  );
+  for (const embed of message.embeds) {
+    if (!embed.fields || embed.fields.length === 0) continue;
 
-  if (!reward) {
-    console.log(`[LIVE] ${message.id}: žádná shoda v REWARDS`);
-    return;
+    const fromField = embed.fields.find(f => f.name && f.name.toLowerCase().includes('odkud'));
+    const toField   = embed.fields.find(f => f.name && f.name.toLowerCase().includes('kam'));
+    if (!fromField || !toField) continue;
+
+    const from = normalizeLocation(fromField.value);
+    const to   = normalizeLocation(toField.value);
+
+    console.log(
+      `[LIVE] ${message.id}: rawFrom="${fromField.value}" rawTo="${toField.value}" => from="${from}" to="${to}" ts=${new Date(ts).toISOString()}`
+    );
+
+    const reward = REWARDS.find(r =>
+      (
+        (cityMatches(from, r.from) && cityMatches(to, r.to)) ||
+        (cityMatches(from, r.to) && cityMatches(to, r.from))
+      ) &&
+      ts >= r.start &&
+      ts < r.end
+    );
+
+    if (!reward) {
+      console.log(`[LIVE] ${message.id}: žádná shoda v REWARDS pro tento embed`);
+      continue;
+    }
+
+    const tbName = extractTbNameFromEmbed(embed);
+    if (!tbName) {
+      console.log(`[LIVE] ${message.id}: nenašel jsem TB nickname v jednom z embedů, odměna nepřipsána.`);
+      continue;
+    }
+
+    // Statistika jízdy (jobs/km)
+    recordJobStats(tbName, from, to, embed);
+
+    // Auto-link TB nicku na Discord, pokud to jde jednoznačně
+    await tryAutoLinkTbToDiscord(tbName);
+
+    // Žetony
+    addTokens(tbName, reward.silver, reward.gold);
+    await tryAssignGoldRoleForTb(tbName);
+
+    console.log(
+      `[LIVE] ${message.id}: Žetony: ${tbName} +${reward.silver}🥈 +${reward.gold}🥇 za trasu ${from} ↔ ${to}`
+    );
+
+    messageRewarded++;
   }
 
-  const tbName = extractTbNameFromEmbed(embed);
-  if (!tbName) {
-    console.log(`[LIVE] ${message.id}: nenašel jsem TB nickname v embedu, odměna nepřipsána.`);
-    return;
+  if (messageRewarded > 0) {
+    markMessageProcessed(message.id);
   }
-
-  // Statistika jízdy (jobs/km)
-  recordJobStats(tbName, from, to, embed);
-
-  // Auto-link TB nicku na Discord, pokud to jde jednoznačně
-  await tryAutoLinkTbToDiscord(tbName);
-
-  // Žetony
-  addTokens(tbName, reward.silver, reward.gold);
-  await tryAssignGoldRoleForTb(tbName);
-  markMessageProcessed(message.id);
-
-  console.log(
-    `[LIVE] ${message.id}: Žetony: ${tbName} +${reward.silver}🥈 +${reward.gold}🥇 za trasu ${from} ↔ ${to}`
-  );
 });
 
 // ─────────────────────────────────────────────
@@ -2047,7 +2068,7 @@ client.once("ready", () => {
     try {
       console.log('[AUTO-ANALYZE] Spouštím automatickou reanalýzu zakázek...');
       const { scanned, rewarded } = await analyzeJobs();
-      console.log(`[AUTO-ANALYZE] Hotovo. Prohlédnuto ${scanned} zpráv, nových odměn: ${rewarded}.`);
+      console.log(`[AUTO-ANALYZE] Hotovo. Prohlédnuto ${scanned} zpráv, nových odměn (embedů): ${rewarded}.`);
     } catch (err) {
       console.error('[AUTO-ANALYZE] Chyba:', err);
     }
