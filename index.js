@@ -405,6 +405,7 @@ const CITY_SYNONYMS = {
   'lublana': 'ljubljana',
   'lubljana': 'ljubljana',
   'lublaň': 'ljubljana',
+  'lublan': 'ljubljana',   // doplněno
 
   // Budapešť / Budapest
   'budapest': 'budapest',
@@ -423,6 +424,7 @@ const CITY_SYNONYMS = {
   'vienna': 'vienna',
   'wien': 'vienna',
   'vieden': 'vienna',
+  'viden': 'vienna',       // doplněno
 
   // Salzburg
   'salzburg': 'salzburg',
@@ -466,35 +468,49 @@ const CITY_SYNONYMS = {
   'pressburg': 'bratislava'
 };
 
-
 function normalizeCityName(raw) {
   if (!raw) return '';
 
-  const base = raw
+  // základní normalizace vstupu
+  let base = String(raw)
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')   // pryč diakritika
+    .replace(/[\u0300-\u036f]/g, '')    // pryč diakritika
+    .replace(/[øØ]/g, 'o')              // speciálka: ø -> o (København apod.)
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')       // cokoliv jiného → mezera
+    .replace(/[^a-z0-9]+/g, ' ')        // jiné znaky -> mezera
     .trim();
 
   if (!base) return '';
 
-  // 1) přesná shoda
+  // 1) přímá shoda na normalizovaný klíč
   if (CITY_SYNONYMS[base]) {
     return CITY_SYNONYMS[base];
   }
 
-  // 2) „chytrá“ shoda – když base obsahuje nějaký klíč ze synonym
+  // 2) „chytrá“ shoda – porovnáváme taky normalizované klíče
   for (const [key, canonical] of Object.entries(CITY_SYNONYMS)) {
-    if (base.includes(key)) {
+    let keyNorm = key
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[øØ]/g, 'o')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+    if (!keyNorm) continue;
+
+    if (
+      base === keyNorm ||
+      base.endsWith(keyNorm) ||
+      (base.includes(keyNorm) && keyNorm.length >= 3)
+    ) {
       return canonical;
     }
   }
 
-  // fallback
+  // fallback – když nic nesedí, vrať normalizovaný string
   return base;
 }
-
 
 function cityMatches(tbValue, expected) {
   const a = normalizeCityName(tbValue);
@@ -762,7 +778,7 @@ async function tryAutoLinkTbToDiscord(tbName) {
   if (entry.discordId) return; // už propojeno
 
   const targetNorm = normalizeNameForMatch(key);
-  if (!targetNorm) return;
+  if (!targetNorm || targetNorm.length < 3) return;
 
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
@@ -772,7 +788,13 @@ async function tryAutoLinkTbToDiscord(tbName) {
     const matches = guild.members.cache.filter(member => {
       const displayNorm = normalizeNameForMatch(member.displayName);
       const userNorm = normalizeNameForMatch(member.user.username);
-      return displayNorm === targetNorm || userNorm === targetNorm;
+      const names = [displayNorm, userNorm];
+
+      return names.some(n =>
+        n === targetNorm ||
+        n.endsWith(targetNorm) ||
+        (n.includes(targetNorm) && targetNorm.length >= 4)
+      );
     });
 
     if (matches.size === 1) {
