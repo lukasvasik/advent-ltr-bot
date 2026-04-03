@@ -32,6 +32,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
 const BRAND_COLOR = 0x34EB52; // Velikonoční zelená
+const LOGO_URL = "https://i.imgur.com/fdvSTG2.png"; // Logo LTR
 
 if (!TOKEN) throw new Error('❌ DISCORD_TOKEN chybí.');
 
@@ -109,7 +110,11 @@ function buildEmbed(route, state) {
       description: `**Trasa je právě AKTIVNÍ!**\n\n**Start:** ${route.from}\n**Cíl:** ${route.to}\n**Délka:** ${route.dist}\n**Čas:** ${timeText}\n\nOdvez tuto trasu a získej velikonoční vajíčko! 🥚\n\nKlikni na tlačítko níže pro zobrazení mapy 👇`,
       color: BRAND_COLOR,
       image: { url: route.activeImage },
-      footer: { text: `Luky Transport • Velikonoce 2026` }
+      thumbnail: { url: LOGO_URL },
+      footer: { 
+        text: `Luky Transport • Velikonoce 2026`,
+        icon_url: LOGO_URL
+      }
     };
   } else {
     return {
@@ -117,7 +122,11 @@ function buildEmbed(route, state) {
       description: `**Tato etapa už skončila.**\nSleduj aktuální trasu dne!`,
       color: 0x99aab5, // Zašedlá barva pro prošlé dny
       image: { url: route.expiredImage },
-      footer: { text: `Luky Transport • Velikonoce 2026` }
+      thumbnail: { url: LOGO_URL },
+      footer: { 
+        text: `Luky Transport • Velikonoce 2026`,
+        icon_url: LOGO_URL
+      }
     };
   }
 }
@@ -179,9 +188,19 @@ const commands = [
   new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook nickem.")
     .addStringOption(o => o.setName("tb_nick").setDescription("Tvůj přesný nick na TrucksBooku").setRequired(true)),
   new SlashCommandBuilder().setName("velikonoce").setDescription("Zobrazí aktuální trasu pro dnešní den."),
+  
+  // ADMIN PŘÍKAZY
   new SlashCommandBuilder().setName("setup").setDescription("Nastaví tento kanál pro publikování velikonočních dnů.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-egg-dump").setDescription("Exportuje soubor s vajíčky (Admin).")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-publish").setDescription("TEST: Ručně zveřejní vybraný den (ignoruje čas).")
+    .addIntegerOption(o => o.setName("den").setDescription("Číslo dne (1-7)").setRequired(true).setMinValue(1).setMaxValue(7))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-add-egg").setDescription("TEST: Ručně přidá uživateli vajíčko za daný den.")
+    .addStringOption(o => o.setName("tb_nick").setDescription("Přesný TB nick").setRequired(true))
+    .addIntegerOption(o => o.setName("den").setDescription("Za jaký den (1-7)").setRequired(true).setMinValue(1).setMaxValue(7))
+    .addUserOption(o => o.setName("uzivatel").setDescription("Propojit rovnou i s Discord účtem? (volitelné)").setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -213,7 +232,8 @@ client.on("interactionCreate", async interaction => {
         { name: "Bonus za komplet (+3)", value: user.bonusClaimed ? "✅ Připsáno" : "❌ Chybí", inline: false }
       ],
       color: BRAND_COLOR,
-      footer: { text: `Propojeno s TB: ${user.tbName}` }
+      thumbnail: { url: LOGO_URL },
+      footer: { text: `Propojeno s TB: ${user.tbName}`, icon_url: LOGO_URL }
     };
     return interaction.reply({ embeds: [embed] });
   }
@@ -247,7 +267,8 @@ client.on("interactionCreate", async interaction => {
         title: "🏆 Žebříček Velikonoc 2026",
         description: lines.join("\n"),
         color: 0xFFCC00,
-        footer: { text: `Strana ${page} | Celkem: ${sorted.length}` }
+        thumbnail: { url: LOGO_URL },
+        footer: { text: `Strana ${page} | Celkem: ${sorted.length}`, icon_url: LOGO_URL }
       }]
     });
   }
@@ -255,6 +276,78 @@ client.on("interactionCreate", async interaction => {
   if (interaction.commandName === "admin-egg-dump") {
     const file = new AttachmentBuilder(Buffer.from(JSON.stringify(eggsData, null, 2)), { name: 'eggs.json' });
     return interaction.reply({ files: [file], ephemeral: true });
+  }
+
+  // ─────────────────────────────────────────────
+  // HANDLERY PRO NOVÉ TESTOVACÍ PŘÍKAZY
+  // ─────────────────────────────────────────────
+  if (interaction.commandName === "admin-publish") {
+    const dayNum = interaction.options.getInteger("den");
+    const route = ROUTES.find(r => r.day === dayNum);
+    
+    if (!route) return interaction.reply({ content: `❌ Den ${dayNum} neexistuje.`, ephemeral: true });
+    if (!config.channelId) return interaction.reply({ content: "❌ Nejdřív musíš nastavit kanál pomocí `/setup`.", ephemeral: true });
+
+    const channel = await client.channels.fetch(config.channelId).catch(() => null);
+    if (!channel) return interaction.reply({ content: "❌ Nemohu najít nastavený kanál.", ephemeral: true });
+
+    // Zkusíme expirnout včerejší den
+    const yesterday = route.day - 1;
+    if (config.messages && config.messages[yesterday]) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.messages[yesterday]);
+        const expiredRoute = ROUTES.find(r => r.day === yesterday);
+        if (expiredRoute) {
+          await oldMsg.edit({ embeds: [buildEmbed(expiredRoute, "EXPIRED")], components: [] });
+        }
+      } catch (err) {
+        console.warn(`TEST: Nemohl jsem aktualizovat starou zprávu pro den ${yesterday}. Může být smazaná.`);
+      }
+    }
+
+    // Pošleme testovaný den
+    const msg = await channel.send({ 
+      content: "🛠️ **[TEST]** Ruční publikace trasy 🛠️", 
+      embeds: [buildEmbed(route, "ACTIVE")], 
+      components: buildButton(route) 
+    });
+    
+    if (!config.messages) config.messages = {};
+    config.messages[route.day] = msg.id;
+    config.lastPublishedDay = route.day;
+    saveConfig();
+
+    return interaction.reply({ content: `✅ Testovací publikace pro den ${dayNum} úspěšně proběhla.`, ephemeral: true });
+  }
+
+  if (interaction.commandName === "admin-add-egg") {
+    const tbNick = interaction.options.getString("tb_nick").trim();
+    const dayNum = interaction.options.getInteger("den");
+    const userObj = interaction.options.getUser("uzivatel");
+
+    if (!eggsData[tbNick]) {
+      eggsData[tbNick] = { tbName: tbNick, discordId: null, completedDays: [], totalEggs: 0, bonusClaimed: false };
+    }
+    
+    const user = eggsData[tbNick];
+    if (userObj) user.discordId = userObj.id; // Volitelné ruční napojení discord účtu
+
+    if (user.completedDays.includes(dayNum)) {
+      return interaction.reply({ content: `⚠️ Uživatel **${tbNick}** už vajíčko za den ${dayNum} ve svém košíku má.`, ephemeral: true });
+    }
+
+    user.completedDays.push(dayNum);
+    user.totalEggs += 1;
+
+    let bonusMsg = "";
+    if (user.completedDays.length === 7 && !user.bonusClaimed) {
+      user.totalEggs += 3;
+      user.bonusClaimed = true;
+      bonusMsg = " 🎁 *(Získal i bonus +3 vajíčka za všechny dny!)*";
+    }
+    
+    saveEggs();
+    return interaction.reply({ content: `✅ Přidáno 1 vajíčko uživateli **${tbNick}** za den ${dayNum}. Celkem má v košíku: ${user.totalEggs} 🥚${bonusMsg}`, ephemeral: true });
   }
 });
 
