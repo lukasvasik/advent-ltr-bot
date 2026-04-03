@@ -107,7 +107,7 @@ function buildEmbed(route, state) {
   if (state === "ACTIVE") {
     return {
       title: `🥚 Velikonoční jízda – Den #${route.day}`,
-      description: `**Trasa je právě AKTIVNÍ!**\n\n**Start:** ${route.from}\n**Cíl:** ${route.to}\n**Délka:** ${route.dist}\n**Čas:** ${timeText}\n\nOdvez tuto trasu a získej velikonoční vajíčko! 🥚\n\nKlikni na tlačítko níže pro zobrazení mapy 👇`,
+      description: `**Trasa je právě AKTIVNÍ!**\n\n**Start:** ${route.from}\n**Cíl:** ${route.to}\n**Délka:** ${route.dist}\n**Čas:** ${timeText}\n\nOdvez tuto trasu a získej velikonoční vajíčko! (Trasu můžeš jet i vícekrát) 🥚\n\nKlikni na tlačítko níže pro zobrazení mapy 👇`,
       color: BRAND_COLOR,
       image: { url: route.activeImage },
       thumbnail: { url: LOGO_URL },
@@ -143,7 +143,7 @@ function buildButton(route) {
 }
 
 // ─────────────────────────────────────────────
-// LOGIKA PŘIPSÁNÍ VAJÍČKA
+// LOGIKA PŘIPSÁNÍ VAJÍČKA (NEOMEZENĚ S BONUSEM)
 // ─────────────────────────────────────────────
 async function processJob(tbName, fromRaw, toRaw) {
   const from = normalizeCity(fromRaw);
@@ -164,18 +164,22 @@ async function processJob(tbName, fromRaw, toRaw) {
   
   const user = eggsData[tbName];
 
+  // 1. Přidáme vajíčko za každou odjetou trasu (farming povolen)
+  user.totalEggs += 1;
+  
+  // 2. Zapíšeme si unikátní den, pokud ho ještě nemá pro účely bonusu
   if (!user.completedDays.includes(route.day)) {
     user.completedDays.push(route.day);
-    user.totalEggs += 1;
-    
-    // Logika BONUSU: 7 tras = +3 vajíčka
-    if (user.completedDays.length === 7 && !user.bonusClaimed) {
-      user.totalEggs += 3;
-      user.bonusClaimed = true;
-    }
-    saveEggs();
-    console.log(`🥚 [EGG] Připsáno vajíčko: ${tbName} (Den ${route.day})`);
   }
+  
+  // 3. Logika BONUSU: 7 unikátních tras = +3 vajíčka jednorázově
+  if (user.completedDays.length === 7 && !user.bonusClaimed) {
+    user.totalEggs += 3;
+    user.bonusClaimed = true;
+  }
+  
+  saveEggs();
+  console.log(`🥚 [EGG] Připsáno vajíčko: ${tbName} (Trasa pro den ${route.day}) | Celkem: ${user.totalEggs}`);
 }
 
 // ─────────────────────────────────────────────
@@ -228,7 +232,7 @@ client.on("interactionCreate", async interaction => {
       title: "🥚 Tvůj velikonoční košík",
       fields: [
         { name: "Počet vajíček", value: `**${user.totalEggs}** 🥚`, inline: true },
-        { name: "Splněné etapy", value: `**${user.completedDays.length} / 7**`, inline: true },
+        { name: "Splněné unikátní etapy", value: `**${user.completedDays.length} / 7**`, inline: true },
         { name: "Bonus za komplet (+3)", value: user.bonusClaimed ? "✅ Připsáno" : "❌ Chybí", inline: false }
       ],
       color: BRAND_COLOR,
@@ -260,7 +264,7 @@ client.on("interactionCreate", async interaction => {
 
     const start = (page - 1) * 10;
     const top = sorted.slice(start, start + 10);
-    const lines = top.map((d, i) => `**${start + i + 1}.** ${d.discordId ? `<@${d.discordId}>` : d.tbName} — 🥚 **${d.totalEggs}** (Dny: ${d.completedDays.length}/7)`);
+    const lines = top.map((d, i) => `**${start + i + 1}.** ${d.discordId ? `<@${d.discordId}>` : d.tbName} — 🥚 **${d.totalEggs}** (Unikátní dny: ${d.completedDays.length}/7)`);
 
     return interaction.reply({
       embeds: [{
@@ -330,24 +334,25 @@ client.on("interactionCreate", async interaction => {
     }
     
     const user = eggsData[tbNick];
-    if (userObj) user.discordId = userObj.id; // Volitelné ruční napojení discord účtu
+    if (userObj) user.discordId = userObj.id;
 
-    if (user.completedDays.includes(dayNum)) {
-      return interaction.reply({ content: `⚠️ Uživatel **${tbNick}** už vajíčko za den ${dayNum} ve svém košíku má.`, ephemeral: true });
-    }
-
-    user.completedDays.push(dayNum);
+    // Vždy přidáme vajíčko i z manuálního příkazu
     user.totalEggs += 1;
+
+    // Zkontrolujeme den
+    if (!user.completedDays.includes(dayNum)) {
+      user.completedDays.push(dayNum);
+    }
 
     let bonusMsg = "";
     if (user.completedDays.length === 7 && !user.bonusClaimed) {
       user.totalEggs += 3;
       user.bonusClaimed = true;
-      bonusMsg = " 🎁 *(Získal i bonus +3 vajíčka za všechny dny!)*";
+      bonusMsg = " \n🎁 *(Získal i jednorázový bonus +3 vajíčka za komplet!)*";
     }
     
     saveEggs();
-    return interaction.reply({ content: `✅ Přidáno 1 vajíčko uživateli **${tbNick}** za den ${dayNum}. Celkem má v košíku: ${user.totalEggs} 🥚${bonusMsg}`, ephemeral: true });
+    return interaction.reply({ content: `✅ Přidáno 1 vajíčko uživateli **${tbNick}** (započítáno pro den ${dayNum}).\nCelkem má v košíku: **${user.totalEggs} 🥚**${bonusMsg}`, ephemeral: true });
   }
 });
 
