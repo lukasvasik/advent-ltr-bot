@@ -33,7 +33,7 @@ const ROLE_ZAJIC_DNE = '1489757276435648552';
 
 const YEAR = 2026;
 const START_HOUR_UTC = 14; // 16:00 SEČ
-const EVENT_START = Date.UTC(YEAR, 3, 3, START_HOUR_UTC, 0, 0); // Pro analýzu (3. dubna 16:00)
+const EVENT_START = Date.UTC(YEAR, 3, 3, START_HOUR_UTC, 0, 0); // 3. dubna 16:00
 
 const getWindow = (dayNum) => ({
   start: Date.UTC(YEAR, 3, dayNum, START_HOUR_UTC, 0, 0),
@@ -144,7 +144,7 @@ async function processJob(tbName, fromRaw, toRaw, embed, msgId, ts = Date.now(),
   }
   const user = eggsData[tbName];
 
-  // Auto-link a Záchrana rolí
+  // Auto-link
   if (!user.discordId && !isAnalysis) await tryAutoLink(tbName);
   
   // Statistiky
@@ -230,22 +230,38 @@ function buildButton(route) {
 // ─────────────────────────────────────────────
 const commands = [
   new SlashCommandBuilder().setName("vajicka").setDescription("Ukáže tvůj stav velikonočních vajíček a statistik."),
+  
   new SlashCommandBuilder().setName("leaderboard").setDescription("Zobrazí žebříček sběratelů vajíček.")
     .addStringOption(o => o.setName("typ").setDescription("Podle čeho řadit?").addChoices({name: "Vajíčka", value: "eggs"}, {name: "Kilometry", value: "km"}, {name: "Zakázky", value: "jobs"}))
     .addIntegerOption(o => o.setName("strana").setDescription("Strana žebříčku").setMinValue(1)),
+  
   new SlashCommandBuilder().setName("velikonoce").setDescription("Zobrazí aktuální trasu pro dnešní den."),
+  
   new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook nickem.")
     .addStringOption(o => o.setName("tb_nick").setDescription("Tvůj přesný nick na TrucksBooku").setRequired(true)),
   
   // ADMIN PŘÍKAZY
   new SlashCommandBuilder().setName("setup").setDescription("Nastaví tento kanál pro publikování.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
   new SlashCommandBuilder().setName("admin-publish").setDescription("Ručně zveřejní vybraný den.")
     .addIntegerOption(o => o.setName("den").setDescription("Číslo dne (1-7)").setRequired(true).setMinValue(1).setMaxValue(7)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-link").setDescription("Ručně propojí Discord s TB.").addUserOption(o => o.setName("uzivatel").setRequired(true)).addStringOption(o => o.setName("tb_nick").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("unlink").setDescription("Odstraní propojení účtu.").addStringOption(o => o.setName("tb_nick").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-add-egg").setDescription("Ručně přidá uživateli vajíčko.").addStringOption(o => o.setName("tb_nick").setRequired(true)).addIntegerOption(o => o.setName("den").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
+  new SlashCommandBuilder().setName("admin-link").setDescription("Ručně propojí Discord s TB.")
+    .addUserOption(o => o.setName("uzivatel").setDescription("Uživatel").setRequired(true))
+    .addStringOption(o => o.setName("tb_nick").setDescription("Přesný TB nick").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
+  new SlashCommandBuilder().setName("unlink").setDescription("Odstraní propojení účtu.")
+    .addStringOption(o => o.setName("tb_nick").setDescription("Přesný TB nick").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
+  new SlashCommandBuilder().setName("admin-add-egg").setDescription("Ručně přidá uživateli vajíčko.")
+    .addStringOption(o => o.setName("tb_nick").setDescription("Přesný TB nick").setRequired(true))
+    .addIntegerOption(o => o.setName("den").setDescription("Za jaký den (1-7)").setRequired(true))
+    .addUserOption(o => o.setName("uzivatel").setDescription("Volitelné propojení účtu").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
   new SlashCommandBuilder().setName("analyzovat").setDescription("Projede historii zakázek a doplní chybějící vajíčka.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
   new SlashCommandBuilder().setName("fullanalyze").setDescription("Smaže všechna vajíčka a přepočítá je z historie od nuly!").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
   new SlashCommandBuilder().setName("admin-egg-dump").setDescription("Exportuje JSON.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -267,7 +283,6 @@ client.on("interactionCreate", async interaction => {
     const user = Object.values(eggsData).find(e => e.discordId === interaction.user.id);
     if (!user) return interaction.reply({ content: "Zatím nemáš žádná vajíčka. Nejdřív se propoj přes `/link`!", ephemeral: true });
 
-    // Najdi oblíbenou trasu
     let favRoute = "Žádná";
     let maxR = 0;
     for (const [r, count] of Object.entries(user.routes)) { if (count > maxR) { maxR = count; favRoute = r; } }
@@ -372,8 +387,13 @@ client.on("interactionCreate", async interaction => {
     await interaction.deferReply({ ephemeral: true });
     const tbNick = interaction.options.getString("tb_nick").trim();
     const dayNum = interaction.options.getInteger("den");
+    const userObj = interaction.options.getUser("uzivatel");
+
     if (!eggsData[tbNick]) eggsData[tbNick] = { tbName: tbNick, discordId: null, completedDays: [], totalEggs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {} };
     const user = eggsData[tbNick];
+    
+    if (userObj) user.discordId = userObj.id;
+
     user.totalEggs += 1;
     if (!user.completedDays.includes(dayNum)) user.completedDays.push(dayNum);
     if (user.completedDays.length === 7 && !user.bonusClaimed) { user.totalEggs += 3; user.bonusClaimed = true; }
@@ -404,9 +424,9 @@ client.on("interactionCreate", async interaction => {
         scanned++;
         if (!m.embeds.length) continue;
         const e = m.embeds[0];
-        const f = e.fields?.find(f => f.name.toLowerCase().includes('odkud'))?.value;
-        const t = e.fields?.find(f => f.name.toLowerCase().includes('kam'))?.value;
-        const n = e.author?.name || e.fields?.find(f => f.name.toLowerCase().includes('řidič'))?.value;
+        const f = e.fields?.find(field => field.name.toLowerCase().includes('odkud'))?.value;
+        const t = e.fields?.find(field => field.name.toLowerCase().includes('kam'))?.value;
+        const n = e.author?.name || e.fields?.find(field => field.name.toLowerCase().includes('řidič'))?.value;
         
         if (f && t && n) {
           const earned = await processJob(n.trim(), f, t, e, m.id, m.createdTimestamp, true);
@@ -431,21 +451,17 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-// ─────────────────────────────────────────────
-// ŽIVÝ POSLECH ZAKÁZEK
-// ─────────────────────────────────────────────
+// --- ŽIVÝ POSLECH ZAKÁZEK ---
 client.on('messageCreate', async (m) => {
   if (m.channel.id !== JOBS_CHANNEL_ID || !m.embeds.length) return;
   const e = m.embeds[0];
-  const f = e.fields?.find(f => f.name.toLowerCase().includes('odkud'))?.value;
-  const t = e.fields?.find(f => f.name.toLowerCase().includes('kam'))?.value;
-  const n = e.author?.name || e.fields?.find(f => f.name.toLowerCase().includes('řidič'))?.value;
+  const f = e.fields?.find(field => field.name.toLowerCase().includes('odkud'))?.value;
+  const t = e.fields?.find(field => field.name.toLowerCase().includes('kam'))?.value;
+  const n = e.author?.name || e.fields?.find(field => field.name.toLowerCase().includes('řidič'))?.value;
   if (f && t && n) await processJob(n.trim(), f, t, e, m.id);
 });
 
-// ─────────────────────────────────────────────
-// AUTO UPDATE (16:00)
-// ─────────────────────────────────────────────
+// --- AUTO UPDATE (16:00) ---
 async function autoUpdate() {
   if (!config.channelId) return;
   const route = ROUTES.find(r => Date.now() >= r.start && Date.now() < r.end);
