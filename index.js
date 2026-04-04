@@ -194,7 +194,7 @@ function buildEmbed(route, state) {
 const buildButton = (route) => [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel("Zobrazit mapu trasy!").setStyle(ButtonStyle.Link).setURL(route.mapUrl))];
 
 // ─────────────────────────────────────────────
-// PŘÍKAZY
+// PŘÍKAZY (OPRAVENO)
 // ─────────────────────────────────────────────
 const commands = [
   new SlashCommandBuilder().setName("vajicka").setDescription("Ukáže tvůj stav velikonočních vajíček a statistik."),
@@ -206,7 +206,7 @@ const commands = [
     .addStringOption(o => o.setName("tb_nick").setRequired(true).setDescription("Nick na Trucksbooku")),
   new SlashCommandBuilder().setName("setup").setDescription("Nastavit kanál pro auto-publikaci.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-publish").setDescription("Ručně publikovat den.")
-    .addIntegerOption(o => o.setName("den").setRequired(true).setMinValue(1).setMaxValue(7)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .addIntegerOption(o => o.setName("den").setDescription("Číslo dne (1-7)").setRequired(true).setMinValue(1).setMaxValue(7)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-link").setDescription("Ručně propojit Discord s TB.")
     .addUserOption(o => o.setName("uzivatel").setDescription("Uživatel").setRequired(true))
     .addStringOption(o => o.setName("tb_nick").setDescription("Přesný TB nick").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
