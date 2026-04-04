@@ -286,14 +286,16 @@ client.on("interactionCreate", async interaction => {
   // HANDLERY PRO NOVÉ TESTOVACÍ PŘÍKAZY
   // ─────────────────────────────────────────────
   if (interaction.commandName === "admin-publish") {
+    await interaction.deferReply({ ephemeral: true }); // Odložená odpověď proti timeoutu
+
     const dayNum = interaction.options.getInteger("den");
     const route = ROUTES.find(r => r.day === dayNum);
     
-    if (!route) return interaction.reply({ content: `❌ Den ${dayNum} neexistuje.`, ephemeral: true });
-    if (!config.channelId) return interaction.reply({ content: "❌ Nejdřív musíš nastavit kanál pomocí `/setup`.", ephemeral: true });
+    if (!route) return interaction.editReply({ content: `❌ Den ${dayNum} neexistuje.` });
+    if (!config.channelId) return interaction.editReply({ content: "❌ Nejdřív musíš nastavit kanál pomocí `/setup`." });
 
     const channel = await client.channels.fetch(config.channelId).catch(() => null);
-    if (!channel) return interaction.reply({ content: "❌ Nemohu najít nastavený kanál.", ephemeral: true });
+    if (!channel) return interaction.editReply({ content: "❌ Nemohu najít nastavený kanál." });
 
     // Zkusíme expirnout včerejší den
     const yesterday = route.day - 1;
@@ -321,10 +323,12 @@ client.on("interactionCreate", async interaction => {
     config.lastPublishedDay = route.day;
     saveConfig();
 
-    return interaction.reply({ content: `✅ Testovací publikace pro den ${dayNum} úspěšně proběhla.`, ephemeral: true });
+    return interaction.editReply({ content: `✅ Testovací publikace pro den ${dayNum} úspěšně proběhla.` });
   }
 
   if (interaction.commandName === "admin-add-egg") {
+    await interaction.deferReply({ ephemeral: true }); // Odložená odpověď
+
     const tbNick = interaction.options.getString("tb_nick").trim();
     const dayNum = interaction.options.getInteger("den");
     const userObj = interaction.options.getUser("uzivatel");
@@ -352,7 +356,7 @@ client.on("interactionCreate", async interaction => {
     }
     
     saveEggs();
-    return interaction.reply({ content: `✅ Přidáno 1 vajíčko uživateli **${tbNick}** (započítáno pro den ${dayNum}).\nCelkem má v košíku: **${user.totalEggs} 🥚**${bonusMsg}`, ephemeral: true });
+    return interaction.editReply({ content: `✅ Přidáno 1 vajíčko uživateli **${tbNick}** (započítáno pro den ${dayNum}).\nCelkem má v košíku: **${user.totalEggs} 🥚**${bonusMsg}` });
   }
 });
 
