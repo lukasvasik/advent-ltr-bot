@@ -85,13 +85,28 @@ const saveAll = () => {
   fs.writeFileSync(PROCESSED_PATH, JSON.stringify(processed, null, 2));
 };
 
+// ─────────────────────────────────────────────
+// MIGRACE: Oprava malých písmen u již zapsaných tras
+// ─────────────────────────────────────────────
+for (const user of Object.values(eggsData)) {
+  const fixedRoutes = {};
+  for (const [key, val] of Object.entries(user.routes)) {
+    const fixedKey = key.split(' → ').map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(' → ');
+    fixedRoutes[fixedKey] = (fixedRoutes[fixedKey] || 0) + val;
+  }
+  user.routes = fixedRoutes;
+}
+saveAll();
+
 async function tryAssignRole(memberId, roleId, reason) {
   if (!GUILD_ID || !memberId || !roleId) return;
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
     const member = await guild.members.fetch(memberId);
     if (!member.roles.cache.has(roleId)) await member.roles.add(roleId, reason);
-  } catch (e) {}
+  } catch (e) {
+    console.error(`Chyba při přiřazování role ${roleId} uživateli ${memberId}:`, e.message);
+  }
 }
 
 async function tryAutoLink(tbName) {
@@ -105,7 +120,9 @@ async function tryAutoLink(tbName) {
       eggsData[tbName].discordId = match.id;
       saveAll();
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error(`Chyba při auto-linku pro ${tbName}:`, e.message);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -117,9 +134,11 @@ async function processJob(tbName, fromRaw, toRaw, embed, msgId, ts = Date.now(),
   const from = normalize(fromRaw);
   const to = normalize(toRaw);
   
-  // STRIKTNÍ SMĚR JÍZDY: Odkud -> Kam (Opačný směr neplatí)
+  // STRIKTNÍ SMĚR JÍZDY: Odkud -> Kam
   const route = ROUTES.find(r => ts >= r.start && ts < r.end && from === normalize(r.from) && to === normalize(r.to));
   if (!route) return 0;
+
+  if (!isAnalysis) console.log(`[DEBUG] Nalezena platná trasa (Den #${route.day}) pro řidiče ${tbName}`);
 
   if (!eggsData[tbName]) eggsData[tbName] = { tbName, discordId: null, completedDays: [], totalEggs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {} };
   const user = eggsData[tbName];
@@ -129,37 +148,42 @@ async function processJob(tbName, fromRaw, toRaw, embed, msgId, ts = Date.now(),
   const km = extractDistanceKm(embed) || route.dist;
   user.totalJobs += 1;
   user.totalKm += km;
-  const routeKey = `${from} → ${to}`;
+  
+  const routeKey = `${route.from} → ${route.to}`;
   user.routes[routeKey] = (user.routes[routeKey] || 0) + 1;
 
-  // HAZARD (ŠANCE NA BONUS)
   let earned = 1;
   const rand = Math.random() * 100;
-  if (rand <= 1) earned += 5; // 1% šance na Jackpot
-  else if (rand <= 11) earned += 1; // 10% šance na +1 vajíčko
+  if (rand <= 1) earned += 5; 
+  else if (rand <= 11) earned += 1;
   user.totalEggs += earned;
 
   // ZAJÍC DNE A KOMPLETACE
   if (!user.completedDays.includes(route.day)) {
     user.completedDays.push(route.day);
     
-    // Zajíc se dává jen živě (ne z analýzy)
-    if (!isAnalysis && user.discordId && !config.dailyHare[route.day]) {
-      config.dailyHare[route.day] = user.discordId;
-      try {
-        const guild = await client.guilds.fetch(GUILD_ID);
-        const currentHares = guild.members.cache.filter(m => m.roles.cache.has(ROLE_ZAJIC_DNE));
-        for (const [id, member] of currentHares) await member.roles.remove(ROLE_ZAJIC_DNE);
-        await tryAssignRole(user.discordId, ROLE_ZAJIC_DNE, `Zajíc dne ${route.day}`);
-        if (config.channelId) {
-          const ch = await client.channels.fetch(config.channelId);
-          await ch.send(`🐰 **Zajícem dne #${route.day}** se stává <@${user.discordId}>! Byl první! 🏆`);
+    if (!isAnalysis) {
+      if (user.discordId && !config.dailyHare[route.day]) {
+        console.log(`[DEBUG] Přiděluji Zajíce dne pro den #${route.day} uživateli ${tbName}`);
+        config.dailyHare[route.day] = user.discordId;
+        try {
+          const guild = await client.guilds.fetch(GUILD_ID);
+          const currentHares = guild.members.cache.filter(m => m.roles.cache.has(ROLE_ZAJIC_DNE));
+          for (const [id, member] of currentHares) await member.roles.remove(ROLE_ZAJIC_DNE);
+          await tryAssignRole(user.discordId, ROLE_ZAJIC_DNE, `Zajíc dne ${route.day}`);
+          if (config.channelId) {
+            const ch = await client.channels.fetch(config.channelId);
+            await ch.send(`🐰 **Zajícem dne #${route.day}** se stává <@${user.discordId}>! Byl první! 🏆`);
+          }
+        } catch(e) {
+          console.error(`Chyba při logice Zajíce dne pro den ${route.day}:`, e.message);
         }
-      } catch(e) {}
+      } else if (!user.discordId && !config.dailyHare[route.day]) {
+         console.log(`[DEBUG] Zajíc dne PŘESKOČEN - uživatel ${tbName} byl sice první, ale nemá propojený Discord (chybí ID). Role bude udělena dalšímu v pořadí s propojeným účtem.`);
+      }
     }
   }
 
-  // EASTER HAUL (Role za všech 7)
   if (user.completedDays.length === 7 && !user.bonusClaimed) {
     user.totalEggs += 3;
     user.bonusClaimed = true;
@@ -194,7 +218,7 @@ function buildEmbed(route, state) {
 const buildButton = (route) => [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel("Zobrazit mapu trasy!").setStyle(ButtonStyle.Link).setURL(route.mapUrl))];
 
 // ─────────────────────────────────────────────
-// PŘÍKAZY (OPRAVENO)
+// PŘÍKAZY
 // ─────────────────────────────────────────────
 const commands = [
   new SlashCommandBuilder().setName("vajicka").setDescription("Ukáže tvůj stav velikonočních vajíček a statistik."),
@@ -206,7 +230,7 @@ const commands = [
     .addStringOption(o => o.setName("tb_nick").setRequired(true).setDescription("Nick na Trucksbooku")),
   new SlashCommandBuilder().setName("setup").setDescription("Nastavit kanál pro auto-publikaci.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-publish").setDescription("Ručně publikovat den.")
-    .addIntegerOption(o => o.setName("den").setDescription("Číslo dne (1-7)").setRequired(true).setMinValue(1).setMaxValue(7)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .addIntegerOption(o => o.setName("den").setRequired(true).setMinValue(1).setMaxValue(7)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-link").setDescription("Ručně propojit Discord s TB.")
     .addUserOption(o => o.setName("uzivatel").setDescription("Uživatel").setRequired(true))
     .addStringOption(o => o.setName("tb_nick").setDescription("Přesný TB nick").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
@@ -220,15 +244,22 @@ const commands = [
   new SlashCommandBuilder().setName("fullanalyze").setDescription("Smazat vajíčka a přepočítat je z historie od nuly!").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("analyzovat-zajice").setDescription("ADMIN: Zpětně určit Zajíce dne.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("full-test").setDescription("ADMIN: Rychlá simulace události (všechny dny po 15s).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-egg-dump").setDescription("Export databáze do JSON.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-egg-dump").setDescription("Export databáze do JSON.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-egg-load").setDescription("ADMIN: Nahrát JSON zálohu s databází vajíček.")
+    .addAttachmentOption(o => o.setName("soubor").setDescription("Záložní .json soubor (z admin-egg-dump)").setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMembers] });
+const client = new Client({ intents: [
+  GatewayIntentBits.Guilds, 
+  GatewayIntentBits.GuildMessages, 
+  GatewayIntentBits.GuildMembers,
+  GatewayIntentBits.MessageContent // TENTO INTENT BYL CHYBĚJÍCÍ KLÍČ K ŽIVÉMU POSLECHU!
+]});
 
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  // TESTOVACÍ SIMULÁTOR
   if (interaction.commandName === "full-test") {
     await interaction.reply({ content: "🛠️ Spouštím **FULL TEST** systému. Během následujících 2 minut uvidíš v tomto kanálu simulaci celého eventu.", ephemeral: true });
     let currentTestDay = 1;
@@ -243,7 +274,9 @@ client.on("interactionCreate", async interaction => {
         try {
           const oldMsg = await interaction.channel.messages.fetch(config.messages[prevDay]);
           await oldMsg.edit({ embeds: [buildEmbed(ROUTES.find(r => r.day === prevDay), "EXPIRED")], components: [] });
-        } catch (e) {}
+        } catch (e) {
+          console.error(`Chyba při simulaci expirace dne ${prevDay}:`, e.message);
+        }
       }
       const msg = await interaction.channel.send({ content: `🛠️ **[TEST Simulace]**`, embeds: [buildEmbed(route, "ACTIVE")], components: buildButton(route) });
       config.messages[currentTestDay] = msg.id;
@@ -342,6 +375,28 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply({ files: [file], ephemeral: true });
   }
 
+  if (interaction.commandName === "admin-egg-load") {
+    await interaction.deferReply({ ephemeral: true });
+    const attachment = interaction.options.getAttachment("soubor");
+
+    if (!attachment.name.endsWith('.json')) {
+      return interaction.editReply("❌ Soubor musí být ve formátu .json!");
+    }
+
+    try {
+      const response = await fetch(attachment.url);
+      const data = await response.json();
+      
+      eggsData = data;
+      saveAll();
+      
+      return interaction.editReply(`✅ Databáze úspěšně nahrána a obnovena ze souboru **${attachment.name}**.`);
+    } catch (error) {
+      console.error("Chyba při načítání JSON zálohy:", error);
+      return interaction.editReply("❌ Nastala chyba při načítání souboru. Ujisti se, že jde o validní JSON zálohu.");
+    }
+  }
+
   if (interaction.commandName === "analyzovat-zajice") {
     await interaction.deferReply({ ephemeral: true });
     const channel = await client.channels.fetch(JOBS_CHANNEL_ID);
@@ -350,9 +405,9 @@ client.on("interactionCreate", async interaction => {
     for (const m of msgs.values()) {
       if (!m.embeds.length) continue;
       const e = m.embeds[0];
-      const f = normalize(e.fields?.find(field => field.name.toLowerCase().includes('odkud'))?.value);
-      const t = normalize(e.fields?.find(field => field.name.toLowerCase().includes('kam'))?.value);
-      const n = e.author?.name || e.fields?.find(field => field.name.toLowerCase().includes('řidič'))?.value;
+      const f = normalize(e.fields?.find(field => field.name?.toLowerCase()?.includes('odkud'))?.value);
+      const t = normalize(e.fields?.find(field => field.name?.toLowerCase()?.includes('kam'))?.value);
+      const n = e.author?.name || e.fields?.find(field => field.name?.toLowerCase()?.includes('řidič'))?.value;
       const ts = m.createdTimestamp;
       const route = ROUTES.find(r => ts >= r.start && ts < r.end && f === normalize(r.from) && t === normalize(r.to));
       if (route && eggsData[n.trim()]?.discordId) {
@@ -387,9 +442,9 @@ client.on("interactionCreate", async interaction => {
         scanned++;
         if (!m.embeds.length) continue;
         const e = m.embeds[0];
-        const f = e.fields?.find(field => field.name.toLowerCase().includes('odkud'))?.value;
-        const t = e.fields?.find(field => field.name.toLowerCase().includes('kam'))?.value;
-        const n = e.author?.name || e.fields?.find(field => field.name.toLowerCase().includes('řidič'))?.value;
+        const f = e.fields?.find(field => field.name?.toLowerCase()?.includes('odkud'))?.value;
+        const t = e.fields?.find(field => field.name?.toLowerCase()?.includes('kam'))?.value;
+        const n = e.author?.name || e.fields?.find(field => field.name?.toLowerCase()?.includes('řidič'))?.value;
         if (f && t && n) {
           const earned = await processJob(n.trim(), f, t, e, m.id, m.createdTimestamp, true);
           if (earned > 0) rewarded++;
@@ -419,10 +474,13 @@ client.on("interactionCreate", async interaction => {
 client.on('messageCreate', async (m) => {
   if (m.channel.id !== JOBS_CHANNEL_ID || !m.embeds.length) return;
   const e = m.embeds[0];
-  const f = e.fields?.find(field => field.name.toLowerCase().includes('odkud'))?.value;
-  const t = e.fields?.find(field => field.name.toLowerCase().includes('kam'))?.value;
-  const n = e.author?.name || e.fields?.find(field => field.name.toLowerCase().includes('řidič'))?.value;
-  if (f && t && n) await processJob(n.trim(), f, t, e, m.id);
+  const f = e.fields?.find(field => field.name?.toLowerCase()?.includes('odkud'))?.value;
+  const t = e.fields?.find(field => field.name?.toLowerCase()?.includes('kam'))?.value;
+  const n = e.author?.name || e.fields?.find(field => field.name?.toLowerCase()?.includes('řidič'))?.value;
+  if (f && t && n) {
+    console.log(`[LIVE JOB] Zaznamenána zakázka: ${n.trim()} (${f} -> ${t})`);
+    await processJob(n.trim(), f, t, e, m.id, m.createdTimestamp);
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -440,7 +498,9 @@ async function autoUpdate() {
       try {
         const oldMsg = await channel.messages.fetch(config.messages[yesterday]);
         await oldMsg.edit({ embeds: [buildEmbed(ROUTES.find(r => r.day === yesterday), "EXPIRED")], components: [] });
-      } catch (e) {}
+      } catch (e) {
+        console.error(`Chyba při automatické expiraci zprávy dne ${yesterday}:`, e.message);
+      }
     }
     const msg = await channel.send({ content: "@everyone", embeds: [buildEmbed(route, "ACTIVE")], components: buildButton(route) });
     config.messages[route.day] = msg.id; config.lastPublishedDay = route.day; saveAll();
