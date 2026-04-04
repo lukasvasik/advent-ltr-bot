@@ -60,7 +60,7 @@ const CITY_SYNONYMS = {
 };
 
 function normalize(text) {
-  if (!text) return '';
+  if (!text || typeof text !== 'string') return '';
   const base = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   for (const [key, val] of Object.entries(CITY_SYNONYMS)) { if (base.includes(key)) return val; }
   return base;
@@ -86,9 +86,15 @@ const saveAll = () => {
 };
 
 // ─────────────────────────────────────────────
-// MIGRACE: Oprava malých písmen u již zapsaných tras
+// MIGRACE: Záchrana starých dat a oprava formátu
 // ─────────────────────────────────────────────
 for (const user of Object.values(eggsData)) {
+  // Pojistka proti pádu: vytvoří atributy, pokud uživatel vznikl ve staré verzi kódu
+  if (!user.routes) user.routes = {};
+  if (typeof user.totalJobs !== 'number') user.totalJobs = 0;
+  if (typeof user.totalKm !== 'number') user.totalKm = 0;
+  if (!user.completedDays) user.completedDays = [];
+
   const fixedRoutes = {};
   for (const [key, val] of Object.entries(user.routes)) {
     const fixedKey = key.split(' → ').map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(' → ');
@@ -254,7 +260,7 @@ const client = new Client({ intents: [
   GatewayIntentBits.Guilds, 
   GatewayIntentBits.GuildMessages, 
   GatewayIntentBits.GuildMembers,
-  GatewayIntentBits.MessageContent // TENTO INTENT BYL CHYBĚJÍCÍ KLÍČ K ŽIVÉMU POSLECHU!
+  GatewayIntentBits.MessageContent // Nutné pro živý poslech embedů ze zakázek
 ]});
 
 client.on("interactionCreate", async interaction => {
