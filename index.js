@@ -55,8 +55,8 @@ const ROUTES = [
   { day: 4, variant: 'B', from: "Kiel", to: "Hannover", dist: 257, activeImage: "https://i.imgur.com/6sazkud.png", mapUrl: "https://i.imgur.com/6sazkud.png", ...getWindow(7) },
   { day: 5, variant: 'A', from: "Praha", to: "Erfurt", dist: 340, activeImage: "https://i.imgur.com/wAMChxt.png", mapUrl: "https://i.imgur.com/wAMChxt.png", ...getWindow(8) },
   { day: 5, variant: 'B', from: "Stetin", to: "Erfurt", dist: 444, activeImage: "https://i.imgur.com/Mk1G9CK.png", mapUrl: "https://i.imgur.com/Mk1G9CK.png", ...getWindow(8) },
-  { day: 6, variant: 'A', from: "Praha", to: "Kassel", dist: 445, activeImage: "NAHRADIT_URL_DEN6_A", mapUrl: "NAHRADIT_URL_DEN6_A", ...getWindow(9) },
-  { day: 6, variant: 'B', from: "Kiel", to: "Kassel", dist: 381, activeImage: "NAHRADIT_URL_DEN6_B", mapUrl: "NAHRADIT_URL_DEN6_B", ...getWindow(9) }
+  { day: 6, variant: 'A', from: "Praha", to: "Kassel", dist: 445, activeImage: "https://i.imgur.com/g5BRiak.png", mapUrl: "https://i.imgur.com/g5BRiak.png", ...getWindow(9) },
+  { day: 6, variant: 'B', from: "Kiel", to: "Kassel", dist: 381, activeImage: "https://i.imgur.com/WwBHxbu.png", mapUrl: "https://i.imgur.com/WwBHxbu.png", ...getWindow(9) }
 ];
 
 const CITY_SYNONYMS = {
