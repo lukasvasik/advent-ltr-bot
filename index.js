@@ -29,10 +29,10 @@ const ROLE_EVENT_HAUL = '1500670438630756464'; // Mistr Čaroděj
 const ROLE_BLACK_MAGIC = '1500670224461074492'; // Pán Stínů (Varianta A)
 const ROLE_WHITE_MAGIC = '1500670331063505066'; // Bílý Mág (Varianta B)
 
-// ČASOVÁNÍ EVENTU (Nastaveno na 16:30 SELČ -> 14:30 UTC)
+// ČASOVÁNÍ EVENTU (Nastaveno na 18:00 SELČ -> 16:00 UTC)
 const YEAR = 2026;
-const START_HOUR_UTC = 14; 
-const START_MINUTE_UTC = 30;
+const START_HOUR_UTC = 16; 
+const START_MINUTE_UTC = 0;
 const EVENT_START = Date.UTC(YEAR, 4, 4, START_HOUR_UTC, START_MINUTE_UTC, 0); 
 
 const getWindow = (dayNum) => ({
@@ -170,7 +170,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     earned += 5;
     eventMessages.push(`✨ **Hráč ${tbName}, obdržel bonus v podobě mytického orbu v hodnotě 5 orbů navíc.**`);
   } else if (rand <= 11) {
-    earned += 1; // 10% šance na 1 orb navíc
+    earned += 1; 
   }
 
   // POUSTEVNÍK (2% šance)
@@ -179,7 +179,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     eventMessages.push("🧙‍♂️ *Na odpočívadle jsi potkal potulného poustevníka, který ti za tvou ochotu dal 5 orbů.*");
   }
 
-// DENNÍ ÚKOLY (Questy s rozptylem odměn)
+  // DENNÍ ÚKOLY (Questy s rozptylem odměn)
   const currentDay = route.day;
   if (!user.quests[currentDay]) {
     const questPool = [
@@ -199,7 +199,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     if (user.inventory.talisman > 0) {
       user.inventory.talisman -= 1;
       eventMessages.push("🛡️ *Čarodějnice se tě pokusila okrást, ale Talisman Ochrany magii odrazil!*");
-      isCursed = false; // Bylo odraženo, úkol se může počítat
+      isCursed = false; 
     } else {
       earned = 0;
       user.cursedCount += 1;
@@ -207,7 +207,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     }
   }
 
-  // ZPRACOVÁNÍ POSTUPU ÚKOLU (Pouze pokud nebyl náklad ukraden)
+  // ZPRACOVÁNÍ POSTUPU ÚKOLU
   const q = user.quests[currentDay];
   if (!q.completed && !isCursed) { 
     if (q.type === 'jobs') q.progress += 1;
@@ -264,7 +264,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   processed[msgId] = true;
   saveAll();
 
-  // NOTIFIKACE NA DISCORD
+  // NOTIFIKACE NA DISCORD S PINGEM NA UŽIVATELE
   if (!isAnalysis && user.discordId && config.channelId) {
     const ch = await client.channels.fetch(config.channelId).catch(()=>null);
     if (ch && (eventMessages.length > 0 || earned > 1)) {
@@ -351,7 +351,7 @@ async function runAnalysis(fullReset) {
 }
 
 // ─────────────────────────────────────────────
-// PŘÍKAZY
+// PŘÍKAZY A INTERAKCE
 // ─────────────────────────────────────────────
 const commands = [
   new SlashCommandBuilder().setName("orby").setDescription("Ukáže tvůj stav magických orbů."),
@@ -379,9 +379,9 @@ const commands = [
   new SlashCommandBuilder().setName("admin-orb-dump").setDescription("ADMIN: Export databáze do JSON.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-orb-load").setDescription("ADMIN: Nahrát JSON zálohu s databází.")
     .addAttachmentOption(o => o.setName("soubor").setDescription("Záložní .json soubor").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("setup").setDescription("Nastavit kanál eventu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("setup").setDescription("Nastavit kanál eventu pro automatické zprávy.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-bloodmoon").setDescription("ADMIN: Spustí Krvavý měsíc na 2 hodiny.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("full-test").setDescription("ADMIN: Odsimuluje zveřejnění všech dnů v kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("full-test").setDescription("ADMIN: Odsimuluje mazání a zveřejnění všech dnů v kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMembers, GatewayIntentBits.MessageContent ]});
@@ -512,7 +512,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `✅ Propojeno s **${nick}**`, ephemeral: true });
     }
 
-    // ──────────────── ADMIN SPRÁVA ÚČTŮ A ZÁLOH ────────────────
+    // ──────────────── ADMIN SPRÁVA ────────────────
 
     if (interaction.commandName === "admin-link") {
       const user = interaction.options.getUser("uzivatel");
@@ -574,27 +574,48 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "setup") {
       config.channelId = interaction.channel.id; saveAll();
-      return interaction.reply({ content: "📌 Kanál pro event nastaven.", ephemeral: true });
+      return interaction.reply({ content: "📌 Kanál pro automatické zprávy eventu nastaven.", ephemeral: true });
     }
 
     if (interaction.commandName === "admin-bloodmoon") {
       config.bloodMoon.activeUntil = Date.now() + (2 * 60 * 60 * 1000); 
       config.bloodMoon.announced = true;
       saveAll();
-      interaction.reply("🌕 **KRVAVÝ MĚSÍC POVSTAL!** Následující 2 hodiny dávají všechny zakázky 2x více Orbů!");
+      interaction.reply({ content: "Spuštěno.", ephemeral: true });
+      const channel = await client.channels.fetch(config.channelId).catch(() => null);
+      if (channel) channel.send("@everyone 🌕 **KRVAVÝ MĚSÍC POVSTAL!** Následující 2 hodiny dávají všechny zakázky 2x více Orbů!");
       return;
     }
 
     if (interaction.commandName === "full-test") {
-      await interaction.reply({ content: "🛠️ Spouštím **FULL TEST** systému. Každých 10 vteřin pošlu jeden den.", ephemeral: true });
+      await interaction.reply({ content: "🛠️ Spouštím **FULL TEST** systému. Každých 10 vteřin smažu předchozí den a pošlu nový s pingem.", ephemeral: true });
       let currentTestDay = 1;
+      let lastTestMsgId = null;
       
       const testInterval = setInterval(async () => {
         if (currentTestDay > 6) {
           clearInterval(testInterval);
-          return interaction.channel.send("✅ **TEST DOKONČEN.** Simulace odeslání všech dnů proběhla v pořádku.");
+          if (lastTestMsgId) {
+            try {
+              const oldMsg = await interaction.channel.messages.fetch(lastTestMsgId);
+              if (oldMsg) await oldMsg.delete();
+            } catch(e) {}
+          }
+          return interaction.channel.send("✅ **TEST DOKONČEN.** Simulace proběhla v pořádku.");
         }
-        await interaction.channel.send({ content: `🛠️ **[TEST Simulace] Den #${currentTestDay}**`, embeds: buildEmbedsForDay(currentTestDay, true) });
+        
+        if (lastTestMsgId) {
+           try {
+             const oldMsg = await interaction.channel.messages.fetch(lastTestMsgId);
+             if (oldMsg) await oldMsg.delete();
+           } catch(e) {}
+        }
+        
+        const msg = await interaction.channel.send({ 
+          content: `@everyone 🛠️ **[TEST Simulace] Začala nová etapa - Den #${currentTestDay}**`, 
+          embeds: buildEmbedsForDay(currentTestDay, true) 
+        });
+        lastTestMsgId = msg.id;
         currentTestDay++;
       }, 10000); 
       return;
@@ -693,7 +714,7 @@ client.on("interactionCreate", async interaction => {
         else if (roll < 75) won = 5;
         else if (roll < 94) won = 10;
         else if (roll < 99) won = 15;
-        else won = 30; // 1% Jackpot
+        else won = 30; 
         
         userObj.totalOrbs += won;
         replyMsg = `🎲 Vypil jsi Risky Potion a tvé tělo se zachvělo... Získáváš zpět **${won} orbů**!`;
@@ -723,10 +744,49 @@ client.on('messageCreate', async (m) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// AUTO UPDATE (Vydávání tras a mazání starých)
+// ─────────────────────────────────────────────
+async function autoUpdate() {
+  if (!config.channelId) return;
+  const now = Date.now();
+  const route = ROUTES.find(r => now >= r.start && now < r.end);
+
+  if (!route || config.lastPublishedDay === route.day) return;
+
+  const channel = await client.channels.fetch(config.channelId).catch(() => null);
+  if (channel) {
+    const yesterday = route.day - 1;
+
+    // Smazání staré (včerejší) zprávy s trasou
+    if (config.messages[yesterday]) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.messages[yesterday]);
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {
+        console.error(`Chyba při mazání zprávy z předchozího dne:`, e.message);
+      }
+    }
+
+    // Publikování nové zprávy s pingem na @everyone
+    const msg = await channel.send({ 
+      content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", 
+      embeds: buildEmbedsForDay(route.day, true) 
+    });
+    
+    config.messages[route.day] = msg.id; 
+    config.lastPublishedDay = route.day; 
+    saveAll();
+  }
+}
+
 client.once("ready", () => {
   console.log(`Bot Čarodějnice přihlášen a připraven čarovat.`);
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+  
+  // Spouštění kontroly každou minutu
+  setInterval(autoUpdate, 60000);
 });
 
 client.login(TOKEN);
