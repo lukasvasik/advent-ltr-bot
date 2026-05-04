@@ -21,6 +21,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
 const BRAND_COLOR = 0x8A2BE2;
+const LOGO_URL = "https://i.imgur.com/fdvSTG2.png"; 
 
 if (!TOKEN) throw new Error('❌ DISCORD_TOKEN chybí.');
 
@@ -81,7 +82,8 @@ let orbsData = fs.existsSync(ORBS_PATH) ? JSON.parse(fs.readFileSync(ORBS_PATH, 
 let config = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) : { 
   channelId: null, lastPublishedDay: 0, messages: {}, 
   dailyMasters: { 1:{}, 2:{}, 3:{}, 4:{}, 5:{}, 6:{} }, 
-  bloodMoon: { activeUntil: 0, announced: false } 
+  bloodMoon: { activeUntil: 0, announced: false },
+  eventEndedAnnounced: false
 };
 let processed = fs.existsSync(PROCESSED_PATH) ? JSON.parse(fs.readFileSync(PROCESSED_PATH, 'utf8')) : {};
 
@@ -179,7 +181,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     eventMessages.push("🧙‍♂️ *Na odpočívadle jsi potkal potulného poustevníka, který ti za tvou ochotu dal 5 orbů.*");
   }
 
-  // DENNÍ ÚKOLY (Questy s rozptylem odměn)
+  // DENNÍ ÚKOLY (Questy s vyšší obtížností)
   const currentDay = route.day;
   if (!user.quests[currentDay]) {
     const questPool = [
@@ -601,7 +603,17 @@ client.on("interactionCreate", async interaction => {
               if (oldMsg) await oldMsg.delete();
             } catch(e) {}
           }
-          return interaction.channel.send("✅ **TEST DOKONČEN.** Simulace proběhla v pořádku.");
+          
+          await interaction.channel.send({ 
+            content: "@everyone 🛑 **[TEST Simulace] Čarodějnický Event právě skončil!**",
+            embeds: [{
+              title: "🎇 Konec Čarodějnického Eventu!",
+              description: "Všechny trasy byly uzavřeny a magie pomalu vyprchává z našich tahačů...\n\nObrovské díky všem zúčastněným čarodějům a alchymistům za účast! Nyní prosím vyčkejte na **oficiální vyhodnocení a rozdání finálních odměn od Vedení firmy**.",
+              color: 0x000000,
+              footer: { text: "Luky Transport • Čarodějnický Event 2026" }
+            }]
+          });
+          return;
         }
         
         if (lastTestMsgId) {
@@ -612,7 +624,7 @@ client.on("interactionCreate", async interaction => {
         }
         
         const msg = await interaction.channel.send({ 
-          content: `@everyone 🛠️ **[TEST Simulace] Začala nová etapa - Den #${currentTestDay}**`, 
+          content: `@everyone 🔮 **[TEST Simulace] Nová etapa Čarodějnického Eventu právě začala! (Den #${currentTestDay})**`, 
           embeds: buildEmbedsForDay(currentTestDay, true) 
         });
         lastTestMsgId = msg.id;
@@ -752,32 +764,59 @@ async function autoUpdate() {
   const now = Date.now();
   const route = ROUTES.find(r => now >= r.start && now < r.end);
 
-  if (!route || config.lastPublishedDay === route.day) return;
-
   const channel = await client.channels.fetch(config.channelId).catch(() => null);
-  if (channel) {
-    const yesterday = route.day - 1;
+  if (!channel) return;
 
-    // Smazání staré (včerejší) zprávy s trasou
-    if (config.messages[yesterday]) {
-      try {
-        const oldMsg = await channel.messages.fetch(config.messages[yesterday]);
-        if (oldMsg) await oldMsg.delete();
-      } catch (e) {
-        console.error(`Chyba při mazání zprávy z předchozího dne:`, e.message);
+  // POKUD UŽ NEBĚŽÍ ŽÁDNÁ TRASA (Konec eventu)
+  if (!route) {
+    const lastRoute = ROUTES[ROUTES.length - 1]; 
+    if (now >= lastRoute.end && !config.eventEndedAnnounced) {
+      if (config.messages[lastRoute.day]) {
+        try {
+          const oldMsg = await channel.messages.fetch(config.messages[lastRoute.day]);
+          if (oldMsg) await oldMsg.delete(); 
+        } catch (e) {}
       }
+      
+      await channel.send({ 
+        content: "@everyone 🛑 **Čarodějnický Event právě skončil!**",
+        embeds: [{
+          title: "🎇 Konec Čarodějnického Eventu!",
+          description: "Všechny trasy byly uzavřeny a magie pomalu vyprchává z našich tahačů...\n\nObrovské díky všem zúčastněným čarodějům a alchymistům za účast! Nyní prosím vyčkejte na **oficiální vyhodnocení a rozdání finálních odměn od Vedení firmy**.",
+          color: 0x000000,
+          thumbnail: { url: LOGO_URL },
+          footer: { text: "Luky Transport • Čarodějnický Event 2026" }
+        }]
+      });
+      
+      config.eventEndedAnnounced = true;
+      saveAll();
     }
-
-    // Publikování nové zprávy s pingem na @everyone
-    const msg = await channel.send({ 
-      content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", 
-      embeds: buildEmbedsForDay(route.day, true) 
-    });
-    
-    config.messages[route.day] = msg.id; 
-    config.lastPublishedDay = route.day; 
-    saveAll();
+    return;
   }
+
+  // POKUD BĚŽÍ TRASA, ALE UŽ JE PUBLIKOVANÁ
+  if (config.lastPublishedDay === route.day) return;
+
+  // PUBLIKACE NOVÉHO DNE
+  const yesterday = route.day - 1;
+  if (config.messages[yesterday]) {
+    try {
+      const oldMsg = await channel.messages.fetch(config.messages[yesterday]);
+      if (oldMsg) await oldMsg.delete();
+    } catch (e) {
+      console.error(`Chyba při mazání zprávy z předchozího dne:`, e.message);
+    }
+  }
+
+  const msg = await channel.send({ 
+    content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", 
+    embeds: buildEmbedsForDay(route.day, true) 
+  });
+  
+  config.messages[route.day] = msg.id; 
+  config.lastPublishedDay = route.day; 
+  saveAll();
 }
 
 client.once("ready", () => {
@@ -785,7 +824,6 @@ client.once("ready", () => {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
   
-  // Spouštění kontroly každou minutu
   setInterval(autoUpdate, 60000);
 });
 
