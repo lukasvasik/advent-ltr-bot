@@ -19,7 +19,11 @@ const PROCESSED_PATH = path.join(__dirname, 'processed_witch.json');
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
+
+// KANÁLY
 const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
+const NOTIFY_CHANNEL_ID = '1445219033833144443'; // Spam kanál (Zakázky, Havrani, Mistři)
+
 const BRAND_COLOR = 0x8A2BE2;
 const LOGO_URL = "https://i.imgur.com/fdvSTG2.png"; 
 
@@ -82,7 +86,7 @@ let orbsData = fs.existsSync(ORBS_PATH) ? JSON.parse(fs.readFileSync(ORBS_PATH, 
 let config = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) : { 
   channelId: null, lastPublishedDay: 0, messages: {}, 
   dailyMasters: { 1:{}, 2:{}, 3:{}, 4:{}, 5:{}, 6:{} }, 
-  bloodMoon: { activeUntil: 0, announced: false },
+  bloodMoon: { activeUntil: 0, announced: false, msgId: null },
   eventEndedAnnounced: false
 };
 let processed = fs.existsSync(PROCESSED_PATH) ? JSON.parse(fs.readFileSync(PROCESSED_PATH, 'utf8')) : {};
@@ -232,7 +236,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
 
   user.totalOrbs += earned;
 
-  // DENNÍ MISTŘI
+  // DENNÍ MISTŘI (Odeslání do SPAM kanálu)
   if (!isAnalysis && user.discordId) {
     if (!config.dailyMasters[route.day][route.variant]) {
       config.dailyMasters[route.day][route.variant] = user.discordId;
@@ -245,9 +249,9 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
         for (const [id, member] of currentRoleHolders) await member.roles.remove(roleId);
         await tryAssignRole(user.discordId, roleId, `${title} pro den ${route.day}`);
         
-        if (config.channelId) {
-          const ch = await client.channels.fetch(config.channelId);
-          await ch.send(`🔮 **Prvním ${title} dne #${route.day}** se stává <@${user.discordId}>! 🏆`);
+        if (NOTIFY_CHANNEL_ID) {
+          const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
+          if (ch) await ch.send(`🔮 **Prvním ${title} dne #${route.day}** se stává <@${user.discordId}>! 🏆`);
         }
       } catch(e) { console.error(e); }
     }
@@ -266,10 +270,10 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   processed[msgId] = true;
   saveAll();
 
-  // NOTIFIKACE NA DISCORD S PINGEM NA UŽIVATELE
-  if (!isAnalysis && user.discordId && config.channelId) {
-    const ch = await client.channels.fetch(config.channelId).catch(()=>null);
-    if (ch && (eventMessages.length > 0 || earned > 1)) {
+  // NOTIFIKACE O ZAKÁZCE DO SPAM KANÁLU S PINGEM
+  if (!isAnalysis && user.discordId && NOTIFY_CHANNEL_ID) {
+    const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
+    if (ch && (eventMessages.length > 0 || earned >= 0)) { 
        const extraText = eventMessages.length > 0 ? `\n\n${eventMessages.join("\n")}` : "";
        ch.send(`<@${user.discordId}> odevzdal zakázku a získal **${earned} 🔮**!${extraText}`);
     }
@@ -381,8 +385,9 @@ const commands = [
   new SlashCommandBuilder().setName("admin-orb-dump").setDescription("ADMIN: Export databáze do JSON.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-orb-load").setDescription("ADMIN: Nahrát JSON zálohu s databází.")
     .addAttachmentOption(o => o.setName("soubor").setDescription("Záložní .json soubor").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("setup").setDescription("Nastavit kanál eventu pro automatické zprávy.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("setup").setDescription("Nastavit hlavní kanál eventu pro mapy a Blood Moon.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-bloodmoon").setDescription("ADMIN: Spustí Krvavý měsíc na 2 hodiny.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-publish").setDescription("ADMIN: Vynutí opětovné odeslání dnešní trasy do hlavního kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("full-test").setDescription("ADMIN: Odsimuluje mazání a zveřejnění všech dnů v kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -575,22 +580,53 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (interaction.commandName === "setup") {
-      config.channelId = interaction.channel.id; saveAll();
-      return interaction.reply({ content: "📌 Kanál pro automatické zprávy eventu nastaven.", ephemeral: true });
-    }
-
-    if (interaction.commandName === "admin-bloodmoon") {
-      config.bloodMoon.activeUntil = Date.now() + (2 * 60 * 60 * 1000); 
-      config.bloodMoon.announced = true;
+      config.channelId = interaction.channel.id; 
       saveAll();
-      interaction.reply({ content: "Spuštěno.", ephemeral: true });
-      const channel = await client.channels.fetch(config.channelId).catch(() => null);
-      if (channel) channel.send("@everyone 🌕 **KRVAVÝ MĚSÍC POVSTAL!** Následující 2 hodiny dávají všechny zakázky 2x více Orbů!");
+      await interaction.reply({ content: "📌 Hlavní kanál pro event nastaven. Bleskově kontroluji a vydávám aktuální trasu...", ephemeral: true });
+      await autoUpdate(); 
       return;
     }
 
+    if (interaction.commandName === "admin-bloodmoon") {
+      if (!config.channelId) return interaction.reply({ content: "❌ Musíš nejdříve nastavit hlavní kanál pomocí `/setup`.", ephemeral: true });
+      config.bloodMoon.activeUntil = Date.now() + (2 * 60 * 60 * 1000); 
+      config.bloodMoon.announced = true;
+      const channel = await client.channels.fetch(config.channelId).catch(() => null);
+      if (channel) {
+        const msg = await channel.send("@everyone 🌕 **KRVAVÝ MĚSÍC POVSTAL!** Následující 2 hodiny dávají všechny zakázky 2x více Orbů!");
+        config.bloodMoon.msgId = msg.id;
+      }
+      saveAll();
+      return interaction.reply({ content: "Spuštěno.", ephemeral: true });
+    }
+
+    if (interaction.commandName === "admin-publish") {
+      const route = ROUTES.find(r => Date.now() >= r.start && Date.now() < r.end);
+      if (!route) return interaction.reply({ content: "❌ Aktuálně neběží žádná etapa.", ephemeral: true });
+      if (!config.channelId) return interaction.reply({ content: "❌ Není nastaven hlavní kanál pro event (/setup).", ephemeral: true });
+      
+      const channel = await client.channels.fetch(config.channelId).catch(() => null);
+      if (!channel) return interaction.reply({ content: "❌ Nelze najít hlavní kanál.", ephemeral: true });
+
+      if (config.messages[route.day]) {
+        try {
+          const oldMsg = await channel.messages.fetch(config.messages[route.day]);
+          if (oldMsg) await oldMsg.delete();
+        } catch (e) {}
+      }
+      
+      const msg = await channel.send({ 
+        content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", 
+        embeds: buildEmbedsForDay(route.day, true) 
+      });
+      config.messages[route.day] = msg.id;
+      config.lastPublishedDay = route.day;
+      saveAll();
+      return interaction.reply({ content: "✅ Trasa byla úspěšně vnucena do hlavního kanálu.", ephemeral: true });
+    }
+
     if (interaction.commandName === "full-test") {
-      await interaction.reply({ content: "🛠️ Spouštím **FULL TEST** systému. Každých 10 vteřin smažu předchozí den a pošlu nový s pingem.", ephemeral: true });
+      await interaction.reply({ content: "🛠️ Spouštím **FULL TEST** systému.", ephemeral: true });
       let currentTestDay = 1;
       let lastTestMsgId = null;
       
@@ -699,8 +735,8 @@ client.on("interactionCreate", async interaction => {
 
       replyMsg = `🦅 Havran se vrátil z lovu! Úspěšně jsi ukradl **${actualStolen} 🔮** hráči jménem ${target.tbName}.`;
 
-      if (config.channelId) {
-        const ch = await client.channels.fetch(config.channelId).catch(()=>null);
+      if (NOTIFY_CHANNEL_ID) {
+        const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
         if (ch) ch.send(`🦅 **Temnota houstne!** <@${userObj.discordId}> právě vyslal Zlodějského havrana a okradl <@${target.discordId}> o **${actualStolen} 🔮**!`);
       }
     }
@@ -760,6 +796,23 @@ client.on('messageCreate', async (m) => {
 // AUTO UPDATE (Vydávání tras a mazání starých)
 // ─────────────────────────────────────────────
 async function autoUpdate() {
+  // Smazání Krvavého Měsíce, pokud už expiroval
+  if (config.bloodMoon.activeUntil > 0 && Date.now() > config.bloodMoon.activeUntil) {
+    if (config.bloodMoon.msgId && config.channelId) {
+      const ch = await client.channels.fetch(config.channelId).catch(() => null);
+      if (ch) {
+        try {
+          const bmMsg = await ch.messages.fetch(config.bloodMoon.msgId);
+          if (bmMsg) await bmMsg.delete();
+        } catch(e) {}
+      }
+    }
+    config.bloodMoon.activeUntil = 0;
+    config.bloodMoon.announced = false;
+    config.bloodMoon.msgId = null;
+    saveAll();
+  }
+
   if (!config.channelId) return;
   const now = Date.now();
   const route = ROUTES.find(r => now >= r.start && now < r.end);
@@ -804,9 +857,7 @@ async function autoUpdate() {
     try {
       const oldMsg = await channel.messages.fetch(config.messages[yesterday]);
       if (oldMsg) await oldMsg.delete();
-    } catch (e) {
-      console.error(`Chyba při mazání zprávy z předchozího dne:`, e.message);
-    }
+    } catch (e) {}
   }
 
   const msg = await channel.send({ 
