@@ -22,7 +22,7 @@ const GUILD_ID = process.env.GUILD_ID;
 
 // KANÁLY
 const JOBS_CHANNEL_ID = process.env.JOBS_CHANNEL_ID || '1149900706543833208';
-const NOTIFY_CHANNEL_ID = '1445219033833144443'; // Spam kanál (Zakázky, Havrani, Mistři)
+const NOTIFY_CHANNEL_ID = '1500932974957301980'; // Witch Log
 
 const BRAND_COLOR = 0x8A2BE2;
 const LOGO_URL = "https://i.imgur.com/fdvSTG2.png"; 
@@ -30,11 +30,11 @@ const LOGO_URL = "https://i.imgur.com/fdvSTG2.png";
 if (!TOKEN) throw new Error('❌ DISCORD_TOKEN chybí.');
 
 // ROLE IDs
-const ROLE_EVENT_HAUL = '1500670438630756464'; // Mistr Čaroděj
-const ROLE_BLACK_MAGIC = '1500670224461074492'; // Pán Stínů (Varianta A)
-const ROLE_WHITE_MAGIC = '1500670331063505066'; // Bílý Mág (Varianta B)
+const ROLE_EVENT_HAUL = '1500670438630756464';
+const ROLE_BLACK_MAGIC = '1500670224461074492';
+const ROLE_WHITE_MAGIC = '1500670331063505066';
 
-// ČASOVÁNÍ EVENTU (Nastaveno na 18:00 SELČ -> 16:00 UTC)
+// ČASOVÁNÍ EVENTU (18:00 SELČ -> 16:00 UTC)
 const YEAR = 2026;
 const START_HOUR_UTC = 16; 
 const START_MINUTE_UTC = 0;
@@ -46,7 +46,7 @@ const getWindow = (dayNum) => ({
 });
 
 // ─────────────────────────────────────────────
-// TRASY 
+// TRASY A ÚKOLY
 // ─────────────────────────────────────────────
 const ROUTES = [
   { day: 1, variant: 'A', from: "Kiel", to: "Erfurt", dist: 459, activeImage: "https://i.imgur.com/V6nPBA0.png", mapUrl: "https://i.imgur.com/V6nPBA0.png", ...getWindow(4) },
@@ -61,6 +61,15 @@ const ROUTES = [
   { day: 5, variant: 'B', from: "Stetin", to: "Erfurt", dist: 444, activeImage: "https://i.imgur.com/Mk1G9CK.png", mapUrl: "https://i.imgur.com/Mk1G9CK.png", ...getWindow(8) },
   { day: 6, variant: 'A', from: "Praha", to: "Kassel", dist: 445, activeImage: "https://i.imgur.com/g5BRiak.png", mapUrl: "https://i.imgur.com/g5BRiak.png", ...getWindow(9) },
   { day: 6, variant: 'B', from: "Kiel", to: "Kassel", dist: 381, activeImage: "https://i.imgur.com/WwBHxbu.png", mapUrl: "https://i.imgur.com/WwBHxbu.png", ...getWindow(9) }
+];
+
+const QUEST_POOL = [
+  { type: 'jobs', target: 4, reward: 5, desc: "Odevzdej dnes 4 zakázky" },
+  { type: 'jobs', target: 7, reward: 10, desc: "Odevzdej dnes 7 zakázek" },
+  { type: 'jobs', target: 12, reward: 20, desc: "Odevzdej dnes 12 zakázek" },
+  { type: 'km', target: 1500, reward: 5, desc: "Ujeď dnes alespoň 1 500 km z eventových tras" },
+  { type: 'km', target: 3000, reward: 10, desc: "Ujeď dnes alespoň 3 000 km z eventových tras" },
+  { type: 'km', target: 5000, reward: 20, desc: "Ujeď dnes alespoň 5 000 km z eventových tras" }
 ];
 
 const CITY_SYNONYMS = {
@@ -103,7 +112,7 @@ async function tryAssignRole(memberId, roleId, reason) {
     const guild = await client.guilds.fetch(GUILD_ID);
     const member = await guild.members.fetch(memberId);
     if (!member.roles.cache.has(roleId)) await member.roles.add(roleId, reason);
-  } catch (e) { console.error(`Chyba při přiřazování role ${roleId}:`, e.message); }
+  } catch (e) { console.error(`Chyba při přiřazování role:`, e.message); }
 }
 
 async function tryAutoLink(tbName) {
@@ -117,7 +126,7 @@ async function tryAutoLink(tbName) {
       orbsData[tbName].discordId = match.id;
       saveAll();
     }
-  } catch (e) { console.error(`Chyba při auto-linku:`, e.message); }
+  } catch (e) {}
 }
 
 // ─────────────────────────────────────────────
@@ -138,13 +147,14 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
       tbName, discordId: null, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, 
       bonusClaimed: false, routes: {}, lastVariant: null, 
       stolenOrbs: 0, cursedCount: 0, quests: {},
-      inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false } 
+      inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 } 
     };
   }
   const user = orbsData[tbName];
   
-  if (!user.inventory) user.inventory = { talisman: 0, doublePotionUntil: 0, labUpgrade: false };
+  if (!user.inventory) user.inventory = { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 };
   if (!user.quests) user.quests = {};
+  if (user.inventory.protectionPotionUntil === undefined) user.inventory.protectionPotionUntil = 0;
   if (user.inventory.labUpgrade === undefined) user.inventory.labUpgrade = false;
   if (user.stolenOrbs === undefined) user.stolenOrbs = 0;
   if (user.cursedCount === undefined) user.cursedCount = 0;
@@ -170,7 +180,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   // LABORATOŘ
   if (user.inventory.labUpgrade) earned += 1;
 
-  // MYTICKÝ ORB (1% Jackpot) a BĚŽNÝ BONUS
+  // MYTICKÝ ORB a BONUS
   const rand = Math.random() * 100;
   if (rand <= 1) {
     earned += 5;
@@ -179,30 +189,25 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     earned += 1; 
   }
 
-  // POUSTEVNÍK (2% šance)
+  // POUSTEVNÍK (2%)
   if (Math.random() * 100 <= 2) {
     earned += 5;
     eventMessages.push("🧙‍♂️ *Na odpočívadle jsi potkal potulného poustevníka, který ti za tvou ochotu dal 5 orbů.*");
   }
 
-  // DENNÍ ÚKOLY (Questy s vyšší obtížností)
+  // DENNÍ ÚKOLY
   const currentDay = route.day;
   if (!user.quests[currentDay]) {
-    const questPool = [
-      { type: 'jobs', target: 4, reward: 5, desc: "Odevzdej dnes 4 zakázky" },
-      { type: 'jobs', target: 7, reward: 10, desc: "Odevzdej dnes 7 zakázek" },
-      { type: 'jobs', target: 12, reward: 20, desc: "Odevzdej dnes 12 zakázek" },
-      { type: 'km', target: 1500, reward: 5, desc: "Ujeď dnes alespoň 1 500 km z eventových tras" },
-      { type: 'km', target: 3000, reward: 10, desc: "Ujeď dnes alespoň 3 000 km z eventových tras" },
-      { type: 'km', target: 5000, reward: 20, desc: "Ujeď dnes alespoň 5 000 km z eventových tras" }
-    ];
-    user.quests[currentDay] = { ...questPool[Math.floor(Math.random() * questPool.length)], progress: 0, completed: false };
+    user.quests[currentDay] = { ...QUEST_POOL[Math.floor(Math.random() * QUEST_POOL.length)], progress: 0, completed: false };
   }
 
   // PROKLETÍ NÁKLADU (15% šance)
   let isCursed = Math.random() < 0.15;
   if (isCursed) {
-    if (user.inventory.talisman > 0) {
+    if (user.inventory.protectionPotionUntil > ts) {
+      eventMessages.push("🛡️ *Čarodějnice se tě pokusila okrást, ale Ochranný lektvar tě skryl ve stínech!*");
+      isCursed = false;
+    } else if (user.inventory.talisman > 0) {
       user.inventory.talisman -= 1;
       eventMessages.push("🛡️ *Čarodějnice se tě pokusila okrást, ale Talisman Ochrany magii odrazil!*");
       isCursed = false; 
@@ -236,7 +241,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
 
   user.totalOrbs += earned;
 
-  // DENNÍ MISTŘI (Odeslání do SPAM kanálu)
+  // DENNÍ MISTŘI
   if (!isAnalysis && user.discordId) {
     if (!config.dailyMasters[route.day][route.variant]) {
       config.dailyMasters[route.day][route.variant] = user.discordId;
@@ -253,7 +258,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
           const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
           if (ch) await ch.send(`🔮 **Prvním ${title} dne #${route.day}** se stává <@${user.discordId}>! 🏆`);
         }
-      } catch(e) { console.error(e); }
+      } catch(e) {}
     }
   }
 
@@ -270,7 +275,6 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   processed[msgId] = true;
   saveAll();
 
-  // NOTIFIKACE O ZAKÁZCE DO SPAM KANÁLU S PINGEM
   if (!isAnalysis && user.discordId && NOTIFY_CHANNEL_ID) {
     const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
     if (ch && (eventMessages.length > 0 || earned >= 0)) { 
@@ -313,12 +317,14 @@ const buildShopEmbed = (userOrbs) => ({
   color: BRAND_COLOR,
   fields: [
     { name: "1️⃣ Věštecká koule (3 Orby)", value: "Odhalí čas Krvavého měsíce." },
-    { name: "2️⃣ Talisman Ochrany (5 Orbů)", value: "Jednorázově blokuje Prokletý náklad." },
+    { name: "2️⃣ Talisman Ochrany (5 Orbů)", value: "Jednorázově blokuje Prokletý náklad a odráží havrana." },
     { name: "3️⃣ Lektvar Zdvojení (15 Orbů)", value: "2x více orbů po dobu 60 minut." },
     { name: "4️⃣ Risky Potion (10 Orbů)", value: "Vypij a riskuj! (Šance na 0 až 30 orbů)." },
     { name: "5️⃣ Role Mistr Čaroděj (50 Orbů)", value: "Exkluzivní role navždy." },
     { name: "6️⃣ Zlodějský havran (10 Orbů)", value: "Okrade hráče z Top 10 o 1-10 orbů." },
-    { name: "7️⃣ Upgrade Laboratoře (30 Orbů)", value: "Trvalý pasivní bonus +1 Orb ke každé zakázce." }
+    { name: "7️⃣ Upgrade Laboratoře (30 Orbů)", value: "Trvalý bonus +1 Orb ke každé zakázce." },
+    { name: "8️⃣ Svitek přeměny (5 Orbů)", value: "Zničí tvůj dnešní úkol a vygeneruje zcela nový." },
+    { name: "9️⃣ Ochranný lektvar (15 Orbů)", value: "Na 60 minut imunita proti prokletí a okradení havranem." }
   ]
 });
 
@@ -387,8 +393,7 @@ const commands = [
     .addAttachmentOption(o => o.setName("soubor").setDescription("Záložní .json soubor").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("setup").setDescription("Nastavit hlavní kanál eventu pro mapy a Blood Moon.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-bloodmoon").setDescription("ADMIN: Spustí Krvavý měsíc na 2 hodiny.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-publish").setDescription("ADMIN: Vynutí opětovné odeslání dnešní trasy do hlavního kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("full-test").setDescription("ADMIN: Odsimuluje mazání a zveřejnění všech dnů v kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-publish").setDescription("ADMIN: Vynutí opětovné odeslání dnešní trasy do hlavního kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMembers, GatewayIntentBits.MessageContent ]});
@@ -401,6 +406,7 @@ client.on("interactionCreate", async interaction => {
       if (!user) return interaction.reply({ content: "Zatím nemáš žádné orby. Propoj se přes `/link`!", ephemeral: true });
       
       let doubleTime = user.inventory.doublePotionUntil > Date.now() ? `<t:${Math.floor(user.inventory.doublePotionUntil/1000)}:R>` : "Neaktivní";
+      let protectTime = user.inventory.protectionPotionUntil > Date.now() ? `<t:${Math.floor(user.inventory.protectionPotionUntil/1000)}:R>` : "Neaktivní";
       let labStatus = user.inventory.labUpgrade ? "✅ Aktivní (+1)" : "❌ Nezakoupeno";
       
       return interaction.reply({ embeds: [{ title: "🔮 Tvůj kotlík", fields: [
@@ -409,6 +415,7 @@ client.on("interactionCreate", async interaction => {
         { name: "🚚 Zakázky", value: `${user.totalJobs}`, inline: true }, 
         { name: "🛡️ Talismany", value: `${user.inventory.talisman}x`, inline: true },
         { name: "⏳ Lektvar zdvojení", value: doubleTime, inline: true },
+        { name: "🛡️ Ochranný lektvar", value: protectTime, inline: true },
         { name: "🧪 Laboratoř", value: labStatus, inline: true },
         { name: "Poslední trasa", value: user.lastVariant ? `Varianta ${user.lastVariant}` : "Žádná", inline: true }
       ], color: BRAND_COLOR }]});
@@ -440,8 +447,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "profile") {
       const targetUser = interaction.options.getUser("uzivatel");
       const user = Object.values(orbsData).find(e => e.discordId === targetUser.id);
-
-      if (!user) return interaction.reply({ content: `Uživatel ${targetUser.username} zatím nemá nasbírané žádné orby nebo propojený účet.`, ephemeral: true });
+      if (!user) return interaction.reply({ content: `Uživatel ${targetUser.username} nemá žádné orby nebo propojený účet.`, ephemeral: true });
 
       let favRoute = "Žádná"; let maxR = 0;
       for (const [r, count] of Object.entries(user.routes)) { if (count > maxR) { maxR = count; favRoute = r; } }
@@ -493,16 +499,10 @@ client.on("interactionCreate", async interaction => {
         else if (type === "jobs") val = `${d.totalJobs} zak.`;
         else if (type === "stolen") val = `${d.stolenOrbs || 0} ukradených 🔮`;
         else val = `${d.totalOrbs} 🔮`;
-
         return `**${start + i + 1}.** ${d.discordId ? `<@${d.discordId}>` : d.tbName} — ${val}`;
       });
 
-      return interaction.reply({ embeds: [{
-        title: `🏆 Žebříček: ${typeLabel}`,
-        description: lines.join("\n\n"),
-        color: BRAND_COLOR,
-        footer: { text: `Strana ${page}` }
-      }]});
+      return interaction.reply({ embeds: [{ title: `🏆 Žebříček: ${typeLabel}`, description: lines.join("\n\n"), color: BRAND_COLOR, footer: { text: `Strana ${page}` } }]});
     }
 
     if (interaction.commandName === "event") {
@@ -513,18 +513,17 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "link") {
       const nick = interaction.options.getString("tb_nick").trim();
-      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: interaction.user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false } };
+      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: interaction.user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 } };
       else orbsData[nick].discordId = interaction.user.id;
       saveAll();
       return interaction.reply({ content: `✅ Propojeno s **${nick}**`, ephemeral: true });
     }
 
-    // ──────────────── ADMIN SPRÁVA ────────────────
-
+    // ADMIN PŘÍKAZY...
     if (interaction.commandName === "admin-link") {
       const user = interaction.options.getUser("uzivatel");
       const nick = interaction.options.getString("tb_nick").trim();
-      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false } };
+      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 } };
       else orbsData[nick].discordId = user.id;
       saveAll();
       return interaction.reply({ content: `✅ Admin: Propojil jsem ${user} s TB: **${nick}**`, ephemeral: true });
@@ -540,8 +539,7 @@ client.on("interactionCreate", async interaction => {
       const oldNick = interaction.options.getString("stary_nick").trim();
       const newNick = interaction.options.getString("novy_nick").trim();
       if (!orbsData[oldNick]) return interaction.reply({ content: `❌ Starý nick **${oldNick}** nenalezen.`, ephemeral: true });
-      if (orbsData[newNick]) return interaction.reply({ content: `❌ Nový nick **${newNick}** už existuje. Nelze přepsat.`, ephemeral: true });
-      
+      if (orbsData[newNick]) return interaction.reply({ content: `❌ Nový nick **${newNick}** už existuje.`, ephemeral: true });
       orbsData[newNick] = { ...orbsData[oldNick], tbName: newNick };
       delete orbsData[oldNick];
       saveAll();
@@ -556,15 +554,12 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "admin-orb-load") {
       await interaction.deferReply({ ephemeral: true });
       const attachment = interaction.options.getAttachment("soubor");
-      if (!attachment.name.endsWith('.json')) return interaction.editReply("❌ Soubor musí být .json!");
       try {
         const response = await fetch(attachment.url);
         orbsData = await response.json();
         saveAll();
         return interaction.editReply(`✅ Databáze úspěšně obnovena ze souboru **${attachment.name}**.`);
-      } catch (e) {
-        return interaction.editReply("❌ Chyba při načítání JSON.");
-      }
+      } catch (e) { return interaction.editReply("❌ Chyba při načítání JSON."); }
     }
 
     if (interaction.commandName === "analyzovat") {
@@ -582,7 +577,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "setup") {
       config.channelId = interaction.channel.id; 
       saveAll();
-      await interaction.reply({ content: "📌 Hlavní kanál pro event nastaven. Bleskově kontroluji a vydávám aktuální trasu...", ephemeral: true });
+      await interaction.reply({ content: "📌 Hlavní kanál pro event nastaven.", ephemeral: true });
       await autoUpdate(); 
       return;
     }
@@ -603,74 +598,19 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "admin-publish") {
       const route = ROUTES.find(r => Date.now() >= r.start && Date.now() < r.end);
       if (!route) return interaction.reply({ content: "❌ Aktuálně neběží žádná etapa.", ephemeral: true });
-      if (!config.channelId) return interaction.reply({ content: "❌ Není nastaven hlavní kanál pro event (/setup).", ephemeral: true });
-      
+      if (!config.channelId) return interaction.reply({ content: "❌ Není nastaven hlavní kanál pro event.", ephemeral: true });
       const channel = await client.channels.fetch(config.channelId).catch(() => null);
-      if (!channel) return interaction.reply({ content: "❌ Nelze najít hlavní kanál.", ephemeral: true });
-
       if (config.messages[route.day]) {
-        try {
-          const oldMsg = await channel.messages.fetch(config.messages[route.day]);
-          if (oldMsg) await oldMsg.delete();
-        } catch (e) {}
+        try { const oldMsg = await channel.messages.fetch(config.messages[route.day]); if (oldMsg) await oldMsg.delete(); } catch (e) {}
       }
-      
-      const msg = await channel.send({ 
-        content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", 
-        embeds: buildEmbedsForDay(route.day, true) 
-      });
+      const msg = await channel.send({ content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", embeds: buildEmbedsForDay(route.day, true) });
       config.messages[route.day] = msg.id;
       config.lastPublishedDay = route.day;
       saveAll();
       return interaction.reply({ content: "✅ Trasa byla úspěšně vnucena do hlavního kanálu.", ephemeral: true });
     }
 
-    if (interaction.commandName === "full-test") {
-      await interaction.reply({ content: "🛠️ Spouštím **FULL TEST** systému.", ephemeral: true });
-      let currentTestDay = 1;
-      let lastTestMsgId = null;
-      
-      const testInterval = setInterval(async () => {
-        if (currentTestDay > 6) {
-          clearInterval(testInterval);
-          if (lastTestMsgId) {
-            try {
-              const oldMsg = await interaction.channel.messages.fetch(lastTestMsgId);
-              if (oldMsg) await oldMsg.delete();
-            } catch(e) {}
-          }
-          
-          await interaction.channel.send({ 
-            content: "@everyone 🛑 **[TEST Simulace] Čarodějnický Event právě skončil!**",
-            embeds: [{
-              title: "🎇 Konec Čarodějnického Eventu!",
-              description: "Všechny trasy byly uzavřeny a magie pomalu vyprchává z našich tahačů...\n\nObrovské díky všem zúčastněným čarodějům a alchymistům za účast! Nyní prosím vyčkejte na **oficiální vyhodnocení a rozdání finálních odměn od Vedení firmy**.",
-              color: 0x000000,
-              footer: { text: "Luky Transport • Čarodějnický Event 2026" }
-            }]
-          });
-          return;
-        }
-        
-        if (lastTestMsgId) {
-           try {
-             const oldMsg = await interaction.channel.messages.fetch(lastTestMsgId);
-             if (oldMsg) await oldMsg.delete();
-           } catch(e) {}
-        }
-        
-        const msg = await interaction.channel.send({ 
-          content: `@everyone 🔮 **[TEST Simulace] Nová etapa Čarodějnického Eventu právě začala! (Den #${currentTestDay})**`, 
-          embeds: buildEmbedsForDay(currentTestDay, true) 
-        });
-        lastTestMsgId = msg.id;
-        currentTestDay++;
-      }, 10000); 
-      return;
-    }
-
     // ──────────────── OBCHOD ────────────────
-
     if (interaction.commandName === "obchod") {
       const user = Object.values(orbsData).find(e => e.discordId === interaction.user.id);
       if (!user) return interaction.reply({ content: "Nejsi propojen. Použij `/link`.", ephemeral: true });
@@ -678,18 +618,18 @@ client.on("interactionCreate", async interaction => {
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('buy_crystal').setLabel('1️⃣ Věštba (3)').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('buy_talisman').setLabel('2️⃣ Talisman (5)').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('buy_double').setLabel('3️⃣ Zdvojení (15)').setStyle(ButtonStyle.Primary)
-      );
-      const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_risk').setLabel('4️⃣ Risky Potion (10)').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('buy_double').setLabel('3️⃣ Zdvojení (15)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('buy_risk').setLabel('4️⃣ Risky (10)').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId('buy_role').setLabel('5️⃣ Role (50)').setStyle(ButtonStyle.Success)
       );
-      const row3 = new ActionRowBuilder().addComponents(
+      const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('buy_raven').setLabel('6️⃣ Havran (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_lab').setLabel('7️⃣ Laboratoř (30)').setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId('buy_lab').setLabel('7️⃣ Laborka (30)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('buy_scroll').setLabel('8️⃣ Svitek (5)').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('buy_protect').setLabel('9️⃣ Ochrana (15)').setStyle(ButtonStyle.Success)
       );
 
-      return interaction.reply({ embeds: [buildShopEmbed(user.totalOrbs)], components: [row1, row2, row3], ephemeral: true });
+      return interaction.reply({ embeds: [buildShopEmbed(user.totalOrbs)], components: [row1, row2], ephemeral: true });
     }
   }
 
@@ -706,38 +646,69 @@ client.on("interactionCreate", async interaction => {
     else if (interaction.customId === 'buy_role') cost = 50;
     else if (interaction.customId === 'buy_raven') cost = 10;
     else if (interaction.customId === 'buy_lab') cost = 30;
+    else if (interaction.customId === 'buy_scroll') cost = 5;
+    else if (interaction.customId === 'buy_protect') cost = 15;
 
     if (userObj.totalOrbs < cost) return interaction.reply({ content: `❌ Nemáš dostatek orbů. Potřebuješ jich ${cost}.`, ephemeral: true });
 
     if (interaction.customId === 'buy_lab') {
       if (userObj.inventory.labUpgrade) return interaction.reply({ content: `❌ Upgrade laboratoře už máš zakoupený!`, ephemeral: true });
-      userObj.totalOrbs -= cost;
-      userObj.inventory.labUpgrade = true;
+      userObj.totalOrbs -= cost; userObj.inventory.labUpgrade = true;
       replyMsg = "🧪 Výborně! Tvá laboratoř je vylepšena. Odteď získáváš trvale +1 Orb navíc za každou odjetou zakázku.";
+    }
+    else if (interaction.customId === 'buy_double') {
+      if (userObj.inventory.doublePotionUntil > Date.now()) return interaction.reply({ content: "❌ Už máš aktivní Lektvar Zdvojení! Neplýtvej orby.", ephemeral: true });
+      userObj.totalOrbs -= cost; userObj.inventory.doublePotionUntil = Date.now() + (60 * 60 * 1000);
+      replyMsg = "🧪 Vypil jsi Lektvar Zdvojení. Na dalších 60 minut získáváš 2x orby!";
+    }
+    else if (interaction.customId === 'buy_protect') {
+      if (userObj.inventory.protectionPotionUntil > Date.now()) return interaction.reply({ content: "❌ Už máš aktivní Ochranný lektvar!", ephemeral: true });
+      userObj.totalOrbs -= cost; userObj.inventory.protectionPotionUntil = Date.now() + (60 * 60 * 1000);
+      replyMsg = "🛡️ Vypil jsi Ochranný lektvar. Na 60 minut jsi skryt před čarodějnicemi i havrany!";
+    }
+    else if (interaction.customId === 'buy_scroll') {
+      const route = ROUTES.find(r => Date.now() >= r.start && Date.now() < r.end);
+      if (!route) return interaction.reply({ content: "❌ Nyní neběží žádná etapa, nemáš žádný úkol k přeměně.", ephemeral: true });
+      const currentDay = route.day;
+      if (!userObj.quests || !userObj.quests[currentDay] || userObj.quests[currentDay].completed) {
+         return interaction.reply({ content: "❌ Nemáš žádný nesplněný úkol k přeměně.", ephemeral: true });
+      }
+      userObj.totalOrbs -= cost;
+      userObj.quests[currentDay] = { ...QUEST_POOL[Math.floor(Math.random() * QUEST_POOL.length)], progress: 0, completed: false };
+      replyMsg = "📜 Svitek shořel jasným plamenem a tvůj dnešní úkol se změnil! Zkontroluj si ho přes `/quest`.";
     }
     else if (interaction.customId === 'buy_raven') {
       const allPlayers = Object.values(orbsData)
         .filter(p => p.discordId && p.discordId !== interaction.user.id && p.totalOrbs > 0)
-        .sort((a, b) => b.totalOrbs - a.totalOrbs)
-        .slice(0, 10);
+        .sort((a, b) => b.totalOrbs - a.totalOrbs).slice(0, 10);
 
-      if (allPlayers.length === 0) return interaction.reply({ content: "❌ Není koho okrást! Zřejmě jsi v žebříčku úplně sám, nebo ostatní nemají žádné orby.", ephemeral: true });
+      if (allPlayers.length === 0) return interaction.reply({ content: "❌ Není koho okrást!", ephemeral: true });
 
       userObj.totalOrbs -= cost;
       const target = allPlayers[Math.floor(Math.random() * allPlayers.length)];
       
-      const stolenAmount = Math.floor(Math.random() * 10) + 1;
-      const actualStolen = Math.min(stolenAmount, target.totalOrbs); 
-
-      target.totalOrbs -= actualStolen;
-      userObj.totalOrbs += actualStolen;
-      userObj.stolenOrbs += actualStolen; 
-
-      replyMsg = `🦅 Havran se vrátil z lovu! Úspěšně jsi ukradl **${actualStolen} 🔮** hráči jménem ${target.tbName}.`;
-
-      if (NOTIFY_CHANNEL_ID) {
-        const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
-        if (ch) ch.send(`🦅 **Temnota houstne!** <@${userObj.discordId}> právě vyslal Zlodějského havrana a okradl <@${target.discordId}> o **${actualStolen} 🔮**!`);
+      if (target.inventory.protectionPotionUntil > Date.now()) {
+        replyMsg = `🦅 Havran narazil na magickou bariéru! Hráč ${target.tbName} je pod vlivem Ochranného lektvaru. Přicházíš o 10 orbů a havran se vrací s prázdnou.`;
+        if (NOTIFY_CHANNEL_ID) {
+          const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
+          if (ch) ch.send(`🛡️ **Magická bariéra!** <@${userObj.discordId}> vyslal havrana na <@${target.discordId}>, ale ten byl chráněn Ochranným lektvarem! Útok selhal.`);
+        }
+      } else if (target.inventory.talisman > 0) {
+        target.inventory.talisman -= 1;
+        replyMsg = `🛡️ Havran byl odražen! Hráč ${target.tbName} použil Talisman Ochrany. Přicházíš o 10 orbů.`;
+        if (NOTIFY_CHANNEL_ID) {
+          const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
+          if (ch) ch.send(`🛡️ **Magický štít!** <@${userObj.discordId}> vyslal havrana na <@${target.discordId}>, ale jeho Talisman Ochrany útok odrazil!`);
+        }
+      } else {
+        const stolenAmount = Math.floor(Math.random() * 10) + 1;
+        const actualStolen = Math.min(stolenAmount, target.totalOrbs); 
+        target.totalOrbs -= actualStolen; userObj.totalOrbs += actualStolen; userObj.stolenOrbs += actualStolen; 
+        replyMsg = `🦅 Havran se vrátil z lovu! Úspěšně jsi ukradl **${actualStolen} 🔮** hráči jménem ${target.tbName}.`;
+        if (NOTIFY_CHANNEL_ID) {
+          const ch = await client.channels.fetch(NOTIFY_CHANNEL_ID).catch(()=>null);
+          if (ch) ch.send(`🦅 **Temnota houstne!** <@${userObj.discordId}> právě vyslal Zlodějského havrana a okradl <@${target.discordId}> o **${actualStolen} 🔮**!`);
+        }
       }
     }
     else {
@@ -748,22 +719,12 @@ client.on("interactionCreate", async interaction => {
       } 
       else if (interaction.customId === 'buy_talisman') {
         userObj.inventory.talisman += 1;
-        replyMsg = "🛡️ Koupil jsi Talisman Ochrany. Jsi chráněn před jedním prokletím!";
-      }
-      else if (interaction.customId === 'buy_double') {
-        userObj.inventory.doublePotionUntil = Date.now() + (60 * 60 * 1000);
-        replyMsg = "🧪 Vypil jsi Lektvar Zdvojení. Na dalších 60 minut získáváš 2x orby!";
+        replyMsg = "🛡️ Koupil jsi Talisman Ochrany. Jsi chráněn před jedním prokletím nebo havranem!";
       }
       else if (interaction.customId === 'buy_risk') {
         const roll = Math.random() * 100;
         let won = 0;
-        if (roll < 40) won = 0;
-        else if (roll < 60) won = 1;
-        else if (roll < 75) won = 5;
-        else if (roll < 94) won = 10;
-        else if (roll < 99) won = 15;
-        else won = 30; 
-        
+        if (roll < 40) won = 0; else if (roll < 60) won = 1; else if (roll < 75) won = 5; else if (roll < 94) won = 10; else if (roll < 99) won = 15; else won = 30; 
         userObj.totalOrbs += won;
         replyMsg = `🎲 Vypil jsi Risky Potion a tvé tělo se zachvělo... Získáváš zpět **${won} orbů**!`;
       }
@@ -772,14 +733,13 @@ client.on("interactionCreate", async interaction => {
         replyMsg = "🎓 Zakoupil jsi roli Mistr Čaroděj. Zkontroluj si profil!";
       }
     }
-
     saveAll();
     return interaction.reply({ content: replyMsg, ephemeral: true });
   }
 });
 
 // ─────────────────────────────────────────────
-// ŽIVÝ POSLECH ZAKÁZEK
+// ŽIVÝ POSLECH ZAKÁZEK A AUTO UPDATE
 // ─────────────────────────────────────────────
 client.on('messageCreate', async (m) => {
   if (m.channel.id !== JOBS_CHANNEL_ID || !m.embeds.length) return;
@@ -787,94 +747,55 @@ client.on('messageCreate', async (m) => {
   const f = e.fields?.find(field => field.name?.toLowerCase()?.includes('odkud'))?.value;
   const t = e.fields?.find(field => field.name?.toLowerCase()?.includes('kam'))?.value;
   const n = e.author?.name || e.fields?.find(field => field.name?.toLowerCase()?.includes('řidič'))?.value;
-  if (f && t && n) {
-    await processJob(n.trim(), f, t, m.id, m.createdTimestamp);
-  }
+  if (f && t && n) await processJob(n.trim(), f, t, m.id, m.createdTimestamp);
 });
 
-// ─────────────────────────────────────────────
-// AUTO UPDATE (Vydávání tras a mazání starých)
-// ─────────────────────────────────────────────
 async function autoUpdate() {
-  // Smazání Krvavého Měsíce, pokud už expiroval
   if (config.bloodMoon.activeUntil > 0 && Date.now() > config.bloodMoon.activeUntil) {
     if (config.bloodMoon.msgId && config.channelId) {
       const ch = await client.channels.fetch(config.channelId).catch(() => null);
       if (ch) {
-        try {
-          const bmMsg = await ch.messages.fetch(config.bloodMoon.msgId);
-          if (bmMsg) await bmMsg.delete();
-        } catch(e) {}
+        try { const bmMsg = await ch.messages.fetch(config.bloodMoon.msgId); if (bmMsg) await bmMsg.delete(); } catch(e) {}
       }
     }
-    config.bloodMoon.activeUntil = 0;
-    config.bloodMoon.announced = false;
-    config.bloodMoon.msgId = null;
-    saveAll();
+    config.bloodMoon.activeUntil = 0; config.bloodMoon.announced = false; config.bloodMoon.msgId = null; saveAll();
   }
 
   if (!config.channelId) return;
   const now = Date.now();
   const route = ROUTES.find(r => now >= r.start && now < r.end);
-
   const channel = await client.channels.fetch(config.channelId).catch(() => null);
   if (!channel) return;
 
-  // POKUD UŽ NEBĚŽÍ ŽÁDNÁ TRASA (Konec eventu)
   if (!route) {
     const lastRoute = ROUTES[ROUTES.length - 1]; 
     if (now >= lastRoute.end && !config.eventEndedAnnounced) {
       if (config.messages[lastRoute.day]) {
-        try {
-          const oldMsg = await channel.messages.fetch(config.messages[lastRoute.day]);
-          if (oldMsg) await oldMsg.delete(); 
-        } catch (e) {}
+        try { const oldMsg = await channel.messages.fetch(config.messages[lastRoute.day]); if (oldMsg) await oldMsg.delete(); } catch (e) {}
       }
-      
       await channel.send({ 
         content: "@everyone 🛑 **Čarodějnický Event právě skončil!**",
-        embeds: [{
-          title: "🎇 Konec Čarodějnického Eventu!",
-          description: "Všechny trasy byly uzavřeny a magie pomalu vyprchává z našich tahačů...\n\nObrovské díky všem zúčastněným čarodějům a alchymistům za účast! Nyní prosím vyčkejte na **oficiální vyhodnocení a rozdání finálních odměn od Vedení firmy**.",
-          color: 0x000000,
-          thumbnail: { url: LOGO_URL },
-          footer: { text: "Luky Transport • Čarodějnický Event 2026" }
-        }]
+        embeds: [{ title: "🎇 Konec Čarodějnického Eventu!", description: "Všechny trasy byly uzavřeny a magie pomalu vyprchává z našich tahačů...\n\nObrovské díky všem zúčastněným čarodějům a alchymistům za účast! Nyní prosím vyčkejte na **oficiální vyhodnocení a rozdání finálních odměn od Vedení firmy**.", color: 0x000000, thumbnail: { url: LOGO_URL }, footer: { text: "Luky Transport • Čarodějnický Event 2026" } }]
       });
-      
-      config.eventEndedAnnounced = true;
-      saveAll();
+      config.eventEndedAnnounced = true; saveAll();
     }
     return;
   }
 
-  // POKUD BĚŽÍ TRASA, ALE UŽ JE PUBLIKOVANÁ
   if (config.lastPublishedDay === route.day) return;
-
-  // PUBLIKACE NOVÉHO DNE
   const yesterday = route.day - 1;
   if (config.messages[yesterday]) {
-    try {
-      const oldMsg = await channel.messages.fetch(config.messages[yesterday]);
-      if (oldMsg) await oldMsg.delete();
-    } catch (e) {}
+    try { const oldMsg = await channel.messages.fetch(config.messages[yesterday]); if (oldMsg) await oldMsg.delete(); } catch (e) {}
   }
 
-  const msg = await channel.send({ 
-    content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", 
-    embeds: buildEmbedsForDay(route.day, true) 
-  });
-  
-  config.messages[route.day] = msg.id; 
-  config.lastPublishedDay = route.day; 
-  saveAll();
+  const msg = await channel.send({ content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", embeds: buildEmbedsForDay(route.day, true) });
+  config.messages[route.day] = msg.id; config.lastPublishedDay = route.day; saveAll();
 }
 
 client.once("ready", () => {
   console.log(`Bot Čarodějnice přihlášen a připraven čarovat.`);
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-  
   setInterval(autoUpdate, 60000);
 });
 
