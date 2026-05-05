@@ -338,13 +338,16 @@ async function runAnalysis(fullReset) {
   const channel = await client.channels.fetch(JOBS_CHANNEL_ID);
   let lastId = null, scanned = 0, rewarded = 0, stop = false;
   
+  // Omezení analýzy striktně na zprávy od 5.5.2026 10:47 CEST
+  const CUTOFF_TIME = Date.parse('2026-05-05T10:47:00+02:00'); 
+  
   while (!stop) {
     const fetched = await channel.messages.fetch({ limit: 100, before: lastId ?? undefined });
     if (fetched.size === 0) break;
     const msgs = Array.from(fetched.values());
     
     for (const m of msgs) {
-      if (m.createdTimestamp < EVENT_START) { stop = true; break; }
+      if (m.createdTimestamp < CUTOFF_TIME) { stop = true; break; }
       scanned++;
       if (!m.embeds.length) continue;
       const e = m.embeds[0];
@@ -386,7 +389,10 @@ const commands = [
   new SlashCommandBuilder().setName("admin-transfer").setDescription("ADMIN: Převést data z jednoho TB nicku na druhý.")
     .addStringOption(o => o.setName("stary_nick").setDescription("Starý TB nick").setRequired(true))
     .addStringOption(o => o.setName("novy_nick").setDescription("Nový TB nick").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("analyzovat").setDescription("ADMIN: Doplnit orby ze zpráv v kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-add-orbs").setDescription("ADMIN: Ručně přidá nebo odebere orby hráči.")
+    .addUserOption(o => o.setName("uzivatel").setDescription("Vyber uživatele na Discordu").setRequired(true))
+    .addIntegerOption(o => o.setName("pocet").setDescription("Počet orbů (+ pro přidání, - pro odebrání)").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("analyzovat").setDescription("ADMIN: Doplnit orby ze zpráv v kanálu (od 10:47).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("fullanalyze").setDescription("ADMIN: Smazat všechny orby a přepočítat je od nuly!").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-orb-dump").setDescription("ADMIN: Export databáze do JSON.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-orb-load").setDescription("ADMIN: Nahrát JSON zálohu s databází.")
@@ -544,6 +550,20 @@ client.on("interactionCreate", async interaction => {
       delete orbsData[oldNick];
       saveAll();
       return interaction.reply({ content: `✅ Data úspěšně převedena z **${oldNick}** na **${newNick}**.`, ephemeral: true });
+    }
+
+    if (interaction.commandName === "admin-add-orbs") {
+      const targetUser = interaction.options.getUser("uzivatel");
+      const amount = interaction.options.getInteger("pocet");
+      const userObj = Object.values(orbsData).find(e => e.discordId === targetUser.id);
+      
+      if (!userObj) return interaction.reply({ content: `❌ Uživatel ${targetUser.username} není propojen a nemá profil v databázi.`, ephemeral: true });
+      
+      userObj.totalOrbs += amount;
+      saveAll();
+      
+      const akce = amount >= 0 ? "přidáno" : "odebráno";
+      return interaction.reply({ content: `✅ Úspěšně ${akce} **${Math.abs(amount)} 🔮** hráči **${userObj.tbName}**. Nový stav: **${userObj.totalOrbs} 🔮**.`, ephemeral: true });
     }
 
     if (interaction.commandName === "admin-orb-dump") {
