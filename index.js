@@ -100,7 +100,6 @@ let config = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH
 };
 let processed = fs.existsSync(PROCESSED_PATH) ? JSON.parse(fs.readFileSync(PROCESSED_PATH, 'utf8')) : {};
 
-// Oprava starého configu při nahrání
 if (!config.bloodMoon.scheduledFor) config.bloodMoon.scheduledFor = 0;
 if (!config.bloodMoon.scheduledDate) config.bloodMoon.scheduledDate = "";
 
@@ -151,15 +150,15 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
       tbName, discordId: null, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, 
       bonusClaimed: false, routes: {}, lastVariant: null, 
       stolenOrbs: 0, cursedCount: 0, quests: {},
-      inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 } 
+      inventory: { talisman: 0, doublePotionUntil: 0, labLevel: 0, labUpgrade: false, protectionPotionUntil: 0 } 
     };
   }
   const user = orbsData[tbName];
   
-  if (!user.inventory) user.inventory = { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 };
+  if (!user.inventory) user.inventory = { talisman: 0, doublePotionUntil: 0, labLevel: 0, labUpgrade: false, protectionPotionUntil: 0 };
   if (!user.quests) user.quests = {};
   if (user.inventory.protectionPotionUntil === undefined) user.inventory.protectionPotionUntil = 0;
-  if (user.inventory.labUpgrade === undefined) user.inventory.labUpgrade = false;
+  if (user.inventory.labLevel === undefined) user.inventory.labLevel = user.inventory.labUpgrade ? 1 : 0; // Migrace na levely
   if (user.stolenOrbs === undefined) user.stolenOrbs = 0;
   if (user.cursedCount === undefined) user.cursedCount = 0;
 
@@ -182,7 +181,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   user.lastVariant = route.variant;
 
   // LABORATOŘ
-  if (user.inventory.labUpgrade) earned += 1;
+  if (user.inventory.labLevel > 0) earned += user.inventory.labLevel;
 
   // MYTICKÝ ORB
   const rand = Math.random() * 100;
@@ -326,7 +325,7 @@ const buildShopEmbed = (userOrbs) => ({
     { name: "4️⃣ Risky Potion (10 Orbů)", value: "Vypij a riskuj! (Šance na 0 až 30 orbů)." },
     { name: "5️⃣ Role Mistr Čaroděj (50 Orbů)", value: "Exkluzivní role navždy." },
     { name: "6️⃣ Zlodějský havran (10 Orbů)", value: "Okrade hráče z Top 10 o 1-10 orbů." },
-    { name: "7️⃣ Upgrade Laboratoře (30 Orbů)", value: "Trvalý bonus +1 Orb ke každé zakázce." },
+    { name: "7️⃣ Upgrade Laboratoře", value: "Zvýší stálý bonus k zakázkám. (Lvl 1: 30 🔮 / Lvl 2: 40 🔮 / Lvl 3: 60 🔮)" },
     { name: "8️⃣ Svitek přeměny (5 Orbů)", value: "Zničí tvůj dnešní úkol a vygeneruje zcela nový." },
     { name: "9️⃣ Ochranný lektvar (15 Orbů)", value: "Na 60 minut imunita proti prokletí a okradení havranem." }
   ]
@@ -417,7 +416,9 @@ client.on("interactionCreate", async interaction => {
       
       let doubleTime = user.inventory.doublePotionUntil > Date.now() ? `<t:${Math.floor(user.inventory.doublePotionUntil/1000)}:R>` : "Neaktivní";
       let protectTime = user.inventory.protectionPotionUntil > Date.now() ? `<t:${Math.floor(user.inventory.protectionPotionUntil/1000)}:R>` : "Neaktivní";
-      let labStatus = user.inventory.labUpgrade ? "✅ Aktivní (+1)" : "❌ Nezakoupeno";
+      
+      let labLvl = user.inventory.labLevel || (user.inventory.labUpgrade ? 1 : 0);
+      let labStatus = labLvl > 0 ? `✅ Level ${labLvl} (+${labLvl})` : "❌ Nezakoupeno";
       
       return interaction.reply({ embeds: [{ title: "🔮 Tvůj kotlík", fields: [
         { name: "Orby", value: `**${user.totalOrbs}** 🔮`, inline: true }, 
@@ -461,7 +462,8 @@ client.on("interactionCreate", async interaction => {
 
       let favRoute = "Žádná"; let maxR = 0;
       for (const [r, count] of Object.entries(user.routes)) { if (count > maxR) { maxR = count; favRoute = r; } }
-      let labStatus = user.inventory?.labUpgrade ? "✅ Aktivní" : "❌ Nezakoupeno";
+      let labLvl = user.inventory?.labLevel || (user.inventory?.labUpgrade ? 1 : 0);
+      let labStatus = labLvl > 0 ? `✅ Level ${labLvl}` : "❌ Nezakoupeno";
 
       return interaction.reply({ embeds: [{
         title: `🧙 Profil: ${targetUser.username}`,
@@ -523,7 +525,7 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "link") {
       const nick = interaction.options.getString("tb_nick").trim();
-      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: interaction.user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 } };
+      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: interaction.user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labLevel: 0, labUpgrade: false, protectionPotionUntil: 0 } };
       else orbsData[nick].discordId = interaction.user.id;
       saveAll();
       return interaction.reply({ content: `✅ Propojeno s **${nick}**`, ephemeral: true });
@@ -532,7 +534,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "admin-link") {
       const user = interaction.options.getUser("uzivatel");
       const nick = interaction.options.getString("tb_nick").trim();
-      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labUpgrade: false, protectionPotionUntil: 0 } };
+      if (!orbsData[nick]) orbsData[nick] = { tbName: nick, discordId: user.id, completedDays: [], totalOrbs: 0, totalKm: 0, totalJobs: 0, bonusClaimed: false, routes: {}, lastVariant: null, stolenOrbs: 0, cursedCount: 0, quests: {}, inventory: { talisman: 0, doublePotionUntil: 0, labLevel: 0, labUpgrade: false, protectionPotionUntil: 0 } };
       else orbsData[nick].discordId = user.id;
       saveAll();
       return interaction.reply({ content: `✅ Admin: Propojil jsem ${user} s TB: **${nick}**`, ephemeral: true });
@@ -650,7 +652,7 @@ client.on("interactionCreate", async interaction => {
       );
       const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('buy_raven').setLabel('6️⃣ Havran (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_lab').setLabel('7️⃣ Laborka (30)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('buy_lab').setLabel('7️⃣ Laborka').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('buy_scroll').setLabel('8️⃣ Svitek (5)').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('buy_protect').setLabel('9️⃣ Ochrana (15)').setStyle(ButtonStyle.Success)
       );
@@ -663,26 +665,36 @@ client.on("interactionCreate", async interaction => {
     const userObj = Object.values(orbsData).find(e => e.discordId === interaction.user.id);
     if (!userObj) return interaction.reply({ content: "Chyba uživatele.", ephemeral: true });
 
-    let cost = 0; let replyMsg = "";
+    let replyMsg = "";
     
+    if (interaction.customId === 'buy_lab') {
+      let currentLevel = userObj.inventory.labLevel || (userObj.inventory.labUpgrade ? 1 : 0);
+      if (currentLevel >= 3) return interaction.reply({ content: `❌ Tvá laboratoř je již na maximální úrovni (Level 3)!`, ephemeral: true });
+      
+      let labCost = currentLevel === 0 ? 30 : (currentLevel === 1 ? 40 : 60);
+      if (userObj.totalOrbs < labCost) return interaction.reply({ content: `❌ Nemáš dostatek orbů. Upgrade na Level ${currentLevel + 1} stojí ${labCost} orbů.`, ephemeral: true });
+      
+      userObj.totalOrbs -= labCost;
+      userObj.inventory.labLevel = currentLevel + 1;
+      userObj.inventory.labUpgrade = true; // pro zpětnou kompatibilitu
+      saveAll();
+      return interaction.reply({ content: `🧪 Výborně! Tvá laboratoř byla vylepšena na **Level ${currentLevel + 1}**. Odteď získáváš trvale +${currentLevel + 1} Orb ke každé zakázce.`, ephemeral: true });
+    }
+
+    // Pro ostatní itemy stará logika cost
+    let cost = 0;
     if (interaction.customId === 'buy_crystal') cost = 3;
     else if (interaction.customId === 'buy_talisman') cost = 5;
     else if (interaction.customId === 'buy_double') cost = 15;
     else if (interaction.customId === 'buy_risk') cost = 10;
     else if (interaction.customId === 'buy_role') cost = 50;
     else if (interaction.customId === 'buy_raven') cost = 10;
-    else if (interaction.customId === 'buy_lab') cost = 30;
     else if (interaction.customId === 'buy_scroll') cost = 5;
     else if (interaction.customId === 'buy_protect') cost = 15;
 
     if (userObj.totalOrbs < cost) return interaction.reply({ content: `❌ Nemáš dostatek orbů. Potřebuješ jich ${cost}.`, ephemeral: true });
 
-    if (interaction.customId === 'buy_lab') {
-      if (userObj.inventory.labUpgrade) return interaction.reply({ content: `❌ Upgrade laboratoře už máš zakoupený!`, ephemeral: true });
-      userObj.totalOrbs -= cost; userObj.inventory.labUpgrade = true;
-      replyMsg = "🧪 Výborně! Tvá laboratoř je vylepšena. Odteď získáváš trvale +1 Orb navíc za každou odjetou zakázku.";
-    }
-    else if (interaction.customId === 'buy_double') {
+    if (interaction.customId === 'buy_double') {
       if (userObj.inventory.doublePotionUntil > Date.now()) return interaction.reply({ content: "❌ Už máš aktivní Lektvar Zdvojení! Neplýtvej orby.", ephemeral: true });
       userObj.totalOrbs -= cost; userObj.inventory.doublePotionUntil = Date.now() + (60 * 60 * 1000);
       replyMsg = "🧪 Vypil jsi Lektvar Zdvojení. Na dalších 60 minut získáváš 2x orby!";
@@ -822,14 +834,12 @@ async function autoUpdate() {
 
   // NÁHODNÉ PLÁNOVÁNÍ KRVAVÉHO MĚSÍCE (13:00 - 23:00 CEST = 11:00 - 21:00 UTC)
   const today = new Date(now);
-  const dateStr = today.toISOString().split('T')[0]; // Získá dnešní datum ve formátu YYYY-MM-DD
+  const dateStr = today.toISOString().split('T')[0]; 
   
   if (config.bloodMoon.scheduledDate !== dateStr) {
-    // Nastavíme okno pro losování: 11:00 UTC (13:00 CEST) až 19:00 UTC (21:00 CEST)
     const minUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 11, 0, 0);
     const maxUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 19, 0, 0);
     
-    // Zkontrolujeme, jestli už není na dnešní losování moc pozdě
     if (now <= maxUTC) {
       const actualMin = Math.max(now, minUTC);
       config.bloodMoon.scheduledFor = Math.floor(Math.random() * (maxUTC - actualMin + 1)) + actualMin;
@@ -838,11 +848,10 @@ async function autoUpdate() {
       config.bloodMoon.announced = false;
       config.bloodMoon.msgId = null;
       saveAll();
-      console.log(`[SYS] Krvavý měsíc na dnešek naplánován na: ${new Date(config.bloodMoon.scheduledFor).toLocaleString('cs-CZ')}`);
     }
   }
 
-  // SPUŠTĚNÍ KRVAVÉHO MĚSÍCE (když nastane vylosovaný čas)
+  // SPUŠTĚNÍ KRVAVÉHO MĚSÍCE
   if (now >= config.bloodMoon.scheduledFor && now < config.bloodMoon.activeUntil && !config.bloodMoon.announced) {
     config.bloodMoon.announced = true;
     const ch = await client.channels.fetch(config.channelId).catch(() => null);
