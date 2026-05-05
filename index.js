@@ -89,16 +89,20 @@ function normalize(text) {
 }
 
 // ─────────────────────────────────────────────
-// DATABÁZE
+// DATABÁZE A AUTO-OPRAVY
 // ─────────────────────────────────────────────
 let orbsData = fs.existsSync(ORBS_PATH) ? JSON.parse(fs.readFileSync(ORBS_PATH, 'utf8')) : {};
 let config = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) : { 
   channelId: null, lastPublishedDay: 0, messages: {}, 
   dailyMasters: { 1:{}, 2:{}, 3:{}, 4:{}, 5:{}, 6:{} }, 
-  bloodMoon: { activeUntil: 0, announced: false, msgId: null },
+  bloodMoon: { scheduledFor: 0, scheduledDate: "", activeUntil: 0, announced: false, msgId: null },
   eventEndedAnnounced: false
 };
 let processed = fs.existsSync(PROCESSED_PATH) ? JSON.parse(fs.readFileSync(PROCESSED_PATH, 'utf8')) : {};
+
+// Oprava starého configu při nahrání
+if (!config.bloodMoon.scheduledFor) config.bloodMoon.scheduledFor = 0;
+if (!config.bloodMoon.scheduledDate) config.bloodMoon.scheduledDate = "";
 
 const saveAll = () => {
   fs.writeFileSync(ORBS_PATH, JSON.stringify(orbsData, null, 2));
@@ -112,7 +116,7 @@ async function tryAssignRole(memberId, roleId, reason) {
     const guild = await client.guilds.fetch(GUILD_ID);
     const member = await guild.members.fetch(memberId);
     if (!member.roles.cache.has(roleId)) await member.roles.add(roleId, reason);
-  } catch (e) { console.error(`Chyba při přiřazování role:`, e.message); }
+  } catch (e) {}
 }
 
 async function tryAutoLink(tbName) {
@@ -170,7 +174,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   let earned = 1;
   let eventMessages = [];
 
-  // ALCHYMIE (Kombo)
+  // ALCHYMIE
   if (user.lastVariant && user.lastVariant !== route.variant) {
     earned += 2; 
     eventMessages.push("🧪 *Namíchal jsi alchymistický lektvar (+2 Orby za střídání)!*");
@@ -180,7 +184,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   // LABORATOŘ
   if (user.inventory.labUpgrade) earned += 1;
 
-  // MYTICKÝ ORB a BONUS
+  // MYTICKÝ ORB
   const rand = Math.random() * 100;
   if (rand <= 1) {
     earned += 5;
@@ -189,7 +193,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     earned += 1; 
   }
 
-  // POUSTEVNÍK (2%)
+  // POUSTEVNÍK
   if (Math.random() * 100 <= 2) {
     earned += 5;
     eventMessages.push("🧙‍♂️ *Na odpočívadle jsi potkal potulného poustevníka, který ti za tvou ochotu dal 5 orbů.*");
@@ -201,7 +205,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     user.quests[currentDay] = { ...QUEST_POOL[Math.floor(Math.random() * QUEST_POOL.length)], progress: 0, completed: false };
   }
 
-  // PROKLETÍ NÁKLADU (15% šance)
+  // PROKLETÍ NÁKLADU
   let isCursed = Math.random() < 0.15;
   if (isCursed) {
     if (user.inventory.protectionPotionUntil > ts) {
@@ -218,7 +222,7 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
     }
   }
 
-  // ZPRACOVÁNÍ POSTUPU ÚKOLU
+  // POSTUP ÚKOLU
   const q = user.quests[currentDay];
   if (!q.completed && !isCursed) { 
     if (q.type === 'jobs') q.progress += 1;
@@ -234,14 +238,14 @@ async function processJob(tbName, fromRaw, toRaw, msgId, ts = Date.now(), isAnal
   // MULTIPLIKÁTORY
   if (earned > 0) {
     let multiplier = 1;
-    if (config.bloodMoon.activeUntil > ts) multiplier *= 2;
+    if (config.bloodMoon.activeUntil > ts && config.bloodMoon.scheduledFor <= ts) multiplier *= 2;
     if (user.inventory.doublePotionUntil > ts) multiplier *= 2;
     earned *= multiplier;
   }
 
   user.totalOrbs += earned;
 
-  // DENNÍ MISTŘI
+  // MISTŘI
   if (!isAnalysis && user.discordId) {
     if (!config.dailyMasters[route.day][route.variant]) {
       config.dailyMasters[route.day][route.variant] = user.discordId;
@@ -398,7 +402,7 @@ const commands = [
   new SlashCommandBuilder().setName("admin-orb-load").setDescription("ADMIN: Nahrát JSON zálohu s databází.")
     .addAttachmentOption(o => o.setName("soubor").setDescription("Záložní .json soubor").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("setup").setDescription("Nastavit hlavní kanál eventu pro mapy a Blood Moon.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-bloodmoon").setDescription("ADMIN: Spustí Krvavý měsíc na 2 hodiny.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-bloodmoon").setDescription("ADMIN: Okamžitě spustí Krvavý měsíc (přepíše náhodný los).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-publish").setDescription("ADMIN: Vynutí opětovné odeslání dnešní trasy do hlavního kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -525,7 +529,6 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `✅ Propojeno s **${nick}**`, ephemeral: true });
     }
 
-    // ADMIN PŘÍKAZY...
     if (interaction.commandName === "admin-link") {
       const user = interaction.options.getUser("uzivatel");
       const nick = interaction.options.getString("tb_nick").trim();
@@ -604,15 +607,18 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "admin-bloodmoon") {
       if (!config.channelId) return interaction.reply({ content: "❌ Musíš nejdříve nastavit hlavní kanál pomocí `/setup`.", ephemeral: true });
-      config.bloodMoon.activeUntil = Date.now() + (2 * 60 * 60 * 1000); 
+      const now = Date.now();
+      config.bloodMoon.scheduledFor = now; 
+      config.bloodMoon.activeUntil = now + (2 * 60 * 60 * 1000); 
       config.bloodMoon.announced = true;
+      config.bloodMoon.scheduledDate = new Date(now).toISOString().split('T')[0];
       const channel = await client.channels.fetch(config.channelId).catch(() => null);
       if (channel) {
-        const msg = await channel.send("@everyone 🌕 **KRVAVÝ MĚSÍC POVSTAL!** Následující 2 hodiny dávají všechny zakázky 2x více Orbů!");
+        const msg = await channel.send(`@everyone 🌕 **KRVAVÝ MĚSÍC POVSTAL!** Následující 2 hodiny (do <t:${Math.floor(config.bloodMoon.activeUntil/1000)}:t>) dávají všechny zakázky 2x více Orbů!`);
         config.bloodMoon.msgId = msg.id;
       }
       saveAll();
-      return interaction.reply({ content: "Spuštěno.", ephemeral: true });
+      return interaction.reply({ content: "✅ Manuální spuštění aktivováno. Bot nyní přepsal svůj tajný plán na dnešek a Měsíc právě začal.", ephemeral: true });
     }
 
     if (interaction.commandName === "admin-publish") {
@@ -734,8 +740,16 @@ client.on("interactionCreate", async interaction => {
     else {
       userObj.totalOrbs -= cost;
       if (interaction.customId === 'buy_crystal') {
-        if (config.bloodMoon.activeUntil > Date.now()) replyMsg = "🔮 Vidíš rudou záři... Krvavý měsíc už PŮSOBÍ!";
-        else replyMsg = "🔮 Vize je mlhavá... hvězdy zatím Krvavý měsíc nevyjevily.";
+        const now = Date.now();
+        if (config.bloodMoon.scheduledFor === 0) {
+          replyMsg = "🔮 Magie je zatím nestabilní, hvězdy mlčí... (Trasa ještě nezačala)";
+        } else if (now < config.bloodMoon.scheduledFor) {
+          replyMsg = `🔮 Vize je jasná! Krvavý měsíc dnes povstane v <t:${Math.floor(config.bloodMoon.scheduledFor / 1000)}:t>.`;
+        } else if (now >= config.bloodMoon.scheduledFor && now < config.bloodMoon.activeUntil) {
+          replyMsg = `🔮 Vidíš rudou záři... Krvavý měsíc už PŮSOBÍ do <t:${Math.floor(config.bloodMoon.activeUntil / 1000)}:t>!`;
+        } else {
+          replyMsg = "🔮 Měsíc už dnes vybledl... Dnešní šance pominula.";
+        }
       } 
       else if (interaction.customId === 'buy_talisman') {
         userObj.inventory.talisman += 1;
@@ -771,21 +785,22 @@ client.on('messageCreate', async (m) => {
 });
 
 async function autoUpdate() {
-  if (config.bloodMoon.activeUntil > 0 && Date.now() > config.bloodMoon.activeUntil) {
+  const now = Date.now();
+  const route = ROUTES.find(r => now >= r.start && now < r.end);
+
+  // Smazání zprávy Krvavého měsíce, pokud už skončil
+  if (config.bloodMoon.activeUntil > 0 && now > config.bloodMoon.activeUntil) {
     if (config.bloodMoon.msgId && config.channelId) {
       const ch = await client.channels.fetch(config.channelId).catch(() => null);
       if (ch) {
         try { const bmMsg = await ch.messages.fetch(config.bloodMoon.msgId); if (bmMsg) await bmMsg.delete(); } catch(e) {}
       }
     }
-    config.bloodMoon.activeUntil = 0; config.bloodMoon.announced = false; config.bloodMoon.msgId = null; saveAll();
+    config.bloodMoon.msgId = null; 
+    saveAll();
   }
 
   if (!config.channelId) return;
-  const now = Date.now();
-  const route = ROUTES.find(r => now >= r.start && now < r.end);
-  const channel = await client.channels.fetch(config.channelId).catch(() => null);
-  if (!channel) return;
 
   if (!route) {
     const lastRoute = ROUTES[ROUTES.length - 1]; 
@@ -793,23 +808,63 @@ async function autoUpdate() {
       if (config.messages[lastRoute.day]) {
         try { const oldMsg = await channel.messages.fetch(config.messages[lastRoute.day]); if (oldMsg) await oldMsg.delete(); } catch (e) {}
       }
-      await channel.send({ 
-        content: "@everyone 🛑 **Čarodějnický Event právě skončil!**",
-        embeds: [{ title: "🎇 Konec Čarodějnického Eventu!", description: "Všechny trasy byly uzavřeny a magie pomalu vyprchává z našich tahačů...\n\nObrovské díky všem zúčastněným čarodějům a alchymistům za účast! Nyní prosím vyčkejte na **oficiální vyhodnocení a rozdání finálních odměn od Vedení firmy**.", color: 0x000000, thumbnail: { url: LOGO_URL }, footer: { text: "Luky Transport • Čarodějnický Event 2026" } }]
-      });
+      const channel = await client.channels.fetch(config.channelId).catch(() => null);
+      if (channel) {
+        await channel.send({ 
+          content: "@everyone 🛑 **Čarodějnický Event právě skončil!**",
+          embeds: [{ title: "🎇 Konec Čarodějnického Eventu!", description: "Všechny trasy byly uzavřeny a magie pomalu vyprchává z našich tahačů...\n\nObrovské díky všem zúčastněným čarodějům a alchymistům za účast! Nyní prosím vyčkejte na **oficiální vyhodnocení a rozdání finálních odměn od Vedení firmy**.", color: 0x000000, thumbnail: { url: LOGO_URL }, footer: { text: "Luky Transport • Čarodějnický Event 2026" } }]
+        });
+      }
       config.eventEndedAnnounced = true; saveAll();
     }
     return;
   }
 
+  // NÁHODNÉ PLÁNOVÁNÍ KRVAVÉHO MĚSÍCE (13:00 - 23:00 CEST = 11:00 - 21:00 UTC)
+  const today = new Date(now);
+  const dateStr = today.toISOString().split('T')[0]; // Získá dnešní datum ve formátu YYYY-MM-DD
+  
+  if (config.bloodMoon.scheduledDate !== dateStr) {
+    // Nastavíme okno pro losování: 11:00 UTC (13:00 CEST) až 19:00 UTC (21:00 CEST)
+    const minUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 11, 0, 0);
+    const maxUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 19, 0, 0);
+    
+    // Zkontrolujeme, jestli už není na dnešní losování moc pozdě
+    if (now <= maxUTC) {
+      const actualMin = Math.max(now, minUTC);
+      config.bloodMoon.scheduledFor = Math.floor(Math.random() * (maxUTC - actualMin + 1)) + actualMin;
+      config.bloodMoon.activeUntil = config.bloodMoon.scheduledFor + (2 * 60 * 60 * 1000); // Trvá 2 hodiny
+      config.bloodMoon.scheduledDate = dateStr;
+      config.bloodMoon.announced = false;
+      config.bloodMoon.msgId = null;
+      saveAll();
+      console.log(`[SYS] Krvavý měsíc na dnešek naplánován na: ${new Date(config.bloodMoon.scheduledFor).toLocaleString('cs-CZ')}`);
+    }
+  }
+
+  // SPUŠTĚNÍ KRVAVÉHO MĚSÍCE (když nastane vylosovaný čas)
+  if (now >= config.bloodMoon.scheduledFor && now < config.bloodMoon.activeUntil && !config.bloodMoon.announced) {
+    config.bloodMoon.announced = true;
+    const ch = await client.channels.fetch(config.channelId).catch(() => null);
+    if (ch) {
+      const msg = await ch.send(`@everyone 🌕 **KRVAVÝ MĚSÍC POVSTAL!** Následující 2 hodiny (do <t:${Math.floor(config.bloodMoon.activeUntil/1000)}:t>) dávají všechny zakázky 2x více Orbů!`);
+      config.bloodMoon.msgId = msg.id;
+    }
+    saveAll();
+  }
+
+  // PUBLIKACE NOVÉ DNEŠNÍ TRASY
   if (config.lastPublishedDay === route.day) return;
   const yesterday = route.day - 1;
-  if (config.messages[yesterday]) {
+  const channel = await client.channels.fetch(config.channelId).catch(() => null);
+  if (channel && config.messages[yesterday]) {
     try { const oldMsg = await channel.messages.fetch(config.messages[yesterday]); if (oldMsg) await oldMsg.delete(); } catch (e) {}
   }
 
-  const msg = await channel.send({ content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", embeds: buildEmbedsForDay(route.day, true) });
-  config.messages[route.day] = msg.id; config.lastPublishedDay = route.day; saveAll();
+  if (channel) {
+    const msg = await channel.send({ content: "@everyone 🔮 **Nová etapa Čarodějnického Eventu právě začala!**", embeds: buildEmbedsForDay(route.day, true) });
+    config.messages[route.day] = msg.id; config.lastPublishedDay = route.day; saveAll();
+  }
 }
 
 client.once("ready", () => {
