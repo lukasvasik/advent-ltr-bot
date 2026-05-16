@@ -65,10 +65,12 @@ const commands = [
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true))
     .addIntegerOption(o => o.setName("cena").setDescription("Cena v pucích").setRequired(true)),
   new SlashCommandBuilder().setName("trade").setDescription("Nabídne přímou výměnu hráči.")
-    .addUserOption(o => o.setName("uzivatel").setDescription("Komu chceš nabídnout trade").setRequired(true)),
+    .addUserOption(o => o.setName("uzivatel").setDescription("Komu chceš nabídnout trade").setRequired(true))
+    .addStringOption(o => o.setName("nabizim").setDescription("ID tvé karty (např. CZE_A1)").setRequired(true))
+    .addStringOption(o => o.setName("chci").setDescription("ID karty, kterou chceš od něj").setRequired(true)),
   new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na zápas.")
-    .addStringOption(o => o.setName("zapas_id").setDescription("ID zápasu z nástěnky").setRequired(true))
-    .addStringOption(o => o.setName("tip").setDescription("Tvůj tip (VÝHRA_DOMÁCÍ / VÝHRA_HOSTÉ)").setRequired(true))
+    .addStringOption(o => o.setName("zapas").setDescription("Týmy (např. CZE-CAN)").setRequired(true))
+    .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true))
     .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
   new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
@@ -92,7 +94,6 @@ client.on('messageCreate', async (m) => {
       const ziskanePuky = Math.floor(km / 200);
       
       if (ziskanePuky > 0) {
-        // Najít uživatele podle TB nicku
         const userKey = Object.keys(usersDb).find(k => usersDb[k].tbName.toLowerCase() === ridic.toLowerCase().trim());
         if (userKey) {
           usersDb[userKey].pucks += ziskanePuky;
@@ -107,6 +108,7 @@ client.on('messageCreate', async (m) => {
 // INTERAKCE A PŘÍKAZY
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
+  
   // --- TLAČÍTKA: OBCHOD ---
   if (interaction.isButton() && interaction.customId.startsWith('buy_pack_')) {
     const packKey = interaction.customId.replace('buy_pack_', '');
@@ -120,7 +122,6 @@ client.on("interactionCreate", async interaction => {
     user.pucks -= pack.price;
     saveUsers();
 
-    // Filtrace karet podle typu balíčku
     let possibleCards = cardsDb.cards;
     if (pack.type === "role") {
       const targets = Array.isArray(pack.target) ? pack.target : [pack.target];
@@ -135,7 +136,6 @@ client.on("interactionCreate", async interaction => {
 
     await interaction.reply({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: BRAND_COLOR }], ephemeral: true });
     
-    // Animace
     setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[1] }, color: BRAND_COLOR }] }), 2500);
     setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[2] }, color: BRAND_COLOR }] }), 5000);
     setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[0] }, color: BRAND_COLOR }] }), 7500);
@@ -159,7 +159,6 @@ client.on("interactionCreate", async interaction => {
         components: [flipBtn]
       });
 
-      // Zápis do logu
       const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
       if (logCh) logCh.send(`👀 Hráč <@${user.id}> právě rozbalil **${pack.name}** a získal nového hokejistu!`);
       
@@ -172,7 +171,7 @@ client.on("interactionCreate", async interaction => {
   if (interaction.isButton() && interaction.customId.startsWith('flip_')) {
     const parts = interaction.customId.split('_');
     const cardId = `${parts[1]}_${parts[2]}`;
-    const targetFace = parts[3]; // 'back' nebo 'front'
+    const targetFace = parts[3]; 
     
     const card = cardsDb.cards.find(c => c.id === cardId);
     if(!card) return;
@@ -209,7 +208,6 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: "❌ Tato karta už není k dispozici.", ephemeral: true });
     }
 
-    // Provedení transakce
     buyer.pucks -= price;
     seller.pucks += price;
     seller.inventory.splice(seller.inventory.indexOf(cardId), 1);
@@ -224,6 +222,41 @@ client.on("interactionCreate", async interaction => {
     const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
     if (logCh) logCh.send(`🤝 <@${buyer.id}> koupil kartu od <@${seller.id}> za **${price} puků** na tržišti!`);
     return;
+  }
+
+  // --- TLAČÍTKA: TRADE ---
+  if (interaction.isButton() && interaction.customId.startsWith('tradeaccept_')) {
+    const [, initiatorId, targetId, myCardId, theirCardId] = interaction.customId.split('_');
+    if (interaction.user.id !== targetId) return interaction.reply({ content: "❌ Tento trade není pro tebe.", ephemeral: true });
+
+    const initiator = usersDb[initiatorId];
+    const target = usersDb[targetId];
+
+    if (!initiator.inventory.includes(myCardId) || !target.inventory.includes(theirCardId)) {
+      await interaction.message.delete().catch(()=>null);
+      return interaction.reply({ content: "❌ Trade už není možný, některý z hráčů už kartu nemá.", ephemeral: true });
+    }
+
+    initiator.inventory.splice(initiator.inventory.indexOf(myCardId), 1);
+    initiator.inventory.push(theirCardId);
+    target.inventory.splice(target.inventory.indexOf(theirCardId), 1);
+    target.inventory.push(myCardId);
+    saveUsers();
+
+    await interaction.message.edit({ content: `✅ **Trade úspěšně proběhl!**\n<@${initiatorId}> získal \`${theirCardId}\` a <@${targetId}> získal \`${myCardId}\`.`, components: [] });
+    interaction.reply({ content: "Úspěšně potvrzeno.", ephemeral: true });
+    
+    checkMilestones(initiatorId);
+    checkMilestones(targetId);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith('tradedecline_')) {
+    const [, targetId] = interaction.customId.split('_');
+    if (interaction.user.id !== targetId) return interaction.reply({ content: "❌ Tento trade není pro tebe.", ephemeral: true });
+    
+    await interaction.message.edit({ content: `❌ **Trade zrušen.** <@${targetId}> nabídku odmítl.`, components: [] });
+    return interaction.reply({ content: "Nabídka odmítnuta.", ephemeral: true });
   }
 
   // --- SLASH COMMANDS ---
@@ -265,9 +298,7 @@ client.on("interactionCreate", async interaction => {
       const price = interaction.options.getInteger("cena");
       const user = getUser(interaction.user.id);
 
-      if (!user.inventory.includes(cardId)) {
-        return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
-      }
+      if (!user.inventory.includes(cardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
 
       const card = cardsDb.cards.find(c => c.id === cardId);
       const marketCh = await client.channels.fetch(CH_MARKET).catch(()=>null);
@@ -286,28 +317,100 @@ client.on("interactionCreate", async interaction => {
       }
     }
 
+    if (interaction.commandName === "trade") {
+      const targetUser = interaction.options.getUser("uzivatel");
+      const myCardId = interaction.options.getString("nabizim").toUpperCase();
+      const theirCardId = interaction.options.getString("chci").toUpperCase();
+      const user = getUser(interaction.user.id);
+      const target = getUser(targetUser.id);
+
+      if (targetUser.id === interaction.user.id) return interaction.reply({ content: "❌ Nemůžeš měnit sám se sebou.", ephemeral: true });
+      if (!user.inventory.includes(myCardId)) return interaction.reply({ content: `❌ Kartu \`${myCardId}\` nevlastníš.`, ephemeral: true });
+      if (!target.inventory.includes(theirCardId)) return interaction.reply({ content: `❌ Hráč ${targetUser.username} kartu \`${theirCardId}\` nevlastní.`, ephemeral: true });
+
+      const cmdsCh = await client.channels.fetch(CH_CMDS).catch(()=>null);
+      if (cmdsCh) {
+        const btnRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`tradeaccept_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}`).setLabel('Souhlasím s výměnou').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`tradedecline_${targetUser.id}`).setLabel('Odmítnout').setStyle(ButtonStyle.Danger)
+        );
+
+        await cmdsCh.send({
+          content: `🤝 **Návrh na Trade!**\n<@${targetUser.id}>, hráč <@${interaction.user.id}> ti nabízí kartu \`${myCardId}\` výměnou za tvou kartu \`${theirCardId}\`!`,
+          components: [btnRow]
+        });
+        return interaction.reply({ content: `✅ Návrh na trade odeslán.`, ephemeral: true });
+      }
+    }
+
+    if (interaction.commandName === "vsadit") {
+      const matchName = interaction.options.getString("zapas");
+      const tip = interaction.options.getString("tip");
+      const puky = interaction.options.getInteger("puky");
+      const user = getUser(interaction.user.id);
+
+      if (user.pucks < puky) return interaction.reply({ content: `❌ Nemáš dost puků! Máš jen ${user.pucks}.`, ephemeral: true });
+      if (puky <= 0) return interaction.reply({ content: `❌ Musíš vsadit alespoň 1 puk.`, ephemeral: true });
+
+      user.pucks -= puky;
+      user.bets.push({ match: matchName, tip: tip, amount: puky });
+      saveUsers();
+
+      return interaction.reply({ content: `✅ Vsadil jsi **${puky} puků** na tip **${tip}** v zápase **${matchName}**!\n(Když tvůj tým vyhraje, bot ti později rozdá výhru a odznak Experta!)`, ephemeral: true });
+    }
+
     if (interaction.commandName === "admin-setup-shop") {
       await interaction.deferReply({ ephemeral: true });
       const shopCh = await client.channels.fetch(CH_SHOP).catch(()=>null);
       if (!shopCh) return interaction.editReply("Chyba kanálu.");
 
-      // Zjednodušený výpis obchodu (v reálu rozdělíš do více zpráv)
+      // Zpráva 1: Základní a Poziční
       const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_pack_random').setLabel('Random (3)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('buy_pack_random').setLabel('Random (3)').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('buy_pack_attack').setLabel('Attack (6)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_defensive').setLabel('Defensive (6)').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('buy_pack_defensive').setLabel('Defensive (6)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('buy_pack_lead').setLabel('Lead (10)').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('buy_pack_goal').setLabel('Goal (15)').setStyle(ButtonStyle.Secondary)
       );
 
-      await shopCh.send({
-        embeds: [{ title: "🛒 Hokejový Obchod LTR", description: "Vítej! Otevři si své balíčky. Puky získáváš ježděním (200km = 1 puk).", color: BRAND_COLOR }],
-        components: [row1]
-      });
+      // Zpráva 2: Skupiny
+      const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('buy_pack_group_a').setLabel('Group A (10)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('buy_pack_group_b').setLabel('Group B (10)').setStyle(ButtonStyle.Primary)
+      );
 
-      return interaction.editReply("✅ Obchod nastaven.");
+      // Zpráva 3: Národní (16 států = 4 řady)
+      const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('buy_pack_cze_col').setLabel('CZE (10)').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('buy_pack_svk_col').setLabel('SVK (10)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('buy_pack_can_col').setLabel('CAN (10)').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('buy_pack_usa_col').setLabel('USA (10)').setStyle(ButtonStyle.Primary)
+      );
+      const row4 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('buy_pack_swe_col').setLabel('SWE (10)').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('buy_pack_fin_col').setLabel('FIN (10)').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('buy_pack_sui_col').setLabel('SUI (10)').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('buy_pack_lat_col').setLabel('LAT (10)').setStyle(ButtonStyle.Danger)
+      );
+      const row5 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('buy_pack_ger_col').setLabel('GER (10)').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('buy_pack_aut_col').setLabel('AUT (10)').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('buy_pack_hun_col').setLabel('HUN (10)').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('buy_pack_gbr_col').setLabel('GBR (10)').setStyle(ButtonStyle.Primary)
+      );
+      const row6 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('buy_pack_den_col').setLabel('DEN (10)').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('buy_pack_nor_col').setLabel('NOR (10)').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('buy_pack_slo_col').setLabel('SLO (10)').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('buy_pack_ita_col').setLabel('ITA (10)').setStyle(ButtonStyle.Primary)
+      );
+
+      await shopCh.send({ embeds: [{ title: "🛒 Hokejový Obchod LTR - Základní a Poziční", description: "Otevři si své balíčky. Puky získáváš ježděním (200 km = 1 puk).", color: BRAND_COLOR }], components: [row1] });
+      await shopCh.send({ embeds: [{ title: "🏆 Hokejový Obchod LTR - Skupinové balíčky", color: BRAND_COLOR }], components: [row2] });
+      await shopCh.send({ embeds: [{ title: "🌍 Hokejový Obchod LTR - Národní balíčky", color: BRAND_COLOR }], components: [row3, row4, row5, row6] });
+
+      return interaction.editReply("✅ Kompletní obchod s 23 balíčky byl vykreslen.");
     }
-    
-    // Zde by pokračovaly commandy /trade a /vsadit
   }
 });
 
@@ -352,7 +455,7 @@ async function fetchMatches() {
   if (!ODDS_API_KEY) return;
   try {
     const res = await axios.get(`https://api.the-odds-api.com/v4/sports/icehockey_iihf_world_championship/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h`);
-    const matches = res.data.slice(0, 10); // Prvních 10 zápasů
+    const matches = res.data.slice(0, 10); 
 
     const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
     if (!matchCh) return;
@@ -370,7 +473,6 @@ async function fetchMatches() {
 
     const embed = new EmbedBuilder().setTitle("🔥 Aktuální zápasy a kurzy").setDescription(desc || "Žádné zápasy nenalezeny.").setColor(BRAND_COLOR);
     
-    // Zjednodušená logika: promaže kanál a pošle novou zprávu (nebo upraví existující)
     const msgs = await matchCh.messages.fetch({ limit: 5 });
     if (msgs.size > 0) {
       await msgs.first().edit({ embeds: [embed] });
@@ -387,7 +489,6 @@ client.once("ready", () => {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
   
-  // Aktualizace zápasů každou hodinu
   fetchMatches();
   setInterval(fetchMatches, 60 * 60 * 1000); 
 });
