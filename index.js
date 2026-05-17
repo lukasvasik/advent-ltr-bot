@@ -51,7 +51,6 @@ const SHOP_CATEGORIES = {
 let usersDb = fs.existsSync(USERS_PATH) ? JSON.parse(fs.readFileSync(USERS_PATH, 'utf8')) : {};
 const cardsDb = JSON.parse(fs.readFileSync(CARDS_PATH, 'utf8'));
 
-// Dočasná paměť na zápasy a kurzy
 let activeMatches = {};
 
 const saveUsers = () => fs.writeFileSync(USERS_PATH, JSON.stringify(usersDb, null, 2));
@@ -93,10 +92,16 @@ const commands = [
   new SlashCommandBuilder().setName("admin-karta").setDescription("ADMIN: Přidá konkrétní kartu hráči.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
-  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně vynutí stažení zápasů a kurzů.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Záchranná brzda - ručně vyhodnotí sázky zápasu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně vynutí stažení zápasů a otestuje API.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Ručně vyhodnotí sázky zápasu (automatické i manuální).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(o => o.setName("zapas").setDescription("Který zápas skončil?").setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Vyhráli Domácí', value: 'home'}, {name: 'Vyhráli Hosté', value: 'away'}))
+    .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Vyhráli Domácí', value: 'home'}, {name: 'Vyhráli Hosté', value: 'away'})),
+  new SlashCommandBuilder().setName("admin-vytvor-zapas").setDescription("ADMIN: Ručně vytvoří zápas (když API stávkuje).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption(o => o.setName("domaci").setDescription("Tým domácí").setRequired(true))
+    .addStringOption(o => o.setName("hoste").setDescription("Tým hosté").setRequired(true))
+    .addNumberOption(o => o.setName("kurz_domaci").setDescription("Kurz na domácí (např. 1.5)").setRequired(true))
+    .addNumberOption(o => o.setName("kurz_hoste").setDescription("Kurz na hosty (např. 2.1)").setRequired(true))
+    .addIntegerOption(o => o.setName("zacatek_za_hodin").setDescription("Za kolik hodin zápas začíná?").setRequired(true))
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
@@ -135,11 +140,9 @@ client.on('interactionCreate', async interaction => {
   else if (interaction.commandName === 'vsadit' || interaction.commandName === 'admin-vyhodnot') {
     if (focusedOption.name === 'zapas') {
       let matches = Object.keys(activeMatches);
-      
       if (interaction.commandName === 'vsadit') {
         matches = matches.filter(m => activeMatches[m].status === 'NS' && Date.now() < activeMatches[m].startTime);
       }
-
       const choices = matches.map(m => ({name: m, value: m}));
       const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
       await interaction.respond(filtered).catch(()=>null);
@@ -393,7 +396,7 @@ client.on("interactionCreate", async interaction => {
 
       const odd = tip === 'home' ? mData.oddsHome : mData.oddsAway;
 
-      if (odd <= 1.0) return interaction.reply({ content: "❌ K tomuto zápasu ještě API nepřiřadilo kurzy.", ephemeral: true });
+      if (odd <= 1.0) return interaction.reply({ content: "❌ K tomuto zápasu ještě nejsou kurzy.", ephemeral: true });
       if (user.pucks < puky) return interaction.reply({ content: `❌ Nemáš dost puků! Máš ${user.pucks}.`, ephemeral: true });
       if (puky <= 0) return interaction.reply({ content: "❌ Musíš vsadit alespoň 1 puk.", ephemeral: true });
 
@@ -403,6 +406,45 @@ client.on("interactionCreate", async interaction => {
       saveUsers(); 
       
       interaction.reply({ content: `✅ Vsadil jsi **${puky} puků** s kurzem **${odd}** na zápas **${matchName}**!\nPokud tvůj tým vyhraje, vyhraješ **${potWin} puků**!`, ephemeral: true });
+    }
+
+    if (interaction.commandName === "admin-vytvor-zapas") {
+      const home = interaction.options.getString("domaci");
+      const away = interaction.options.getString("hoste");
+      const oddsHome = interaction.options.getNumber("kurz_domaci");
+      const oddsAway = interaction.options.getNumber("kurz_hoste");
+      const hours = interaction.options.getInteger("zacatek_za_hodin");
+
+      const matchKey = `${home} - ${away}`;
+      const startTime = Date.now() + (hours * 3600 * 1000);
+
+      // Uložíme jako manuální zápas
+      activeMatches[matchKey] = {
+          id: `manual_${Date.now()}`,
+          home,
+          away,
+          oddsHome,
+          oddsAway,
+          status: 'NS',
+          startTime: startTime,
+          scoreHome: null,
+          scoreAway: null,
+          manual: true
+      };
+
+      // Vynutíme překreslení nástěnky s novým zápasem
+      const matchCh = await client.channels.fetch(CH_MATCHES);
+      let desc = "";
+      for (const k in activeMatches) {
+        const m = activeMatches[k];
+        const s = m.status === 'NS' ? '⏳ Nezačalo' : '🔴 LIVE/Konec';
+        desc += `🏒 **${k}**\n🕒 <t:${Math.floor(m.startTime/1000)}:f>\n📊 Stav: ${s}\n💰 🏠 Domácí: **${m.oddsHome}** | ✈️ Hosté: **${m.oddsAway}**\n\n`;
+      }
+      const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy MS`).setDescription(desc).setColor(EVENT_COLOR);
+      const msgs = await matchCh.messages.fetch({ limit: 5 });
+      if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
+
+      interaction.reply({ content: `✅ Ruční zápas **${matchKey}** úspěšně vytvořen! Lidé na něj nyní mohou vsázet.`, ephemeral: true });
     }
 
     if (interaction.commandName === "admin-vyhodnot") {
@@ -459,7 +501,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "admin-zapasy") {
       await interaction.deferReply({ ephemeral: true });
       const res = await fetchMatches();
-      interaction.editReply(res === true ? "✅ Zápasy a kurzy úspěšně aktualizovány z API-Sports." : `❌ DEBUG INFO:\n\n${res}`);
+      interaction.editReply(res === true ? "✅ Zápasy a kurzy úspěšně aktualizovány z API." : `❌ DEBUG INFO:\n\n${res}`);
     }
   }
 });
@@ -489,58 +531,19 @@ async function giveExpertRole(userId) {
 }
 
 // ─────────────────────────────────────────────
-// AUTOMATICKÉ VYHODNOCENÍ SÁZEK
-// ─────────────────────────────────────────────
-async function evaluateBetsAutomatically() {
-  let totalPayout = 0;
-  let winnersCount = 0;
-  let evaluatedMatches = [];
-
-  for (const matchKey in activeMatches) {
-    const m = activeMatches[matchKey];
-    if (['FT', 'AET', 'AWT', 'PEN'].includes(m.status)) {
-      if (m.scoreHome === null || m.scoreAway === null || m.scoreHome === m.scoreAway) continue; 
-      
-      const winner = m.scoreHome > m.scoreAway ? 'home' : 'away';
-      let matchHadBets = false;
-
-      for (const userId in usersDb) {
-        const user = usersDb[userId];
-        user.bets.forEach(bet => {
-          if (!bet.resolved && bet.match === matchKey) {
-            matchHadBets = true;
-            if (bet.tip === winner) {
-              user.pucks += bet.potentialWin;
-              totalPayout += bet.potentialWin;
-              winnersCount++;
-              giveExpertRole(userId);
-            }
-            bet.resolved = true;
-          }
-        });
-      }
-      if (matchHadBets) evaluatedMatches.push(matchKey);
-    }
-  }
-
-  if (evaluatedMatches.length > 0) {
-    saveUsers();
-    const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-    if (logCh) {
-       logCh.send(`💸 **Automatické vyhodnocení sázek:** Zápasy \`${evaluatedMatches.join(', ')}\` skončily! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
-    }
-  }
-}
-
-// ─────────────────────────────────────────────
 // API-SPORTS: ZÁPASY A KURZY
 // ─────────────────────────────────────────────
 async function fetchMatches() {
   if (!ODDS_API_KEY) return "Chybí klíč v Railway.";
   try {
+    // Zachováme ručně vytvořené zápasy v paměti
+    const manualMatches = Object.values(activeMatches).filter(m => m.manual);
+    activeMatches = {};
+    manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
+
     const headers = { 'x-apisports-key': ODDS_API_KEY };
-    
     const leaguesRes = await axios.get(`https://v1.hockey.api-sports.io/leagues?search=world`, { headers });
+    
     const targetLeague = leaguesRes.data.response?.find(l => 
         l.name.toLowerCase().includes('world championship') && 
         !l.name.toLowerCase().includes('u20') && 
@@ -548,28 +551,32 @@ async function fetchMatches() {
         !l.name.toLowerCase().includes('div')
     ) || leaguesRes.data.response?.[0]; 
 
-    if (!targetLeague) return `Nenalezeno Mistrovství světa v databázi API-Sports.`;
+    if (!targetLeague) return `Nenalezeno Mistrovství světa v databázi API-Sports. Použij /admin-vytvor-zapas`;
 
     const leagueId = targetLeague.id;
-    
-    // OPRAVA: API-Sports nepoužívá rok, ale "season" v objektu sezóny
     const activeSeasonObj = targetLeague.seasons.find(s => s.current === true);
     const season = activeSeasonObj ? activeSeasonObj.season : new Date().getFullYear();
 
     const gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
     const allGames = gamesRes.data.response || [];
 
+    if (allGames.length === 0) {
+        return `API-Sports nemá pro ligu "${targetLeague.name}" (ID ${leagueId}) v sezóně ${season} absolutně žádná data. API nás vypeklo. Použij ruční /admin-vytvor-zapas.`;
+    }
+
     const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
     const relevantGames = allGames
       .filter(g => new Date(g.date).getTime() > oneDayAgo)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const displayGames = relevantGames.slice(0, 10);
+    if (relevantGames.length === 0) {
+        const lastGameDate = new Date(allGames[allGames.length - 1].date).toLocaleDateString();
+        return `API má pro ligu "${targetLeague.name}" celkem ${allGames.length} zápasů, ale VŠECHNY jsou z minulosti (poslední se hrál ${lastGameDate}). Data pro dnešek chybí. Použij ruční /admin-vytvor-zapas.`;
+    }
 
+    const displayGames = relevantGames.slice(0, 10);
     const oddsRes = await axios.get(`https://v1.hockey.api-sports.io/odds?league=${leagueId}&season=${season}`, { headers });
     const oddsData = oddsRes.data.response || [];
-
-    let desc = "";
 
     displayGames.forEach(m => {
       const home = m.teams.home.name;
@@ -578,7 +585,6 @@ async function fetchMatches() {
       
       let oddsHome = 1.0;
       let oddsAway = 1.0;
-      let oddsText = "Kurzy zatím nevypsány.";
 
       const gameOdds = oddsData.find(o => o.game.id === m.id);
       if (gameOdds && gameOdds.bookmakers && gameOdds.bookmakers.length > 0) {
@@ -586,46 +592,32 @@ async function fetchMatches() {
           if (betMarket && betMarket.values.length >= 2) {
               oddsHome = parseFloat(betMarket.values.find(v => v.value === 'Home')?.odd || betMarket.values[0].odd);
               oddsAway = parseFloat(betMarket.values.find(v => v.value === 'Away')?.odd || betMarket.values[1].odd);
-              oddsText = `🏠 Domácí: **${oddsHome}** | ✈️ Hosté: **${oddsAway}**`;
           }
       }
 
-      const s = m.status.short;
-      let statusText = "";
-      if (s === 'NS') statusText = "⏳ Nezačalo";
-      else if (['FT', 'AET', 'AWT', 'PEN'].includes(s)) statusText = `🏁 Konec (${m.scores.home} : ${m.scores.away})`;
-      else if (s === 'CANC') statusText = "❌ Zrušeno";
-      else statusText = `🔴 LIVE (${m.scores.home} : ${m.scores.away})`; 
-
       activeMatches[matchKey] = { 
-        id: m.id, 
-        home, 
-        away, 
-        oddsHome, 
-        oddsAway,
-        status: s,
-        startTime: new Date(m.date).getTime(),
-        scoreHome: m.scores.home,
-        scoreAway: m.scores.away
+        id: m.id, home, away, oddsHome, oddsAway,
+        status: m.status.short, startTime: new Date(m.date).getTime(),
+        scoreHome: m.scores.home, scoreAway: m.scores.away, manual: false
       };
-      
-      desc += `🏒 **${matchKey}**\n🕒 <t:${Math.floor(new Date(m.date).getTime()/1000)}:f>\n📊 Stav: ${statusText}\n💰 ${oddsText}\n\n`;
     });
-
-    await evaluateBetsAutomatically();
 
     const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
     if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
 
-    const embed = new EmbedBuilder()
-      .setTitle(`🔥 Aktuální zápasy a kurzy MS`)
-      .setDescription(desc || "Žádné zápasy nenalezeny.")
-      .setColor(EVENT_COLOR);
-      
+    let desc = "";
+    for (const k in activeMatches) {
+        const m = activeMatches[k];
+        const s = m.status === 'NS' ? '⏳ Nezačalo' : (['FT', 'AET', 'AWT', 'PEN'].includes(m.status) ? `🏁 Konec (${m.scoreHome}:${m.scoreAway})` : `🔴 LIVE (${m.scoreHome}:${m.scoreAway})`);
+        const oddsTxt = m.oddsHome > 1.0 ? `🏠 Domácí: **${m.oddsHome}** | ✈️ Hosté: **${m.oddsAway}**` : "Kurzy nevypsány.";
+        desc += `🏒 **${k}**\n🕒 <t:${Math.floor(m.startTime/1000)}:f>\n📊 Stav: ${s}\n💰 ${oddsTxt}\n\n`;
+    }
+
+    const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy MS`).setDescription(desc).setColor(EVENT_COLOR);
     const msgs = await matchCh.messages.fetch({ limit: 5 });
     if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
+    
     return true;
-
   } catch (err) { return err.message; }
 }
 
