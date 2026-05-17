@@ -36,7 +36,7 @@ const ROLE_COLLECTOR = '1505237697533444216';
 const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
-const EVENT_COLOR = 0xFF2C57; // Tvá sytá růžovo-červená všude
+const EVENT_COLOR = 0xFF2C57; 
 
 // Kategorie pro katalog obchodu
 const SHOP_CATEGORIES = {
@@ -84,7 +84,6 @@ const commands = [
     .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true).addChoices({name: 'Výhra Domácí', value: 'home'}, {name: 'Výhra Hosté', value: 'away'}))
     .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
   
-  // ADMIN PŘÍKAZY
   new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-puky").setDescription("ADMIN: Přidá nebo odebere puky.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
@@ -418,21 +417,13 @@ client.on("interactionCreate", async interaction => {
       const matchKey = `${home} - ${away}`;
       const startTime = Date.now() + (hours * 3600 * 1000);
 
-      // Uložíme jako manuální zápas
       activeMatches[matchKey] = {
           id: `manual_${Date.now()}`,
-          home,
-          away,
-          oddsHome,
-          oddsAway,
-          status: 'NS',
-          startTime: startTime,
-          scoreHome: null,
-          scoreAway: null,
-          manual: true
+          home, away, oddsHome, oddsAway,
+          status: 'NS', startTime: startTime,
+          scoreHome: null, scoreAway: null, manual: true
       };
 
-      // Vynutíme překreslení nástěnky s novým zápasem
       const matchCh = await client.channels.fetch(CH_MATCHES);
       let desc = "";
       for (const k in activeMatches) {
@@ -444,7 +435,7 @@ client.on("interactionCreate", async interaction => {
       const msgs = await matchCh.messages.fetch({ limit: 5 });
       if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
 
-      interaction.reply({ content: `✅ Ruční zápas **${matchKey}** úspěšně vytvořen! Lidé na něj nyní mohou vsázet.`, ephemeral: true });
+      interaction.reply({ content: `✅ Ruční zápas **${matchKey}** úspěšně vytvořen!`, ephemeral: true });
     }
 
     if (interaction.commandName === "admin-vyhodnot") {
@@ -531,12 +522,55 @@ async function giveExpertRole(userId) {
 }
 
 // ─────────────────────────────────────────────
+// AUTOMATICKÉ VYHODNOCENÍ SÁZEK
+// ─────────────────────────────────────────────
+async function evaluateBetsAutomatically() {
+  let totalPayout = 0;
+  let winnersCount = 0;
+  let evaluatedMatches = [];
+
+  for (const matchKey in activeMatches) {
+    const m = activeMatches[matchKey];
+    if (['FT', 'AET', 'AWT', 'PEN'].includes(m.status)) {
+      if (m.scoreHome === null || m.scoreAway === null || m.scoreHome === m.scoreAway) continue; 
+      
+      const winner = m.scoreHome > m.scoreAway ? 'home' : 'away';
+      let matchHadBets = false;
+
+      for (const userId in usersDb) {
+        const user = usersDb[userId];
+        user.bets.forEach(bet => {
+          if (!bet.resolved && bet.match === matchKey) {
+            matchHadBets = true;
+            if (bet.tip === winner) {
+              user.pucks += bet.potentialWin;
+              totalPayout += bet.potentialWin;
+              winnersCount++;
+              giveExpertRole(userId);
+            }
+            bet.resolved = true;
+          }
+        });
+      }
+      if (matchHadBets) evaluatedMatches.push(matchKey);
+    }
+  }
+
+  if (evaluatedMatches.length > 0) {
+    saveUsers();
+    const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
+    if (logCh) {
+       logCh.send(`💸 **Automatické vyhodnocení sázek:** Zápasy \`${evaluatedMatches.join(', ')}\` skončily! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
 // API-SPORTS: ZÁPASY A KURZY
 // ─────────────────────────────────────────────
 async function fetchMatches() {
   if (!ODDS_API_KEY) return "Chybí klíč v Railway.";
   try {
-    // Zachováme ručně vytvořené zápasy v paměti
     const manualMatches = Object.values(activeMatches).filter(m => m.manual);
     activeMatches = {};
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
@@ -555,13 +589,28 @@ async function fetchMatches() {
 
     const leagueId = targetLeague.id;
     const activeSeasonObj = targetLeague.seasons.find(s => s.current === true);
-    const season = activeSeasonObj ? activeSeasonObj.season : new Date().getFullYear();
+    
+    // OPRAVA: Sezóna jako číslo
+    let season = activeSeasonObj ? parseInt(activeSeasonObj.season) : new Date().getFullYear();
 
-    const gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
-    const allGames = gamesRes.data.response || [];
+    let gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
+    let allGames = gamesRes.data.response || [];
+
+    // ČASOSTROJ: Pokud 2026 nemá zápasy, zkusíme 2025
+    if (allGames.length === 0) {
+        season = season - 1;
+        gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
+        allGames = gamesRes.data.response || [];
+    }
 
     if (allGames.length === 0) {
-        return `API-Sports nemá pro ligu "${targetLeague.name}" (ID ${leagueId}) v sezóně ${season} absolutně žádná data. API nás vypeklo. Použij ruční /admin-vytvor-zapas.`;
+        // GLOBAL RADAR: Zkusíme zjistit, jaké jiné ligy se dnes hrají, abychom to ukázali v chybě
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayRes = await axios.get(`https://v1.hockey.api-sports.io/games?date=${todayStr}`, { headers });
+        const todayGames = todayRes.data.response || [];
+        const otherLeagues = [...new Set(todayGames.map(g => g.league.name))].join(', ');
+
+        return `API-Sports nemá pro ligu "${targetLeague.name}" (ID ${leagueId}) zápasy ani v roce ${season+1} ani ${season}.\nZajímavost: API dnes reálně vidí tyto jiné ligy: ${otherLeagues || "Vůbec nic"}.\nPoužij ruční /admin-vytvor-zapas.`;
     }
 
     const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
