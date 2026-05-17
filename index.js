@@ -69,10 +69,11 @@ function getUser(id, tbName = null) {
   }
   if (!usersDb[id].lockedCards) usersDb[id].lockedCards = {};
   if (usersDb[id].km === undefined) usersDb[id].km = 0;
-  if (usersDb[id].betsTotal === undefined) usersDb[id].betsTotal = usersDb[id].bets.length || 0;
+  if (usersDb[id].pucks === undefined) usersDb[id].pucks = 0;
+  if (usersDb[id].betsTotal === undefined) usersDb[id].betsTotal = usersDb[id].bets?.length || 0;
   if (usersDb[id].betsWon === undefined) usersDb[id].betsWon = 0;
   if (usersDb[id].finishedEvent === undefined) usersDb[id].finishedEvent = false;
-  if (!usersDb[id].processedJobs) usersDb[id].processedJobs = [];
+  if (!usersDb[id].processedJobs) usersDb[id].processedJobs = []; // OPRAVA PRO STARÉ ÚČTY
   return usersDb[id];
 }
 
@@ -239,7 +240,6 @@ async function openShopCatalog(interaction, category, index) {
 // SBĚR KILOMETRŮ A MIL (PODPORA ATS I ETS)
 // ─────────────────────────────────────────────
 function extractDistanceAndPucks(text) {
-    // Hledá vzdálenost a její jednotku (km, mi, míle, miles)
     const distMatch = text.match(/(?:vzdálenost|distance|\[.*?\])[^\d]*(\d+)\s*(km|mi|míle|miles)/i);
     if (!distMatch) return null;
 
@@ -247,7 +247,6 @@ function extractDistanceAndPucks(text) {
     let unit = distMatch[2].toLowerCase();
     let km = rawDist;
 
-    // Převod mil na kilometry, pokud je jednotka z ATS
     if (unit.includes('mi') || unit.includes('mí')) {
         km = Math.round(rawDist * 1.60934);
     }
@@ -265,7 +264,7 @@ client.on('messageCreate', async (m) => {
 
   const allText = [e.title, e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
   
-  const jobIdMatch = allText.match(/#(\d+)/) || m.content.match(/#(\d+)/);
+  const jobIdMatch = allText.match(/#(\d+)/) || (m.content || "").match(/#(\d+)/);
   const jobId = jobIdMatch ? jobIdMatch[1] : `msg_${m.id}`;
 
   const distData = extractDistanceAndPucks(allText);
@@ -280,8 +279,8 @@ client.on('messageCreate', async (m) => {
   });
 
   if (userKey) {
-    const u = usersDb[userKey];
-    if (u.processedJobs.includes(jobId)) return; // Prevence duplikace
+    const u = getUser(userKey); // OPRAVA: Automaticky doplní chybějící položky starým hráčům
+    if (u.processedJobs.includes(jobId)) return; 
 
     u.km += km;
     if (pucks > 0) u.pucks += pucks;
@@ -463,7 +462,7 @@ client.on("interactionCreate", async interaction => {
     const [, sellerId, cardId, priceStr] = interaction.customId.split('_');
     const price = parseInt(priceStr, 10);
     const buyer = getUser(interaction.user.id);
-    const seller = usersDb[sellerId];
+    const seller = getUser(sellerId);
     if (buyer.id === sellerId) return interaction.reply({ content: "❌ Vlastní karta.", ephemeral: true });
     if (buyer.pucks < price) return interaction.reply({ content: "❌ Málo puků.", ephemeral: true });
     if (!seller || !seller.inventory.includes(cardId)) {
@@ -836,7 +835,7 @@ client.on("interactionCreate", async interaction => {
 
         const allText = [e.title, e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
         
-        const jobIdMatch = allText.match(/#(\d+)/) || m.content.match(/#(\d+)/);
+        const jobIdMatch = allText.match(/#(\d+)/) || (m.content || "").match(/#(\d+)/);
         const jobId = jobIdMatch ? jobIdMatch[1] : `msg_${m.id}`;
 
         const distData = extractDistanceAndPucks(allText);
@@ -851,8 +850,8 @@ client.on("interactionCreate", async interaction => {
         });
 
         if (userKey) {
-          const u = usersDb[userKey];
-          // Pokud tuto zakázku ještě nemá v evidenci
+          const u = getUser(userKey); // OPRAVA: Automaticky doplní chybějící položky starým hráčům
+          
           if (!u.processedJobs.includes(jobId)) {
             u.km += km;
             if (pucks > 0) u.pucks += pucks;
