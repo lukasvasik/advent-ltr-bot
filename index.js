@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import {
   Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder,
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits,
+  StringSelectMenuBuilder, StringSelectMenuOptionBuilder
 } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
@@ -36,6 +37,13 @@ const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
 const BRAND_COLOR = 0x00529B; // Hokejová modrá
+
+// Kategorie pro katalog obchodu
+const SHOP_CATEGORIES = {
+  basic: ['random', 'attack', 'defensive', 'lead', 'goal'],
+  groups: ['group_a', 'group_b'],
+  national: ['cze_col', 'svk_col', 'can_col', 'usa_col', 'swe_col', 'fin_col', 'sui_col', 'lat_col', 'ger_col', 'aut_col', 'hun_col', 'gbr_col', 'den_col', 'nor_col', 'slo_col', 'ita_col']
+};
 
 // ─────────────────────────────────────────────
 // DATABÁZE
@@ -73,10 +81,57 @@ const commands = [
     .addStringOption(o => o.setName("zapas").setDescription("Týmy (např. CZE-CAN)").setRequired(true))
     .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true))
     .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
-  new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
+  // NOVÉ ADMIN PŘÍKAZY
+  new SlashCommandBuilder().setName("admin-puky").setDescription("ADMIN: Přidá nebo odebere puky.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
+    .addIntegerOption(o => o.setName("pocet").setDescription("Počet puků (+ přidá, - ubere)").setRequired(true)),
+  new SlashCommandBuilder().setName("admin-karta").setDescription("ADMIN: Přidá konkrétní kartu hráči.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
+    .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
+  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně vynutí stažení zápasů a ukáže případnou chybu z API.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
+
+// ─────────────────────────────────────────────
+// POMOCNÁ FUNKCE PRO VYKRESLENÍ KATALOGU OBCHODU
+// ─────────────────────────────────────────────
+async function openShopCatalog(interaction, category, index) {
+  const packKeys = SHOP_CATEGORIES[category];
+  const packKey = packKeys[index];
+  const pack = cardsDb.packages[packKey];
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`browse_shop_${category}_${index - 1}`)
+      .setLabel('◀ Předchozí')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(index === 0),
+    new ButtonBuilder()
+      .setCustomId(`buy_pack_${packKey}`)
+      .setLabel(`Koupit za ${pack.price} puků`)
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`browse_shop_${category}_${index + 1}`)
+      .setLabel('Další ▶')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(index === packKeys.length - 1)
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📦 ${pack.name}`)
+    .setDescription(`Cena: **${pack.price} puků**\n*Balíček ${index + 1} z ${packKeys.length}*`)
+    .setImage(pack.image)
+    .setColor(0xFF69B4); // Růžová!
+
+  if (interaction.replied || interaction.deferred) {
+    await interaction.update({ embeds: [embed], components: [row] });
+  } else {
+    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+  }
+}
 
 // ─────────────────────────────────────────────
 // TRUCKSBOOK: PUKY ZA KILOMETRY
@@ -110,41 +165,19 @@ client.on('messageCreate', async (m) => {
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   
-  // --- TLAČÍTKA: LISTOVACÍ KATALOG OBCHODU ---
+  // --- DROP-DOWN MENU: OBCHOD ---
+  if (interaction.isStringSelectMenu() && interaction.customId === 'shop_category_select') {
+    const category = interaction.values[0];
+    await openShopCatalog(interaction, category, 0);
+    return;
+  }
+
+  // --- TLAČÍTKA: LISTOVÁNÍ V KATALOGU OBCHODU ---
   if (interaction.isButton() && interaction.customId.startsWith('browse_shop_')) {
-    const targetIndex = parseInt(interaction.customId.replace('browse_shop_', ''), 10);
-    const packKeys = Object.keys(cardsDb.packages);
-    const packKey = packKeys[targetIndex];
-    const pack = cardsDb.packages[packKey];
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`browse_shop_${targetIndex - 1}`)
-        .setLabel('◀ Předchozí')
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(targetIndex === 0),
-      new ButtonBuilder()
-        .setCustomId(`buy_pack_${packKey}`)
-        .setLabel(`Koupit za ${pack.price} puků`)
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`browse_shop_${targetIndex + 1}`)
-        .setLabel('Další ▶')
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(targetIndex === packKeys.length - 1)
-    );
-
-    const embed = new EmbedBuilder()
-      .setTitle(`📦 ${pack.name}`)
-      .setDescription(`Cena: **${pack.price} puků**\n*Balíček ${targetIndex + 1} z ${packKeys.length}*`)
-      .setImage(pack.image)
-      .setColor(BRAND_COLOR);
-
-    if (interaction.replied || interaction.deferred) {
-      await interaction.update({ embeds: [embed], components: [row] });
-    } else {
-      await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
-    }
+    const parts = interaction.customId.split('_');
+    const category = parts[2];
+    const targetIndex = parseInt(parts[3], 10);
+    await openShopCatalog(interaction, category, targetIndex);
     return;
   }
 
@@ -173,11 +206,11 @@ client.on("interactionCreate", async interaction => {
 
     const selectedCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
 
-    await interaction.update({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: BRAND_COLOR }], components: [] });
+    await interaction.update({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: 0xFF69B4 }], components: [] });
     
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[1] }, color: BRAND_COLOR }] }), 2500);
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[2] }, color: BRAND_COLOR }] }), 5000);
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[0] }, color: BRAND_COLOR }] }), 7500);
+    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[1] }, color: 0xFF69B4 }] }), 2500);
+    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[2] }, color: 0xFF69B4 }] }), 5000);
+    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[0] }, color: 0xFF69B4 }] }), 7500);
     
     setTimeout(async () => {
       user.inventory.push(selectedCard.id);
@@ -193,7 +226,7 @@ client.on("interactionCreate", async interaction => {
           title: `${selectedCard.team} | ${selectedCard.name}`,
           description: `Pozice: **${selectedCard.role}**\nID Karty: \`${selectedCard.id}\``,
           image: { url: selectedCard.front },
-          color: BRAND_COLOR
+          color: 0xFF69B4
         }],
         components: [flipBtn]
       });
@@ -290,7 +323,7 @@ client.on("interactionCreate", async interaction => {
         title: `${card.team} | ${card.name}`,
         description: interaction.message.embeds[0].description,
         image: { url: targetFace === 'back' ? card.back : card.front },
-        color: BRAND_COLOR
+        color: interaction.message.embeds[0].color // Zůstane růžová v obchodě, modrá v albu
       }],
       components: [newRow]
     });
@@ -490,23 +523,62 @@ client.on("interactionCreate", async interaction => {
       const shopCh = await client.channels.fetch(CH_SHOP).catch(()=>null);
       if (!shopCh) return interaction.editReply("Chyba kanálu.");
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('browse_shop_0')
-          .setLabel('📖 Otevřít katalog balíčků')
-          .setStyle(ButtonStyle.Success)
-      );
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('shop_category_select')
+        .setPlaceholder('Vyberte kategorii balíčků...')
+        .addOptions(
+          new StringSelectMenuOptionBuilder().setLabel('Základní a Poziční balíčky').setValue('basic').setEmoji('📦'),
+          new StringSelectMenuOptionBuilder().setLabel('Skupinové balíčky').setValue('groups').setEmoji('🏆'),
+          new StringSelectMenuOptionBuilder().setLabel('Národní balíčky').setValue('national').setEmoji('🌍')
+        );
+
+      const row = new ActionRowBuilder().addComponents(select);
 
       await shopCh.send({ 
         embeds: [{ 
           title: "🛒 Hokejový Obchod LTR", 
-          description: "Vítej v obchodě s hokejovými kartičkami!\n\nKlikni na tlačítko níže a otevři si svůj soukromý katalog, kde si můžeš v klidu prohlédnout a zakoupit všechny dostupné balíčky.\n\n*Puky získáváš ježděním (200 km = 1 puk).*.", 
-          color: BRAND_COLOR 
+          description: "Vítej v obchodě s hokejovými kartičkami!\n\nVyber si v menu níže kategorii a otevři si svůj soukromý katalog, kde si můžeš v klidu prohlédnout a zakoupit všechny dostupné balíčky.\n\n*Puky získáváš ježděním (200 km = 1 puk).*.", 
+          color: 0xFF69B4
         }], 
         components: [row] 
       });
 
-      return interaction.editReply("✅ Nový katalog obchodu byl úspěšně vykreslen.");
+      return interaction.editReply("✅ Nový katalog obchodu s výběrem kategorií byl úspěšně vykreslen.");
+    }
+
+    if (interaction.commandName === "admin-puky") {
+      const targetUser = interaction.options.getUser("uzivatel");
+      const amount = interaction.options.getInteger("pocet");
+      const userObj = getUser(targetUser.id);
+      
+      userObj.pucks += amount;
+      saveUsers();
+      
+      return interaction.reply({ content: `✅ Hráči ${targetUser.username} bylo přidáno/odebráno ${amount} puků. Nyní má **${userObj.pucks} puků**.`, ephemeral: true });
+    }
+
+    if (interaction.commandName === "admin-karta") {
+      const targetUser = interaction.options.getUser("uzivatel");
+      const cardId = interaction.options.getString("karta_id").toUpperCase();
+      
+      const card = cardsDb.cards.find(c => c.id === cardId);
+      if (!card) return interaction.reply({ content: `❌ Karta s ID \`${cardId}\` v databázi neexistuje.`, ephemeral: true });
+      
+      const userObj = getUser(targetUser.id);
+      userObj.inventory.push(cardId);
+      saveUsers();
+      
+      return interaction.reply({ content: `✅ Hráči ${targetUser.username} byla přímo do inventáře přidána karta \`${cardId}\`.`, ephemeral: true });
+    }
+
+    if (interaction.commandName === "admin-zapasy") {
+      await interaction.deferReply({ ephemeral: true });
+      const result = await fetchMatches();
+      if (result === true) {
+        return interaction.editReply("✅ Zápasy byly úspěšně staženy a kanál `#zápasy` byl aktualizován.");
+      } else {
+        return interaction.editReply(`❌ Nastala chyba při stahování zápasů z API. Tohle se API nelíbilo:\n\`\`\`${result}\`\`\``);
+      }
     }
   }
 });
@@ -549,13 +621,13 @@ async function checkMilestones(userId) {
 // THE ODDS API - AKTUALIZACE ZÁPASŮ
 // ─────────────────────────────────────────────
 async function fetchMatches() {
-  if (!ODDS_API_KEY) return;
+  if (!ODDS_API_KEY) return "Chybí API klíč v .env souboru.";
   try {
     const res = await axios.get(`https://api.the-odds-api.com/v4/sports/icehockey_iihf_world_championship/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h`);
     const matches = res.data.slice(0, 10); 
 
     const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
-    if (!matchCh) return;
+    if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
 
     let desc = "";
     matches.forEach(m => {
@@ -576,8 +648,13 @@ async function fetchMatches() {
     } else {
       await matchCh.send({ embeds: [embed] });
     }
+    return true;
   } catch (err) {
     console.error("Chyba API:", err.message);
+    if(err.response && err.response.data) {
+        return err.response.data.message || err.message;
+    }
+    return err.message;
   }
 }
 
