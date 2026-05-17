@@ -65,13 +65,13 @@ const saveUsers = () => fs.writeFileSync(USERS_PATH, JSON.stringify(usersDb, nul
 
 function getUser(id, tbName = null) {
   if (!usersDb[id]) {
-    usersDb[id] = { id, tbName: tbName || "Neznámý", pucks: 0, inventory: [], bets: [], lockedCards: {}, km: 0, betsTotal: 0, betsWon: 0 };
+    usersDb[id] = { id, tbName: tbName || "Neznámý", pucks: 0, inventory: [], bets: [], lockedCards: {}, km: 0, betsTotal: 0, betsWon: 0, finishedEvent: false };
   }
-  // Zajištění kompatibility starých záznamů s novými sloupci
   if (!usersDb[id].lockedCards) usersDb[id].lockedCards = {};
   if (usersDb[id].km === undefined) usersDb[id].km = 0;
   if (usersDb[id].betsTotal === undefined) usersDb[id].betsTotal = usersDb[id].bets.length || 0;
   if (usersDb[id].betsWon === undefined) usersDb[id].betsWon = 0;
+  if (usersDb[id].finishedEvent === undefined) usersDb[id].finishedEvent = false;
   return usersDb[id];
 }
 
@@ -105,7 +105,6 @@ const commands = [
   new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook nickem.")
     .addStringOption(o => o.setName("nick").setDescription("Tvůj nick na TB").setRequired(true)),
   
-  // NOVÉ PŘÍKAZY PRO PROFIL A LEADERBOARD
   new SlashCommandBuilder().setName("profil").setDescription("Zobrazí tvoje statistiky z celého eventu.")
     .addUserOption(o => o.setName("uzivatel").setDescription("Čí profil chceš vidět (nepovinné)")),
   new SlashCommandBuilder().setName("leaderboard").setDescription("Zobrazí žebříček nejlepších hráčů.")
@@ -248,7 +247,7 @@ client.on('messageCreate', async (m) => {
       
       const userKey = Object.keys(usersDb).find(k => usersDb[k].tbName.toLowerCase() === driver.toLowerCase().trim());
       if (userKey) {
-        usersDb[userKey].km += km; // Přičtení surových kilometrů do profilu
+        usersDb[userKey].km += km; 
         if (ziskanePuky > 0) {
           usersDb[userKey].pucks += ziskanePuky;
         }
@@ -508,7 +507,6 @@ client.on("interactionCreate", async interaction => {
       saveUsers(); interaction.reply({ content: `✅ Propojeno s TB nickem **${user.tbName}**.`, ephemeral: true });
     }
     
-    // PROFIL HRÁČE
     if (interaction.commandName === "profil") {
       const targetUser = interaction.options.getUser("uzivatel") || interaction.user;
       const u = getUser(targetUser.id);
@@ -533,7 +531,6 @@ client.on("interactionCreate", async interaction => {
       interaction.reply({ embeds: [embed] });
     }
 
-    // LEADERBOARD (ŽEBŘÍČEK)
     if (interaction.commandName === "leaderboard") {
       const category = interaction.options.getString("kategorie");
       let usersArray = Object.values(usersDb).filter(u => u.tbName !== "Neznámý");
@@ -660,7 +657,7 @@ client.on("interactionCreate", async interaction => {
 
       const potWin = Math.floor(puky * odd);
       user.pucks -= puky; 
-      user.betsTotal += 1; // Aktualizace pro žebříček
+      user.betsTotal += 1; 
       user.bets.push({ match: matchName, tip, amount: puky, odd, potentialWin: potWin, resolved: false });
       saveUsers(); 
       
@@ -700,7 +697,7 @@ client.on("interactionCreate", async interaction => {
           if (!bet.resolved && bet.match === matchName) {
             if (bet.tip === winner) {
               user.pucks += bet.potentialWin;
-              user.betsWon += 1; // Aktualizace pro žebříček
+              user.betsWon += 1; 
               totalPayout += bet.potentialWin;
               winnersCount++;
               giveExpertRole(userId);
@@ -781,14 +778,29 @@ client.on("interactionCreate", async interaction => {
 async function checkMilestones(userId) {
   const user = usersDb[userId]; if (!user) return;
   const teams = [...new Set(cardsDb.cards.map(c => c.team))];
-  let completed = 0;
+  
+  let completedTeams = 0;
   for (const t of teams) {
-    if (cardsDb.cards.filter(c => c.team === t).every(c => user.inventory.includes(c.id))) completed++;
+    if (cardsDb.cards.filter(c => c.team === t).every(c => user.inventory.includes(c.id))) completedTeams++;
   }
+
+  // Absolutní zkompletování alba
+  const uniqueCardsCount = new Set(user.inventory).size;
+  const totalCardsCount = cardsDb.cards.length;
+
   try {
     const guild = await client.guilds.fetch(GUILD_ID); const member = await guild.members.fetch(userId); const logCh = await client.channels.fetch(CH_LOG);
-    if (completed >= 1 && !member.roles.cache.has(ROLE_FAN)) { await member.roles.add(ROLE_FAN); logCh.send(`🏆 <@${userId}> je **HOKEJOVÝ FANOUŠEK**!`); }
-    if (completed >= 8 && !member.roles.cache.has(ROLE_COLLECTOR)) { await member.roles.add(ROLE_COLLECTOR); logCh.send(`👑 <@${userId}> je **SBĚRATELEM**!`); }
+    
+    if (completedTeams >= 1 && !member.roles.cache.has(ROLE_FAN)) { await member.roles.add(ROLE_FAN); logCh.send(`🏆 <@${userId}> je **HOKEJOVÝ FANOUŠEK**!`); }
+    if (completedTeams >= 8 && !member.roles.cache.has(ROLE_COLLECTOR)) { await member.roles.add(ROLE_COLLECTOR); logCh.send(`👑 <@${userId}> je **SBĚRATELEM**!`); }
+    
+    // Vyhlášení absolutního vítěze eventu
+    if (uniqueCardsCount >= totalCardsCount && !user.finishedEvent) {
+       user.finishedEvent = true;
+       saveUsers();
+       logCh.send(`🎉 🚨 **ABSOLUTNÍ VÍTĚZ!** <@${userId}> právě zkompletoval ÚPLNĚ CELÉ ALBUM (všech ${totalCardsCount} karet) a dohrál event! 🏆🚨`);
+    }
+
   } catch(e) {}
 }
 
@@ -822,7 +834,7 @@ async function evaluateBetsAutomatically() {
             matchHadBets = true;
             if (bet.tip === winner) {
               user.pucks += bet.potentialWin;
-              user.betsWon += 1; // Zápis pro žebříček
+              user.betsWon += 1; 
               totalPayout += bet.potentialWin;
               winnersCount++;
               giveExpertRole(userId);
