@@ -37,6 +37,8 @@ const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
 const EVENT_COLOR = 0xFF2C57;
+// Přesný časový bod nula: 17. 5. 2026 00:00:00 SELČ (16. 5. 2026 22:00:00 UTC)
+const EVENT_START_TIME = new Date('2026-05-16T22:00:00Z').getTime(); 
 
 const SHOP_CATEGORIES = {
   basic: ['random', 'attack', 'defensive', 'lead', 'goal'],
@@ -252,6 +254,9 @@ function extractDistanceAndPucks(text) {
 }
 
 async function processJobMessage(m, isBackfill = false) {
+  // POJISTKA: Ignoruje všechny zakázky starší než je stanovený začátek eventu
+  if (m.createdTimestamp < EVENT_START_TIME) return { status: 'ignored_old' };
+  
   if (!m.embeds.length) return { status: 'ignored' };
   const e = m.embeds[0];
   const driver = e.author?.name;
@@ -355,7 +360,19 @@ async function runBackfill(limit = 1500) {
         const msgs = await jobsCh.messages.fetch(options).catch(() => null);
         if (!msgs || msgs.size === 0) break;
         
-        msgs.forEach(m => allMsgs.set(m.id, m));
+        let reachedBeforeEvent = false;
+        
+        msgs.forEach(m => {
+            // Pokud narazí na zakázku starší než začátek eventu, už neukládá dál
+            if (m.createdTimestamp < EVENT_START_TIME) {
+                reachedBeforeEvent = true;
+            } else {
+                allMsgs.set(m.id, m);
+            }
+        });
+        
+        if (reachedBeforeEvent) break; // Ušetříme čas API a přerušíme hluboké stahování
+        
         lastId = msgs.last().id;
         fetchCount += msgs.size;
     }
@@ -989,7 +1006,6 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "admin-zpetne-zakazky") {
       await interaction.deferReply({ ephemeral: true });
-      // Limit na 1500 zpráv
       const bf = await runBackfill(1500);
       interaction.editReply(`✅ Zpětná kontrola dokončena!\nNalezeno nových: **${bf.processed}**\nOpraveno poškozených (>1000km): **${bf.repaired}**\n🚚 Připsáno celkem: **${bf.km} km** a **${bf.pucks} puků** (včetně Ghost účtů).`).catch(console.error);
     }
@@ -1196,7 +1212,6 @@ client.once("ready", async () => {
   await loadBackupOnStartup();
   
   console.log("[STARTUP] Spouštím automatickou zpětnou kontrolu zakázek...");
-  // Limit na 500 zajistí klidný start bota, příkazem /admin-zpetne-zakazky jich pak prohledáš 1500
   const bf = await runBackfill(500);
   if (bf.processed > 0 || bf.repaired > 0) {
       console.log(`[STARTUP] Dopsáno ${bf.processed} nových, opraveno ${bf.repaired} starých.`);
