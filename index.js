@@ -504,7 +504,7 @@ client.on("interactionCreate", async interaction => {
           { label: 'Národní balíčky', value: 'national', emoji: '🌍' }
         );
       await (await client.channels.fetch(CH_SHOP)).send({ embeds: [{ title: "🛒 Hokejový Obchod LTR", description: "Vítej v obchodě!\nVyber si v menu níže kategorii.\n\n*Puky získáváš ježděním (200 km = 1 puk).*.", color: EVENT_COLOR }], components: [new ActionRowBuilder().addComponents(select)] });
-      interaction.reply({ content: "✅ Obchod vykreslen.", ephemeral: true });
+      interaction.reply({ content: "✅ Obchod工夫 vyvěšen.", ephemeral: true });
     }
     
     if (interaction.commandName === "admin-puky") {
@@ -522,7 +522,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "admin-zapasy") {
       await interaction.deferReply({ ephemeral: true });
       const res = await fetchMatches();
-      interaction.editReply(res === true ? "✅ Zápasy a kurzy úspěšně aktualizovány z API." : `❌ DEBUG INFO:\n\n${res}`);
+      interaction.editReply(res === true ? "✅ Operace dokončena. Zkontroluj výpis." : `❌ DEBUG REPORT:\n\n${res}`);
     }
   }
 });
@@ -596,7 +596,7 @@ async function evaluateBetsAutomatically() {
 }
 
 // ─────────────────────────────────────────────
-// RAPIDAPI: ODDSPAPI INTEGRACE
+// RAPIDAPI: ODDSPAPI - REŽIM SUROVÉHO VÝPISU (DUMP VŠEHO)
 // ─────────────────────────────────────────────
 async function fetchMatches() {
   const apiKey = process.env.RAPIDAPI_KEY;
@@ -611,35 +611,25 @@ async function fetchMatches() {
     activeMatches = {};
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
 
-    // 1. Zkusíme zjistit ID turnaje pro Mistrovství světa
-    const tournamentsRes = await axios.get(`https://${apiHost}/common/tournaments`, { headers }).catch(() => null);
-    let tournamentId = null;
+    // SUROVÝ REŽIM: Žádná filtrace turnajů. Bereme vše pro dnešní den z hlavního endpointu.
+    const url = `https://${apiHost}/fixtures/odds`;
+    const params = {
+      date: new Date().toISOString().split('T')[0]
+    };
 
-    if (tournamentsRes && tournamentsRes.data) {
-      const list = tournamentsRes.data.data || tournamentsRes.data.response || tournamentsRes.data || [];
-      if (Array.isArray(list)) {
-        const found = list.find(t => t.name?.toLowerCase().includes('world championship') || t.name?.toLowerCase().includes('iihf'));
-        if (found) tournamentId = found.id || found.tournament_id;
-      }
-    }
-
-    // 2. Načteme zápasy a kurzy
-    let url = `https://${apiHost}/fixtures/odds`;
-    let params = {};
-    if (tournamentId) {
-      params.tournament_id = tournamentId;
-    } else {
-      params.date = new Date().toISOString().split('T')[0];
-    }
-
-    const oddsRes = await axios.get(url, { headers, params }).catch(() => null);
+    const oddsRes = await axios.get(url, { headers, params });
+    let gamesFound = 0;
     
     if (oddsRes && oddsRes.data) {
-      const games = oddsRes.data.data || oddsRes.data.response || oddsRes.data || [];
+      // Zkusíme najít pole zápasů v jakékoliv běžné struktuře, kterou API používá
+      const games = oddsRes.data.data || oddsRes.data.response || oddsRes.data.results || oddsRes.data || [];
       if (Array.isArray(games) && games.length > 0) {
+        gamesFound = games.length;
+        
+        // Vezmeme prvních 10 jakýchkoliv zápasů, co nám API pošle do cesty
         games.slice(0, 10).forEach(g => {
-          const home = g.home_team?.name || g.home?.name || g.teams?.home?.name || "Domácí";
-          const away = g.away_team?.name || g.away?.name || g.teams?.away?.name || "Hosté";
+          const home = g.home_team?.name || g.home?.name || g.teams?.home?.name || g.home || "Domácí Tým";
+          const away = g.away_team?.name || g.away?.name || g.teams?.away?.name || g.away || "Hostující Tým";
           const matchKey = `${home} - ${away}`;
 
           let oddsHome = 1.0;
@@ -647,12 +637,14 @@ async function fetchMatches() {
           
           if (g.odds?.home) oddsHome = parseFloat(g.odds.home);
           else if (g.markets?.[0]?.bookmakers?.[0]?.odds?.[0]?.value) oddsHome = parseFloat(g.markets[0].bookmakers[0].odds[0].value);
+          else if (g.bookmakers?.[0]?.bets?.[0]?.values?.[0]?.odd) oddsHome = parseFloat(g.bookmakers[0].bets[0].values[0].odd);
           
           if (g.odds?.away) oddsAway = parseFloat(g.odds.away);
           else if (g.markets?.[0]?.bookmakers?.[0]?.odds?.[1]?.value) oddsAway = parseFloat(g.markets[0].bookmakers[0].odds[1].value);
+          else if (g.bookmakers?.[0]?.bets?.[0]?.values?.[1]?.odd) oddsAway = parseFloat(g.bookmakers[0].bets[0].values[1].odd);
 
           activeMatches[matchKey] = {
-            id: g.id || g.fixture_id || `api_${Date.now()}`,
+            id: g.id || g.fixture_id || `api_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
             home, away, oddsHome, oddsAway,
             status: g.status?.short || g.fixture?.status?.short || 'NS',
             startTime: g.start_time ? new Date(g.start_time).getTime() : (g.fixture?.timestamp ? g.fixture.timestamp * 1000 : Date.now() + 3600000),
@@ -666,11 +658,20 @@ async function fetchMatches() {
 
     await evaluateBetsAutomatically();
     await renderMatchesDashboard();
+
+    if (gamesFound === 0) {
+      return `API sice odpovědělo kódem 200, ale pro parametry ${JSON.stringify(params)} vrátilo **zcela prázdné pole**. Odpověď těla: ${JSON.stringify(oddsRes.data)}`;
+    }
+
     return true;
 
   } catch (err) {
     await renderMatchesDashboard();
-    return err.message;
+    let errMsg = err.message;
+    if (err.response && err.response.data) {
+       errMsg += `\nOdpověď ze serveru: ${JSON.stringify(err.response.data)}`;
+    }
+    return errMsg;
   }
 }
 
