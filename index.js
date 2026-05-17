@@ -36,7 +36,7 @@ const ROLE_COLLECTOR = '1505237697533444216';
 const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
-const EVENT_COLOR = 0xFF2C57; 
+const EVENT_COLOR = 0xFF2C57; // Tvá sytá růžovo-červená všude
 
 // Kategorie pro katalog obchodu
 const SHOP_CATEGORIES = {
@@ -84,6 +84,7 @@ const commands = [
     .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true).addChoices({name: 'Výhra Domácí', value: 'home'}, {name: 'Výhra Hosté', value: 'away'}))
     .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
   
+  // ADMIN PŘÍKAZY
   new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-puky").setDescription("ADMIN: Přidá nebo odebere puky.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
@@ -139,9 +140,11 @@ client.on('interactionCreate', async interaction => {
   else if (interaction.commandName === 'vsadit' || interaction.commandName === 'admin-vyhodnot') {
     if (focusedOption.name === 'zapas') {
       let matches = Object.keys(activeMatches);
+      
       if (interaction.commandName === 'vsadit') {
         matches = matches.filter(m => activeMatches[m].status === 'NS' && Date.now() < activeMatches[m].startTime);
       }
+
       const choices = matches.map(m => ({name: m, value: m}));
       const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
       await interaction.respond(filtered).catch(()=>null);
@@ -566,7 +569,7 @@ async function evaluateBetsAutomatically() {
 }
 
 // ─────────────────────────────────────────────
-// API-SPORTS: ZÁPASY A KURZY
+// API-SPORTS: ZÁPASY A KURZY (AUTO-DISCOVERY)
 // ─────────────────────────────────────────────
 async function fetchMatches() {
   if (!ODDS_API_KEY) return "Chybí klíč v Railway.";
@@ -576,42 +579,58 @@ async function fetchMatches() {
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
 
     const headers = { 'x-apisports-key': ODDS_API_KEY };
-    const leaguesRes = await axios.get(`https://v1.hockey.api-sports.io/leagues?search=world`, { headers });
     
-    const targetLeague = leaguesRes.data.response?.find(l => 
-        l.name.toLowerCase().includes('world championship') && 
-        !l.name.toLowerCase().includes('u20') && 
-        !l.name.toLowerCase().includes('women') &&
-        !l.name.toLowerCase().includes('div')
-    ) || leaguesRes.data.response?.[0]; 
+    let leagueId = null;
+    let season = null;
+    let targetLeagueName = "World Championship";
 
-    if (!targetLeague) return `Nenalezeno Mistrovství světa v databázi API-Sports. Použij /admin-vytvor-zapas`;
+    // 1. AUTO-DISCOVERY: Hledáme ligu napříč reálnými dnešními a zítřejšími zápasy
+    const todayStr = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-    const leagueId = targetLeague.id;
-    const activeSeasonObj = targetLeague.seasons.find(s => s.current === true);
-    
-    // OPRAVA: Sezóna jako číslo
-    let season = activeSeasonObj ? parseInt(activeSeasonObj.season) : new Date().getFullYear();
+    const [todayRes, tomorrowRes] = await Promise.all([
+        axios.get(`https://v1.hockey.api-sports.io/games?date=${todayStr}`, { headers }),
+        axios.get(`https://v1.hockey.api-sports.io/games?date=${tomorrowStr}`, { headers })
+    ]);
 
+    const recentGames = [...(todayRes.data?.response || []), ...(tomorrowRes.data?.response || [])];
+
+    // Zkusíme v tom najít MS
+    const wcGame = recentGames.find(g => 
+        g.league.name.toLowerCase().includes('world championship') && 
+        !g.league.name.toLowerCase().includes('u20') && 
+        !g.league.name.toLowerCase().includes('women') &&
+        !g.league.name.toLowerCase().includes('div')
+    );
+
+    if (wcGame) {
+        // Bingo! Máme přesné ID ligy i sezónu z živých dat!
+        leagueId = wcGame.league.id;
+        season = wcGame.league.season;
+        targetLeagueName = wcGame.league.name;
+    } else {
+        // FALLBACK: Pokud fakt nejsou žádné zápasy dnes ani zítra, použijeme staré hledání
+        const leaguesRes = await axios.get(`https://v1.hockey.api-sports.io/leagues?search=world`, { headers });
+        const validLeagues = (leaguesRes.data.response || []).filter(l => 
+            l.name.toLowerCase().includes('world championship') && 
+            !l.name.toLowerCase().includes('u20') && 
+            !l.name.toLowerCase().includes('women') &&
+            !l.name.toLowerCase().includes('div')
+        );
+        
+        let bestLeague = validLeagues.find(l => l.seasons.some(s => s.current === true)) || validLeagues[0];
+        if (!bestLeague) return `Nenalezeno Mistrovství světa. API vidí dnes toto: ${[...new Set(recentGames.map(g => g.league.name))].join(', ') || 'nic'}`;
+        
+        leagueId = bestLeague.id;
+        targetLeagueName = bestLeague.name;
+        const activeSeasonObj = bestLeague.seasons.find(s => s.current === true) || bestLeague.seasons[bestLeague.seasons.length - 1];
+        season = activeSeasonObj ? parseInt(activeSeasonObj.season) : new Date().getFullYear();
+    }
+
+    // 2. STÁHNEME ZÁPASY PRO NALEZENOU LIGU A SEZÓNU
     let gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
     let allGames = gamesRes.data.response || [];
-
-    // ČASOSTROJ: Pokud 2026 nemá zápasy, zkusíme 2025
-    if (allGames.length === 0) {
-        season = season - 1;
-        gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
-        allGames = gamesRes.data.response || [];
-    }
-
-    if (allGames.length === 0) {
-        // GLOBAL RADAR: Zkusíme zjistit, jaké jiné ligy se dnes hrají, abychom to ukázali v chybě
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todayRes = await axios.get(`https://v1.hockey.api-sports.io/games?date=${todayStr}`, { headers });
-        const todayGames = todayRes.data.response || [];
-        const otherLeagues = [...new Set(todayGames.map(g => g.league.name))].join(', ');
-
-        return `API-Sports nemá pro ligu "${targetLeague.name}" (ID ${leagueId}) zápasy ani v roce ${season+1} ani ${season}.\nZajímavost: API dnes reálně vidí tyto jiné ligy: ${otherLeagues || "Vůbec nic"}.\nPoužij ruční /admin-vytvor-zapas.`;
-    }
 
     const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
     const relevantGames = allGames
@@ -619,8 +638,8 @@ async function fetchMatches() {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     if (relevantGames.length === 0) {
-        const lastGameDate = new Date(allGames[allGames.length - 1].date).toLocaleDateString();
-        return `API má pro ligu "${targetLeague.name}" celkem ${allGames.length} zápasů, ale VŠECHNY jsou z minulosti (poslední se hrál ${lastGameDate}). Data pro dnešek chybí. Použij ruční /admin-vytvor-zapas.`;
+        const otherLeagues = [...new Set(recentGames.map(g => g.league.name))].join(', ');
+        return `API má ligu "${targetLeagueName}" (ID ${leagueId}), ale chybí ji zápasy. API dnes jinak vidí: ${otherLeagues || "Vůbec nic"}. Použij ruční /admin-vytvor-zapas.`;
     }
 
     const displayGames = relevantGames.slice(0, 10);
@@ -650,6 +669,8 @@ async function fetchMatches() {
         scoreHome: m.scores.home, scoreAway: m.scores.away, manual: false
       };
     });
+
+    await evaluateBetsAutomatically();
 
     const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
     if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
