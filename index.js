@@ -288,8 +288,7 @@ client.on('messageCreate', async (m) => {
   if (res.status === 'added') {
       saveUsers();
       const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      // TIŠŠÍ REŽIM: Zpráva se pošle pouze pokud hráč NENÍ ghost (tzn. má propojený účet).
-      // Ghost zakázky se tiše uloží do databáze a log zůstane čistý.
+      // TIŠŠÍ REŽIM: Ghost zakázky se tiše uloží do databáze a log zůstane čistý.
       if (logCh && !res.isGhost) {
           logCh.send(`✅ Zakázka \`#${res.jobId}\` schválena: **${res.driver}** získal **${res.pucks} puků** za ujetých ${res.unitTxt}.`);
       }
@@ -321,6 +320,59 @@ async function runBackfill(limit = 100) {
 // ─────────────────────────────────────────────
 // POMOCNÉ FUNKCE
 // ─────────────────────────────────────────────
+function buildLeaderboardResponse(category, page) {
+  let usersArray = Object.values(usersDb).filter(u => u.tbName !== "Neznámý" && !u.id.startsWith('UNLINKED_'));
+  let title = "";
+  let valueMapper;
+
+  if (category === 'pucks') {
+    usersArray.sort((a, b) => b.pucks - a.pucks);
+    title = "🏆 Leaderboard: Nejvíce Puků";
+    valueMapper = (u) => `**${u.pucks}** puků`;
+  } else if (category === 'cards') {
+    usersArray.sort((a, b) => b.inventory.length - a.inventory.length);
+    title = "🏆 Leaderboard: Největší sběratelé (Karty)";
+    valueMapper = (u) => `**${u.inventory.length}** karet`;
+  } else if (category === 'km') {
+    usersArray.sort((a, b) => b.km - a.km);
+    title = "🏆 Leaderboard: Nejpilnější řidiči (KM)";
+    valueMapper = (u) => `**${u.km}** km`;
+  } else if (category === 'bets') {
+    usersArray.sort((a, b) => b.betsWon - a.betsWon);
+    title = "🏆 Leaderboard: Nejlepší sázkaři";
+    valueMapper = (u) => `**${u.betsWon}** výher z ${u.betsTotal} sázek`;
+  }
+
+  const itemsPerPage = 10;
+  const maxPage = Math.max(0, Math.ceil(usersArray.length / itemsPerPage) - 1);
+  if (page > maxPage) page = maxPage;
+  if (page < 0) page = 0;
+
+  const startIndex = page * itemsPerPage;
+  const pageItems = usersArray.slice(startIndex, startIndex + itemsPerPage);
+
+  let desc = pageItems.map((u, i) => {
+    const globalIndex = startIndex + i;
+    const medal = globalIndex === 0 ? '🥇' : globalIndex === 1 ? '🥈' : globalIndex === 2 ? '🥉' : `**${globalIndex + 1}.**`;
+    return `${medal} <@${u.id}> (\`${u.tbName}\`) - ${valueMapper(u)}`;
+  }).join('\n\n');
+
+  if (!desc) desc = "Zatím zde není žádný záznam.";
+
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(desc)
+    .setColor(EVENT_COLOR)
+    .setFooter({ text: `Strana ${page + 1} z ${maxPage + 1}` });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`lb_prev_${category}_${page - 1}`).setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(page === 0),
+    new ButtonBuilder().setCustomId(`lb_next_${category}_${page + 1}`).setLabel('Další ▶').setStyle(ButtonStyle.Primary).setDisabled(page === maxPage)
+  );
+
+  return { embeds: [embed], components: [row] };
+}
+
 async function openShopCatalog(interaction, category, index) {
   const packKeys = SHOP_CATEGORIES[category];
   const packKey = packKeys[index];
@@ -421,6 +473,15 @@ async function loadBackupOnStartup() {
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   if (interaction.isAutocomplete()) return;
+
+  // Stránkování Leaderboardu
+  if (interaction.isButton() && interaction.customId.startsWith('lb_')) {
+    const parts = interaction.customId.split('_');
+    const category = parts[2];
+    const page = parseInt(parts[3], 10);
+    const response = buildLeaderboardResponse(category, page);
+    await interaction.update(response).catch(()=>null);
+  }
 
   if (interaction.isStringSelectMenu() && interaction.customId === 'shop_category_select') {
     const selected = interaction.values[0];
@@ -652,38 +713,8 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "leaderboard") {
       const category = interaction.options.getString("kategorie");
-      let usersArray = Object.values(usersDb).filter(u => u.tbName !== "Neznámý" && !u.id.startsWith('UNLINKED_'));
-      let title = "";
-      let valueMapper;
-
-      if (category === 'pucks') {
-        usersArray.sort((a, b) => b.pucks - a.pucks);
-        title = "🏆 Leaderboard: Nejvíce Puků";
-        valueMapper = (u) => `**${u.pucks}** puků`;
-      } else if (category === 'cards') {
-        usersArray.sort((a, b) => b.inventory.length - a.inventory.length);
-        title = "🏆 Leaderboard: Největší sběratelé (Karty)";
-        valueMapper = (u) => `**${u.inventory.length}** karet`;
-      } else if (category === 'km') {
-        usersArray.sort((a, b) => b.km - a.km);
-        title = "🏆 Leaderboard: Nejpilnější řidiči (KM)";
-        valueMapper = (u) => `**${u.km}** km`;
-      } else if (category === 'bets') {
-        usersArray.sort((a, b) => b.betsWon - a.betsWon);
-        title = "🏆 Leaderboard: Nejlepší sázkaři";
-        valueMapper = (u) => `**${u.betsWon}** výher z ${u.betsTotal} sázek`;
-      }
-
-      const top10 = usersArray.slice(0, 10);
-      let desc = top10.map((u, i) => {
-        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `**${i+1}.**`;
-        return `${medal} <@${u.id}> (\`${u.tbName}\`) - ${valueMapper(u)}`;
-      }).join('\n\n');
-
-      if (!desc) desc = "Zatím zde není žádný záznam.";
-
-      const embed = new EmbedBuilder().setTitle(title).setDescription(desc).setColor(EVENT_COLOR);
-      interaction.reply({ embeds: [embed] });
+      const response = buildLeaderboardResponse(category, 0); // Vykreslí stranu 1 (index 0)
+      interaction.reply(response);
     }
     
     if (interaction.commandName === "album") {
