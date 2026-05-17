@@ -55,6 +55,30 @@ const TEAM_ELO = {
   "Poland": 1100, "Italy": 1100
 };
 
+// Mapování typů sázek pro hezčí výpis
+const BET_NAMES = {
+    winner_home: 'Konečný vítěz - Domácí',
+    winner_away: 'Konečný vítěz - Hosté',
+    over_55: 'Padne 6 a více gólů',
+    under_55: 'Padne 5 a méně gólů'
+};
+
+// Generátor pokročilých kurzů na základě pravděpodobnosti výhry domácích
+function generateAdvancedOdds(probH_OT) {
+    let probA_OT = 1 - probH_OT;
+    
+    let odds = {
+        winner_home: parseFloat((0.95 / probH_OT).toFixed(2)),
+        winner_away: parseFloat((0.95 / probA_OT).toFixed(2)),
+        over_55: 1.85,
+        under_55: 1.85
+    };
+
+    // Mantinely kurzů (nesmí být pod 1.01 ani nad 30)
+    for(let k in odds) odds[k] = Math.max(1.01, Math.min(30.00, odds[k]));
+    return odds;
+}
+
 // ─────────────────────────────────────────────
 // DATABÁZE A PAMĚŤ
 // ─────────────────────────────────────────────
@@ -138,9 +162,16 @@ const commands = [
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu chceš nabídnout trade").setRequired(true))
     .addStringOption(o => o.setName("nabizim").setDescription("Vyber kartu ze svého inventáře").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("chci").setDescription("Vyber kartu od druhého hráče").setRequired(true).setAutocomplete(true)),
+  
+  // ROZŠÍŘENÉ SÁZENÍ - ZJEDNODUŠENO PRO NOVOCHY
   new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na nadcházející zápas.")
     .addStringOption(o => o.setName("zapas").setDescription("Vyber zápas z nabídky").setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true).addChoices({name: 'Výhra Domácí', value: 'home'}, {name: 'Výhra Hosté', value: 'away'}))
+    .addStringOption(o => o.setName("tip").setDescription("Typ sázky a tvůj tip").setRequired(true).addChoices(
+        {name: 'Konečný vítěz zápasu - Domácí', value: 'winner_home'},
+        {name: 'Konečný vítěz zápasu - Hosté', value: 'winner_away'},
+        {name: 'Padne celkem 6 a více gólů (Více než 5.5)', value: 'over_55'},
+        {name: 'Padne celkem 5 a méně gólů (Méně než 5.5)', value: 'under_55'}
+    ))
     .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
   
   // ADMIN PŘÍKAZY
@@ -152,15 +183,19 @@ const commands = [
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
   new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně otestuje a stáhne zápasy z RapidAPI (Ignoruje limity).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Ručně vyhodnotí sázky zápasu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  
+  // ZJEDNODUŠENÉ RUČNÍ VYHODNOCENÍ
+  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Nouzové ruční vyhodnocení zápasu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(o => o.setName("zapas").setDescription("Který zápas skončil?").setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Vyhráli Domácí', value: 'home'}, {name: 'Vyhráli Hosté', value: 'away'})),
+    .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Domácí', value: 'home'}, {name: 'Hosté', value: 'away'}))
+    .addIntegerOption(o => o.setName("goly_celkem").setDescription("Kolik padlo celkem gólů?").setRequired(true)),
+
   new SlashCommandBuilder().setName("admin-vytvor-zapas").setDescription("ADMIN: Ručně vytvoří zápas (když API stávkuje).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(o => o.setName("domaci").setDescription("Tým domácí").setRequired(true))
     .addStringOption(o => o.setName("hoste").setDescription("Tým hosté").setRequired(true))
-    .addNumberOption(o => o.setName("kurz_domaci").setDescription("Kurz na domácí (např. 1.5)").setRequired(true))
-    .addNumberOption(o => o.setName("kurz_hoste").setDescription("Kurz na hosty (např. 2.1)").setRequired(true))
+    .addNumberOption(o => o.setName("kurz_domaci").setDescription("Kurz na domácí vč. prodloužení (např. 1.5)").setRequired(true))
     .addIntegerOption(o => o.setName("zacatek_za_hodin").setDescription("Za kolik hodin zápas začíná?").setRequired(true)),
+  
   new SlashCommandBuilder().setName("admin-zaloha-vynut").setDescription("ADMIN: Okamžitě odešle aktuální stav databáze do cloudu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-zpetne-zakazky").setDescription("ADMIN: Zpětně zkontroluje a opraví zakázky, i ty poškozené.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
@@ -230,7 +265,6 @@ function extractDistanceAndPucks(text) {
     let bestUnit = 'km';
     let rawMatchStr = '';
 
-    // Projde všechna čísla s "km" v logu a vybere to největší
     for (const m of matches) {
         const cleanStr = m[1].replace(/[^\d]/g, '');
         if (cleanStr.length > 0) {
@@ -254,7 +288,6 @@ function extractDistanceAndPucks(text) {
 }
 
 async function processJobMessage(m, isBackfill = false) {
-  // POJISTKA: Ignoruje všechny zakázky starší než je stanovený začátek eventu
   if (m.createdTimestamp < EVENT_START_TIME) return { status: 'ignored_old' };
   
   if (!m.embeds.length) return { status: 'ignored' };
@@ -304,10 +337,8 @@ async function processJobMessage(m, isBackfill = false) {
   const u = getUser(userKey, driver);
   let unitTxt = isMiles ? `**${rawDist} mil** (*${km} km*)` : `**${km} km**`;
 
-  // Detekce a oprava pokažených zakázek
   if (u.processedJobs.includes(jobId)) {
       if (isBackfill && km >= 1000 && !u.processedJobs.includes('REPAIRED_' + jobId)) {
-          // Zjistíme, co přesně starý bot přečetl (typicky první číslici před mezerou)
           const firstDigitGroup = rawMatchStr.trim().match(/^(\d+)/);
           const oldKm = firstDigitGroup ? parseInt(firstDigitGroup[1], 10) : 0;
           
@@ -352,7 +383,6 @@ async function runBackfill(limit = 1500) {
     let lastId;
     let fetchCount = 0;
 
-    // Masivní listování historií (tahá po 100 kusech až do limitu)
     while (fetchCount < limit) {
         const options = { limit: 100 };
         if (lastId) options.before = lastId;
@@ -363,7 +393,6 @@ async function runBackfill(limit = 1500) {
         let reachedBeforeEvent = false;
         
         msgs.forEach(m => {
-            // Pokud narazí na zakázku starší než začátek eventu, už neukládá dál
             if (m.createdTimestamp < EVENT_START_TIME) {
                 reachedBeforeEvent = true;
             } else {
@@ -371,7 +400,7 @@ async function runBackfill(limit = 1500) {
             }
         });
         
-        if (reachedBeforeEvent) break; // Ušetříme čas API a přerušíme hluboké stahování
+        if (reachedBeforeEvent) break; 
         
         lastId = msgs.last().id;
         fetchCount += msgs.size;
@@ -479,25 +508,36 @@ async function openShopCatalog(interaction, category, index) {
   }
 }
 
-// Zápasová nástěnka pro live kurzy
+// Rozšířená zápasová nástěnka pro live kurzy
 async function renderMatchesDashboard() {
   const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
   if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
 
-  const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy MS`).setColor(EVENT_COLOR);
+  const embed = new EmbedBuilder()
+    .setTitle(`🔥 Aktuální zápasy a kurzy MS`)
+    .setDescription("Sázej jednoduše pomocí příkazu `/vsadit`!\n\n**Vysvětlivky k sázkám:**\n🏆 **Vítěz zápasu:** Kdo vyhraje (včetně případného prodloužení nebo nájezdů).\n🥅 **Počet gólů 5.5:** Tipuješ, jestli v celém zápase padne dohromady *Méně (0 až 5 gólů)*, nebo *Více (6 a více gólů)*.")
+    .setColor(EVENT_COLOR);
+    
   const matchKeys = Object.keys(activeMatches);
 
   if (matchKeys.length === 0) {
-    embed.setDescription("Žádné aktivní zápasy nebyly nalezeny. Použij `/admin-vytvor-zapas`.");
+    embed.addFields({ name: '\u200b', value: "Žádné aktivní zápasy nebyly nalezeny. Použij `/admin-vytvor-zapas`." });
   } else {
     matchKeys.forEach(k => {
       const m = activeMatches[k];
       const s = m.status === 'NS' ? '⏳ Nezačalo' : (['FT', 'AET', 'AWT', 'PEN', 'FINISHED'].includes(m.status) ? `🏁 Konec (${m.scoreHome || 0}:${m.scoreAway || 0})` : `🔴 LIVE (${m.scoreHome || 0}:${m.scoreAway || 0})`);
-      const oddsTxt = m.oddsHome > 1.0 ? `🏠 Domácí: **${m.oddsHome}** •   ✈️ Hosté: **${m.oddsAway}**` : "Kurzy nevypsány.";
+      
+      // Zajištění zpětné kompatibility pro staré uložení zápasů, pokud nemají odds objekt
+      if (!m.odds) m.odds = generateAdvancedOdds(m.oddsHome ? (0.95 / m.oddsHome) : 0.5);
+      
+      const o = m.odds;
+      const oddsTxt = o.winner_home ? 
+          `🏆 **Vítěz zápasu:** 🏠 Domácí: **${o.winner_home}** | ✈️ Hosté: **${o.winner_away}**\n` +
+          `🥅 **Gólů v zápase (5.5):** ⬇️ Méně (0-5): **${o.under_55}** | ⬆️ Více (6+): **${o.over_55}**` : "Kurzy nevypsány.";
       
       embed.addFields({
         name: `🏒 ${m.home}  vs  ${m.away}`,
-        value: `📅 **Start:** <t:${Math.floor(m.startTime/1000)}:f>  (<t:${Math.floor(m.startTime/1000)}:R>)\n📊 **Stav:** ${s}\n💰 **Kurzy:** ${oddsTxt}\n\u200b`,
+        value: `📅 **Start:** <t:${Math.floor(m.startTime/1000)}:f>  (<t:${Math.floor(m.startTime/1000)}:R>)\n📊 **Stav:** ${s}\n💰 **Kurzy:**\n${oddsTxt}\n\u200b`,
         inline: false
       });
     });
@@ -883,9 +923,12 @@ client.on("interactionCreate", async interaction => {
          return interaction.reply({ content: "❌ Na tento zápas už nelze vsadit. Už se hraje nebo začal!", ephemeral: true });
       }
 
-      const odd = tip === 'home' ? mData.oddsHome : mData.oddsAway;
+      // Stará kompatibilita pro sázky vytvořené před updatem
+      if (!mData.odds) mData.odds = generateAdvancedOdds(mData.oddsHome ? (0.95 / mData.oddsHome) : 0.5);
 
-      if (odd <= 1.0) return interaction.reply({ content: "❌ K tomuto zápasu ještě nejsou kurzy.", ephemeral: true });
+      const odd = mData.odds[tip];
+
+      if (!odd || odd <= 1.0) return interaction.reply({ content: "❌ K tomuto typu sázky ještě nejsou dostupné kurzy.", ephemeral: true });
       if (user.pucks < puky) return interaction.reply({ content: `❌ Nemáš dost puků! Máš ${user.pucks}.`, ephemeral: true });
       if (puky <= 0) return interaction.reply({ content: "❌ Musíš vsadit alespoň 1 puk.", ephemeral: true });
 
@@ -895,33 +938,38 @@ client.on("interactionCreate", async interaction => {
       user.bets.push({ match: matchName, tip, amount: puky, odd, potentialWin: potWin, resolved: false });
       saveUsers(); 
       
-      interaction.reply({ content: `✅ Vsadil jsi **${puky} puků** s kurzem **${odd}** na zápas **${matchName}**!\nPokud tvůj tým vyhraje, vyhraješ **${potWin} puků**!`, ephemeral: true });
+      interaction.reply({ content: `✅ Vsadil jsi **${puky} puků** (Kurz: **${odd}**) na zápas **${matchName}**!\nKategorie sázky: **${BET_NAMES[tip] || tip}**\nPokud sázka vyjde, získáš **${potWin} puků**!`, ephemeral: true });
     }
 
     if (interaction.commandName === "admin-vytvor-zapas") {
       const home = interaction.options.getString("domaci");
       const away = interaction.options.getString("hoste");
       const oddsHome = interaction.options.getNumber("kurz_domaci");
-      const oddsAway = interaction.options.getNumber("kurz_hoste");
       const hours = interaction.options.getInteger("zacatek_za_hodin");
 
       const matchKey = `${home} - ${away}`;
       const startTime = Date.now() + (hours * 3600 * 1000);
-
+      
+      const probH = 0.95 / oddsHome;
+      const odds = generateAdvancedOdds(probH);
+      odds.winner_home = oddsHome; // Ponechá přesný zadaný kurz adminem, zbytek se dynamicky dopočítal
+      
       activeMatches[matchKey] = {
           id: `manual_${Date.now()}`,
-          home, away, oddsHome, oddsAway,
+          home, away, odds,
           status: 'NS', startTime: startTime,
           scoreHome: null, scoreAway: null, manual: true
       };
 
       await renderMatchesDashboard();
-      interaction.reply({ content: `✅ Ruční zápas **${matchKey}** úspěšně vytvořen na široké nástěnce!`, ephemeral: true });
+      interaction.reply({ content: `✅ Ruční zápas **${matchKey}** úspěšně vytvořen a kurzy dopočítány!`, ephemeral: true });
     }
 
     if (interaction.commandName === "admin-vyhodnot") {
       const matchName = interaction.options.getString("zapas");
       const winner = interaction.options.getString("vitez");
+      const totalGoals = interaction.options.getInteger("goly_celkem");
+      
       let totalPayout = 0;
       let winnersCount = 0;
 
@@ -929,7 +977,15 @@ client.on("interactionCreate", async interaction => {
         const user = usersDb[userId];
         user.bets.forEach(bet => {
           if (!bet.resolved && bet.match === matchName) {
-            if (bet.tip === winner) {
+            let isWinner = false;
+            
+            // Vyhodnocení konkrétního typu sázky
+            if (bet.tip === 'winner_home' && winner === 'home') isWinner = true;
+            if (bet.tip === 'winner_away' && winner === 'away') isWinner = true;
+            if (bet.tip === 'over_55' && totalGoals > 5.5) isWinner = true;
+            if (bet.tip === 'under_55' && totalGoals < 5.5) isWinner = true;
+
+            if (isWinner) {
               user.pucks += bet.potentialWin;
               user.betsWon += 1; 
               totalPayout += bet.potentialWin;
@@ -944,6 +1000,7 @@ client.on("interactionCreate", async interaction => {
       
       if (activeMatches[matchName]) {
          activeMatches[matchName].status = 'FT';
+         // Zjednodušené zapsání skóre jen pro vizuál ukončení
          activeMatches[matchName].scoreHome = winner === 'home' ? 1 : 0;
          activeMatches[matchName].scoreAway = winner === 'away' ? 1 : 0;
          await renderMatchesDashboard();
@@ -952,7 +1009,7 @@ client.on("interactionCreate", async interaction => {
       const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
       if (logCh && winnersCount > 0) logCh.send(`💸 Sázky na zápas **${matchName}** byly ručně vyhodnoceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
 
-      interaction.reply({ content: `✅ Ručně vyhodnoceno. Vyplaceno ${totalPayout} puků celkem ${winnersCount} lidem.`, ephemeral: true });
+      interaction.reply({ content: `✅ Ručně vyhodnoceno. Vyplaceno ${totalPayout} puků celkem ${winnersCount} lidem pro všechny možné typy sázek.`, ephemeral: true });
     }
     
     if (interaction.commandName === "admin-setup-shop") {
@@ -1062,22 +1119,31 @@ async function evaluateBetsAutomatically() {
     if (['FT', 'AET', 'AWT', 'PEN', 'FINISHED'].includes(m.status)) {
       if (m.scoreHome === null || m.scoreAway === null || m.scoreHome === m.scoreAway) continue; 
       
-      const winner = m.scoreHome > m.scoreAway ? 'home' : 'away';
       let matchHadBets = false;
 
       for (const userId in usersDb) {
         const user = usersDb[userId];
         user.bets.forEach(bet => {
           if (!bet.resolved && bet.match === matchKey) {
-            matchHadBets = true;
-            if (bet.tip === winner) {
-              user.pucks += bet.potentialWin;
-              user.betsWon += 1; 
-              totalPayout += bet.potentialWin;
-              winnersCount++;
-              giveExpertRole(userId);
+            let isWinner = false;
+            let canAutoResolve = true; // Všechny naše zjednodušené sázky umí API vyhodnotit samo!
+
+            if (bet.tip === 'winner_home' || bet.tip === 'winner_home_inc_ot' || bet.tip === 'home') { isWinner = m.scoreHome > m.scoreAway; }
+            if (bet.tip === 'winner_away' || bet.tip === 'winner_away_inc_ot' || bet.tip === 'away') { isWinner = m.scoreAway > m.scoreHome; }
+            if (bet.tip === 'over_55') { isWinner = (m.scoreHome + m.scoreAway) > 5.5; }
+            if (bet.tip === 'under_55') { isWinner = (m.scoreHome + m.scoreAway) < 5.5; }
+
+            if (canAutoResolve) {
+                matchHadBets = true;
+                if (isWinner) {
+                  user.pucks += bet.potentialWin;
+                  user.betsWon += 1; 
+                  totalPayout += bet.potentialWin;
+                  winnersCount++;
+                  giveExpertRole(userId);
+                }
+                bet.resolved = true;
             }
-            bet.resolved = true;
           }
         });
       }
@@ -1089,7 +1155,7 @@ async function evaluateBetsAutomatically() {
     saveUsers();
     const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
     if (logCh) {
-       logCh.send(`💸 **Automatické vyhodnocení sázek:** Zápasy \`${evaluatedMatches.join(', ')}\` skončily! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
+       logCh.send(`💸 **Automatické vyhodnocení sázek:** Zápasy \`${evaluatedMatches.join(', ')}\` skončily a všechny sázky byly úspěšně vyplaceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
     }
   }
 }
@@ -1139,8 +1205,8 @@ async function fetchMatches(isManual = false) {
         const away = g.away?.name || "Hosté";
         const matchKey = `${home} - ${away}`;
 
-        let oddsHome = 1.0;
-        let oddsAway = 1.0;
+        let probH = 1 / (1 + Math.pow(10, ((TEAM_ELO[away] || 1400) - (TEAM_ELO[home] || 1400)) / 400));
+        let odds = generateAdvancedOdds(probH);
 
         try {
             const oddsRes = await axios.get(`https://${apiHost}/v3/bet365/prematch`, { 
@@ -1155,33 +1221,28 @@ async function fetchMatches(isManual = false) {
                 if (market && market.odds) {
                     const hObj = market.odds.find(o => o.header === '1' || o.name === 'Home');
                     const aObj = market.odds.find(o => o.header === '2' || o.name === 'Away');
-                    if (hObj) oddsHome = parseFloat(hObj.odds);
-                    if (aObj) oddsAway = parseFloat(aObj.odds);
+                    if (hObj) {
+                        probH = 0.95 / parseFloat(hObj.odds);
+                        odds = generateAdvancedOdds(probH); // Přepočítá model podle reálného kurzu z API
+                        odds.winner_home = parseFloat(hObj.odds);
+                    }
+                    if (aObj) odds.winner_away = parseFloat(aObj.odds);
                 } else {
                     const str = JSON.stringify(data);
                     const hMatch = str.match(/"header":"1","odds":"([\d.]+)"/);
                     const aMatch = str.match(/"header":"2","odds":"([\d.]+)"/);
-                    if (hMatch) oddsHome = parseFloat(hMatch[1]);
-                    if (aMatch) oddsAway = parseFloat(aMatch[1]);
+                    if (hMatch) {
+                        probH = 0.95 / parseFloat(hMatch[1]);
+                        odds = generateAdvancedOdds(probH);
+                        odds.winner_home = parseFloat(hMatch[1]);
+                    }
+                    if (aMatch) odds.winner_away = parseFloat(aMatch[1]);
                 }
             }
         } catch (e) {}
 
-        if (oddsHome === 1.0 || oddsAway === 1.0) {
-            let eloH = TEAM_ELO[home] || 1400; 
-            let eloA = TEAM_ELO[away] || 1400;
-            let probH = 1 / (1 + Math.pow(10, (eloA - eloH) / 400));
-            let probA = 1 - probH;
-            let calcOddsH = (1 / probH) * 0.95;
-            let calcOddsA = (1 / probA) * 0.95;
-            calcOddsH = Math.max(1.01, Math.min(30.00, calcOddsH));
-            calcOddsA = Math.max(1.01, Math.min(30.00, calcOddsA));
-            oddsHome = parseFloat(calcOddsH.toFixed(2));
-            oddsAway = parseFloat(calcOddsA.toFixed(2));
-        }
-
         activeMatches[matchKey] = {
-            id: fId, home, away, oddsHome, oddsAway,
+            id: fId, home, away, odds,
             status: g.time_status === '0' ? 'NS' : 'LIVE',
             startTime: g.time ? parseInt(g.time) * 1000 : Date.now() + 3600000,
             scoreHome: null, scoreAway: null, manual: false
