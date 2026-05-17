@@ -29,6 +29,7 @@ const CH_SHOP = '1505184082898714784';
 const CH_MARKET = '1505189708693770300';
 const CH_CMDS = '1505236386163458119';
 const CH_LOG = '1505235716693561535';
+const CH_BACKUP = '1505571130956578917'; // Záložní kanál pro databázi
 
 // ID Rolí
 const ROLE_COLLECTOR = '1505237697533444216';
@@ -42,6 +43,18 @@ const SHOP_CATEGORIES = {
   basic: ['random', 'attack', 'defensive', 'lead', 'goal'],
   groups: ['group_a', 'group_b'],
   national: ['cze_col', 'svk_col', 'can_col', 'usa_col', 'swe_col', 'fin_col', 'sui_col', 'lat_col', 'ger_col', 'aut_col', 'hun_col', 'gbr_col', 'den_col', 'nor_col', 'slo_col', 'ita_col']
+};
+
+// ─────────────────────────────────────────────
+// ELO RATING - ZÁCHRANNÝ SYSTÉM PRO KURZY
+// ─────────────────────────────────────────────
+const TEAM_ELO = {
+  "Canada": 1800, "Russia": 1780, "Sweden": 1750, "Finland": 1740, 
+  "Czechia": 1730, "Czech Republic": 1730, "USA": 1700, "Switzerland": 1650, 
+  "Germany": 1600, "Slovakia": 1550, "Latvia": 1500, "Denmark": 1450, 
+  "Norway": 1400, "Belarus": 1350, "France": 1350, "Kazakhstan": 1300,
+  "Austria": 1250, "Slovenia": 1200, "Hungary": 1150, "Great Britain": 1100, 
+  "Poland": 1100, "Italy": 1100
 };
 
 // ─────────────────────────────────────────────
@@ -68,8 +81,6 @@ const commands = [
   new SlashCommandBuilder().setName("puky").setDescription("Zobrazí tvůj aktuální stav puků."),
   new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook nickem.")
     .addStringOption(o => o.setName("nick").setDescription("Tvůj nick na TB").setRequired(true)),
-  
-  // OPRAVENO: Album nyní používá výběr z jasně definovaných možností
   new SlashCommandBuilder().setName("album").setDescription("Prohlédni si sbírku karet (svou nebo cizí).")
     .addStringOption(o => o.setName("tym").setDescription("Vyber národní tým").setRequired(true).addChoices(
         { name: '🇨🇿 Česko (CZE)', value: 'CZE' },
@@ -90,17 +101,13 @@ const commands = [
         { name: '🇮🇹 Itálie (ITA)', value: 'ITA' }
     ))
     .addUserOption(o => o.setName("uzivatel").setDescription("Čí album chceš vidět (nepovinné)")),
-  
-  // OPRAVENO: Prodat nyní používá Autocomplete (našeptávač) pro inventář
   new SlashCommandBuilder().setName("prodat").setDescription("Vystaví tvou kartu na globální tržiště.")
     .addStringOption(o => o.setName("karta_id").setDescription("Vyber kartu k prodeji ze svého inventáře").setRequired(true).setAutocomplete(true))
     .addIntegerOption(o => o.setName("cena").setDescription("Cena v pucích").setRequired(true)),
-  
   new SlashCommandBuilder().setName("trade").setDescription("Nabídne přímou výměnu hráči.")
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu chceš nabídnout trade").setRequired(true))
     .addStringOption(o => o.setName("nabizim").setDescription("Vyber kartu ze svého inventáře").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("chci").setDescription("Vyber kartu od druhého hráče").setRequired(true).setAutocomplete(true)),
-  
   new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na nadcházející zápas.")
     .addStringOption(o => o.setName("zapas").setDescription("Vyber zápas z nabídky").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true).addChoices({name: 'Výhra Domácí', value: 'home'}, {name: 'Výhra Hosté', value: 'away'}))
@@ -123,7 +130,8 @@ const commands = [
     .addStringOption(o => o.setName("hoste").setDescription("Tým hosté").setRequired(true))
     .addNumberOption(o => o.setName("kurz_domaci").setDescription("Kurz na domácí (např. 1.5)").setRequired(true))
     .addNumberOption(o => o.setName("kurz_hoste").setDescription("Kurz na hosty (např. 2.1)").setRequired(true))
-    .addIntegerOption(o => o.setName("zacatek_za_hodin").setDescription("Za kolik hodin zápas začíná?").setRequired(true))
+    .addIntegerOption(o => o.setName("zacatek_za_hodin").setDescription("Za kolik hodin zápas začíná?").setRequired(true)),
+  new SlashCommandBuilder().setName("admin-zaloha-vynut").setDescription("ADMIN: Okamžitě odešle aktuální stav databáze do záložního kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
@@ -135,7 +143,6 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isAutocomplete()) return;
   const focusedOption = interaction.options.getFocused(true);
 
-  // OPRAVENO: Našeptávač nyní funguje i pro příkaz /prodat
   if (interaction.commandName === 'trade' || interaction.commandName === 'prodat') {
     let choices = [];
     if (focusedOption.name === 'nabizim' || focusedOption.name === 'karta_id') {
@@ -255,6 +262,53 @@ async function renderMatchesDashboard() {
 
   const msgs = await matchCh.messages.fetch({ limit: 5 });
   if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
+}
+
+// ─────────────────────────────────────────────
+// MECHANIKA DISK ZÁLOHOVÁNÍ (DISCORD CLOUD)
+// ─────────────────────────────────────────────
+async function sendBackup() {
+  try {
+    const ch = await client.channels.fetch(CH_BACKUP);
+    if (fs.existsSync(USERS_PATH)) {
+      await ch.send({
+        content: `📦 **Automatická záloha databáze (users_db.json)**\n🕒 Čas zálohy: <t:${Math.floor(Date.now() / 1000)}:F>\n*Tento soubor bude automaticky stažen při příštím restartu/deployi na Railway.*`,
+        files: [USERS_PATH]
+      });
+      console.log(`[ZÁLOHA] Soubor users_db.json byl úspěšně odeslán do záložního kanálu.`);
+      return true;
+    }
+    return "Soubor users_db.json neexistuje.";
+  } catch (e) {
+    console.log(`[ZÁLOHA] Selhalo odeslání zálohy do kanálu:`, e.message);
+    return e.message;
+  }
+}
+
+async function loadBackupOnStartup() {
+  try {
+    const ch = await client.channels.fetch(CH_BACKUP);
+    const messages = await ch.messages.fetch({ limit: 1 });
+    if (messages.size > 0) {
+      const lastMsg = messages.first();
+      const attachment = lastMsg.attachments.first();
+      if (attachment && attachment.name.endsWith('.json')) {
+        console.log(`[ZÁLOHA] Nalezena cloudová záloha. Stahuji: ${attachment.url}`);
+        const response = await axios.get(attachment.url);
+        if (response.data && typeof response.data === 'object') {
+          fs.writeFileSync(USERS_PATH, JSON.stringify(response.data, null, 2));
+          usersDb = response.data;
+          console.log(`[ZÁLOHA] ÚSPĚCH! Databáze kompletně obnovena z Discord cloudu.`);
+          return true;
+        }
+      }
+    }
+    console.log(`[ZÁLOHA] V kanálu nebyl nalezen žádný validní záložní soubor JSON.`);
+    return false;
+  } catch (e) {
+    console.log(`[ZÁLOHA] Nepodařilo se obnovit zálohu při startu:`, e.message);
+    return false;
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -385,10 +439,10 @@ client.on("interactionCreate", async interaction => {
       ini.inventory.splice(ini.inventory.indexOf(myC), 1); ini.inventory.push(theirC);
       tar.inventory.splice(tar.inventory.indexOf(theirC), 1); tar.inventory.push(myC);
       saveUsers();
-      await interaction.message.edit({ content: `✅ **Trade proběhl úspěšně!**`, components: [] });
+      await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("✅ Trade proběhl úspěšně!").setColor(0x00FF00)], components: [] });
       checkMilestones(initiatorId); checkMilestones(targetId);
     } else {
-      await interaction.message.edit({ content: `❌ **Trade zrušen.**`, components: [] });
+      await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Trade zrušen.").setColor(0xFF0000)], components: [] });
     }
   }
 
@@ -432,12 +486,26 @@ client.on("interactionCreate", async interaction => {
       const targetUser = interaction.options.getUser("uzivatel");
       const myCardId = interaction.options.getString("nabizim").toUpperCase();
       const theirCardId = interaction.options.getString("chci").toUpperCase();
+      
+      const myCard = cardsDb.cards.find(c => c.id === myCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
+      const theirCard = cardsDb.cards.find(c => c.id === theirCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
+
       const cmdsCh = await client.channels.fetch(CH_CMDS);
       const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`tradeaccept_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}`).setLabel('Souhlasím').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`tradedecline_${interaction.user.id}_${targetUser.id}`).setLabel('Odmítnout').setStyle(ButtonStyle.Danger)
       );
-      await cmdsCh.send({ content: `🤝 **Návrh na Trade!** <@${targetUser.id}>, <@${interaction.user.id}> ti nabízí kartu \`${myCardId}\` za tvou \`${theirCardId}\`!`, components: [btnRow] });
+      
+      const embed = new EmbedBuilder()
+        .setTitle('🤝 Nový návrh na výměnu karet!')
+        .setDescription(`<@${interaction.user.id}> ti nabízí obchod, <@${targetUser.id}>!\n\n` +
+                        `**NABÍZÍ TI:**\n🏒 **${myCard.name}** (${myCard.team} - ${myCard.role})\n🆔 \`${myCard.id}\`\n\n` +
+                        `**CHCE OD TEBE:**\n🏒 **${theirCard.name}** (${theirCard.team} - ${theirCard.role})\n🆔 \`${theirCard.id}\``)
+        .setImage(myCard.front)
+        .setThumbnail(theirCard.front)
+        .setColor(EVENT_COLOR);
+
+      await cmdsCh.send({ content: `<@${targetUser.id}>, máš tu návrh na výměnu!`, embeds: [embed], components: [btnRow] });
       interaction.reply({ content: `✅ Návrh odeslán do chatu.`, ephemeral: true });
     }
     
@@ -524,7 +592,6 @@ client.on("interactionCreate", async interaction => {
       interaction.reply({ content: `✅ Ručně vyhodnoceno. Vyplaceno ${totalPayout} puků celkem ${winnersCount} lidem.`, ephemeral: true });
     }
     
-    // OPRAVENO: Nový rozsáhlý a designový embed pro obchod
     if (interaction.commandName === "admin-setup-shop") {
       const select = new StringSelectMenuBuilder().setCustomId('shop_category_select').setPlaceholder('Vyberte kategorii balíčků...')
         .addOptions(
@@ -535,12 +602,16 @@ client.on("interactionCreate", async interaction => {
         );
         
       const shopDesc = `Vítej v oficiálním **LTR Hokejovém Obchodě**! 🛒\n\n` +
-                       `Zde můžeš utratit své těžce vyježděné puky za balíčky hokejových karet do svého alba. Z každého balíčku ti padne vždy jeden náhodný hráč podle kategorie, kterou si vybereš.\n\n` +
-                       `**Jaké balíčky si můžeš pořídit?**\n` +
-                       `📦 **Základní a Poziční:** Chceš zkusit štěstí? Padají zde náhodní útočníci, obránci, brankáři nebo úplný random ze všech týmů.\n` +
-                       `🏆 **Skupinové:** Sbíráš konkrétní polovinu pavouka? Tyto balíčky obsahují hráče čistě ze Skupiny A nebo Skupiny B.\n` +
-                       `🌍 **Národní:** Jdeš na jistotu? Za vyšší cenu zde pořídíš garantovaného hráče z konkrétního národního týmu.\n\n` +
-                       `*Základní měnou jsou Puky. Ty získáváš automaticky ježděním (200 ujetých km na TrucksBooku = 1 Puk).*`;
+                       `> Zde můžeš utratit své těžce vyježděné puky za balíčky hokejových karet do svého alba. Z každého balíčku ti padne vždy jeden náhodný hráč podle kategorie, kterou si vybereš.\n\n` +
+                       `**📦 DOSTUPNÉ KATEGORIE BALÍČKŮ:**\n\n` +
+                       ` Hospital 🔹 **Základní a Poziční**\n` +
+                       `Chceš zkusit štěstí? Padají zde náhodní útočníci, obránci, brankáři nebo úplný random ze všech týmů.\n\n` +
+                       `🔹 **Skupinové**\n` +
+                       `Sbíráš konkrétní polovinu pavouka? Tyto balíčky obsahují hráče čistě ze Skupiny A nebo Skupiny B.\n\n` +
+                       `🔹 **Národní**\n` +
+                       `Jdeš na jistotu? Za vyšší cenu zde pořídíš garantovaného hráče z konkrétního národního týmu.\n\n` +
+                       `---\n` +
+                       `*💡 Základní měnou jsou Puky. Ty získáváš automaticky ježděním (200 ujetých km na TrucksBooku = 1 Puk).*`;
 
       await (await client.channels.fetch(CH_SHOP)).send({ embeds: [{ title: "🛒 Hokejový Obchod LTR", description: shopDesc, color: EVENT_COLOR }], components: [new ActionRowBuilder().addComponents(select)] });
       interaction.reply({ content: "✅ Obchod úspěšně překreslen s novým designem.", ephemeral: true });
@@ -562,6 +633,12 @@ client.on("interactionCreate", async interaction => {
       await interaction.deferReply({ ephemeral: true });
       const res = await fetchMatches(true); 
       interaction.editReply(res === true ? "✅ Operace dokončena. API a statistický model zpracovaly data." : `❌ DEBUG REPORT:\n\n${res}`);
+    }
+
+    if (interaction.commandName === "admin-zaloha-vynut") {
+       await interaction.deferReply({ ephemeral: true });
+       const status = await sendBackup();
+       interaction.editReply(status === true ? "✅ Ruční záloha byla úspěšně odeslána do kanálu!" : `❌ Selhalo: ${status}`);
     }
   }
 });
@@ -654,7 +731,6 @@ async function fetchMatches(isManual = false) {
     activeMatches = {};
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
 
-    // 1. ZÍSKÁNÍ SEZNAMU ZÁPASŮ 
     const upcomingRes = await axios.get(`https://${apiHost}/v1/bet365/upcoming`, { 
         headers, 
         params: { sport_id: 17 } 
@@ -675,7 +751,6 @@ async function fetchMatches(isManual = false) {
 
     relevantGames = relevantGames.slice(0, 2);
 
-    // 2. STÁHNEME KURZY
     for (const g of relevantGames) {
         const fId = g.id;
         const home = g.home?.name || "Domácí";
@@ -713,7 +788,6 @@ async function fetchMatches(isManual = false) {
             console.log(`Nepodařilo se stáhnout kurzy pro FI ${fId}:`, e.message);
         }
 
-        // 3. GENIÁLNÍ ZÁCHRANNÝ ELO SYSTÉM (Pokud API selže nebo vrátí 1.0)
         if (oddsHome === 1.0 || oddsAway === 1.0) {
             let eloH = TEAM_ELO[home] || 1400; 
             let eloA = TEAM_ELO[away] || 1400;
@@ -732,13 +806,10 @@ async function fetchMatches(isManual = false) {
         }
 
         activeMatches[matchKey] = {
-            id: fId,
-            home, away, oddsHome, oddsAway,
+            id: fId, home, away, oddsHome, oddsAway,
             status: g.time_status === '0' ? 'NS' : 'LIVE',
             startTime: g.time ? parseInt(g.time) * 1000 : Date.now() + 3600000,
-            scoreHome: null,
-            scoreAway: null,
-            manual: false
+            scoreHome: null, scoreAway: null, manual: false
         };
     }
 
@@ -747,7 +818,7 @@ async function fetchMatches(isManual = false) {
     return true;
 
   } catch (err) {
-    await renderMatchesDashboard();
+    await renderMatchesDashboard(); 
     let errMsg = err.message;
     if (err.response && err.response.data) {
        errMsg += `\nAPI: ${JSON.stringify(err.response.data).substring(0,200)}`;
@@ -756,12 +827,22 @@ async function fetchMatches(isManual = false) {
   }
 }
 
-client.once("ready", () => {
+// ─────────────────────────────────────────────
+// START BOTU A SMYČKY
+// ─────────────────────────────────────────────
+client.once("ready", async () => {
   console.log(`Bot LTR Hockey nahozen!`);
   new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
   
+  // 1. NEJPRVE STÁHNEME ZÁLOHU Z DISCORD CLOUDU (Ochrana proti Railway wipe)
+  await loadBackupOnStartup();
+  
+  // 2. SPUSTÍME ZÁPASOVÉ CYKLY
   fetchMatches(false); 
-  setInterval(() => fetchMatches(false), 3 * 60 * 60 * 1000); 
+  setInterval(() => fetchMatches(false), 3 * 60 * 60 * 1000); // Každé 3 hodiny kvůli limitům
+  
+  // 3. SPUSTÍME CYKLUS ZÁLOHOVÁNÍ DATABÁZE (Každých 30 minut)
+  setInterval(sendBackup, 30 * 60 * 1000);
 });
 
 client.login(TOKEN);
