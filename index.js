@@ -210,16 +210,24 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ─────────────────────────────────────────────
-// SBĚR KILOMETRŮ A MIL (Centrální zpracování)
+// SBĚR KILOMETRŮ A MIL (Blbuvzdorné zpracování)
 // ─────────────────────────────────────────────
 function extractDistanceAndPucks(text) {
-    const distMatch = text.match(/(?:vzdálenost|distance|\[.*?\])[^\d]*(\d+)\s*(km|mi|míle|miles)/i);
+    // Zachytí číslo i s případnými mezerami, tečkami či čárkami (např. "1 692" nebo "1,692")
+    const distMatch = text.match(/(?:vzdálenost|distance|\[.*?\])[^\d]*([\d\s.,]+?)\s*(km|mi|míle|miles)/i);
     if (!distMatch) return null;
 
-    let rawDist = parseInt(distMatch[1], 10);
+    // Nemilosrdně odstraní všechno, co není číslice
+    const cleanNumberStr = distMatch[1].replace(/[^\d]/g, '');
+    let rawDist = parseInt(cleanNumberStr, 10);
+    
+    // Pojistka proti nesmyslům
+    if (isNaN(rawDist) || rawDist <= 0) return null;
+
     let unit = distMatch[2].toLowerCase();
     let km = rawDist;
 
+    // Převod z mil
     if (unit.includes('mi') || unit.includes('mí')) {
         km = Math.round(rawDist * 1.60934);
     }
@@ -271,6 +279,7 @@ async function processJobMessage(m, isBackfill = false) {
   }
 
   const u = getUser(userKey, driver);
+  // Absolutní pojistka proti dvojímu připsání!
   if (u.processedJobs.includes(jobId)) return { status: 'duplicate' };
 
   u.km += km;
@@ -288,7 +297,7 @@ client.on('messageCreate', async (m) => {
   if (res.status === 'added') {
       saveUsers();
       const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      // TIŠŠÍ REŽIM: Ghost zakázky se tiše uloží do databáze a log zůstane čistý.
+      // TIŠŠÍ REŽIM: Zpráva se pošle pouze pokud hráč NENÍ ghost (tzn. má propojený účet).
       if (logCh && !res.isGhost) {
           logCh.send(`✅ Zakázka \`#${res.jobId}\` schválena: **${res.driver}** získal **${res.pucks} puků** za ujetých ${res.unitTxt}.`);
       }
