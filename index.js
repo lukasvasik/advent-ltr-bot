@@ -35,7 +35,7 @@ const ROLE_COLLECTOR = '1505237697533444216';
 const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
-const EVENT_COLOR = 0xFF2C57; // Tvá sytá růžovo-červená všude
+const EVENT_COLOR = 0xFF2C57; 
 
 // Kategorie pro katalog obchodu
 const SHOP_CATEGORIES = {
@@ -92,7 +92,7 @@ const commands = [
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
   new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně otestuje a stáhne zápasy z RapidAPI.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Ručně vyhodnotí sázky zápasu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Ručně vyhodnotí sázky zápasu (automatické i manuální).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(o => o.setName("zapas").setDescription("Který zápas skončil?").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Vyhráli Domácí', value: 'home'}, {name: 'Vyhráli Hosté', value: 'away'})),
   new SlashCommandBuilder().setName("admin-vytvor-zapas").setDescription("ADMIN: Ručně vytvoří zápas (když API stávkuje).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -504,7 +504,7 @@ client.on("interactionCreate", async interaction => {
           { label: 'Národní balíčky', value: 'national', emoji: '🌍' }
         );
       await (await client.channels.fetch(CH_SHOP)).send({ embeds: [{ title: "🛒 Hokejový Obchod LTR", description: "Vítej v obchodě!\nVyber si v menu níže kategorii.\n\n*Puky získáváš ježděním (200 km = 1 puk).*.", color: EVENT_COLOR }], components: [new ActionRowBuilder().addComponents(select)] });
-      interaction.reply({ content: "✅ Obchod工夫 vyvěšen.", ephemeral: true });
+      interaction.reply({ content: "✅ Obchod vykreslen.", ephemeral: true });
     }
     
     if (interaction.commandName === "admin-puky") {
@@ -596,7 +596,7 @@ async function evaluateBetsAutomatically() {
 }
 
 // ─────────────────────────────────────────────
-// RAPIDAPI: ODDSPAPI - REŽIM SUROVÉHO VÝPISU (DUMP VŠEHO)
+// RAPIDAPI: ODDSPAPI - VYSOCE CÍLENÉ STAHOVÁNÍ
 // ─────────────────────────────────────────────
 async function fetchMatches() {
   const apiKey = process.env.RAPIDAPI_KEY;
@@ -611,56 +611,85 @@ async function fetchMatches() {
     activeMatches = {};
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
 
-    // SUROVÝ REŽIM: Žádná filtrace turnajů. Bereme vše pro dnešní den z hlavního endpointu.
-    const url = `https://${apiHost}/fixtures/odds`;
-    const params = {
-      date: new Date().toISOString().split('T')[0]
-    };
-
-    const oddsRes = await axios.get(url, { headers, params });
-    let gamesFound = 0;
+    // 1. ZÍSKÁNÍ ZÁPASŮ PRO DNEŠNÍ DEN
+    const dateStr = new Date().toISOString().split('T')[0];
+    const fixturesRes = await axios.get(`https://${apiHost}/fixtures`, { headers, params: { date: dateStr } });
     
-    if (oddsRes && oddsRes.data) {
-      // Zkusíme najít pole zápasů v jakékoliv běžné struktuře, kterou API používá
-      const games = oddsRes.data.data || oddsRes.data.response || oddsRes.data.results || oddsRes.data || [];
-      if (Array.isArray(games) && games.length > 0) {
-        gamesFound = games.length;
+    let allGames = fixturesRes.data?.data || fixturesRes.data?.response || fixturesRes.data || [];
+    
+    if (!Array.isArray(allGames) || allGames.length === 0) {
+        await renderMatchesDashboard();
+        return `Zápasy nenalezeny. API pro dnešní den (${dateStr}) vrátilo prázdný seznam nebo podivný formát: ${JSON.stringify(fixturesRes.data).substring(0, 200)}`;
+    }
+
+    // Filtrování jen na Mistrovství světa (Word Championship)
+    let relevantGames = allGames.filter(g => {
+        const lName = (g.tournament?.name || g.league?.name || "").toLowerCase();
+        return lName.includes('world championship') || lName.includes('iihf');
+    });
+
+    // Pokud MS nenajdeme, vezmeme raději prvních 5 jakýchkoliv dnešních zápasů jako ukázku (abychom viděli strukturu dat z API)
+    let isFallback = false;
+    if (relevantGames.length === 0) {
+        relevantGames = allGames.slice(0, 5);
+        isFallback = true;
+    }
+
+    let gamesProcessed = 0;
+
+    // 2. STAHUJEME KURZY PRO KAŽDÝ ZÁPAS SAMOSTATNĚ PŘES fixtureId
+    for (const g of relevantGames) {
+        if (gamesProcessed >= 10) break; 
         
-        // Vezmeme prvních 10 jakýchkoliv zápasů, co nám API pošle do cesty
-        games.slice(0, 10).forEach(g => {
-          const home = g.home_team?.name || g.home?.name || g.teams?.home?.name || g.home || "Domácí Tým";
-          const away = g.away_team?.name || g.away?.name || g.teams?.away?.name || g.away || "Hostující Tým";
-          const matchKey = `${home} - ${away}`;
+        const fId = g.id || g.fixture_id || g.fixtureId;
+        if (!fId) continue;
 
-          let oddsHome = 1.0;
-          let oddsAway = 1.0;
-          
-          if (g.odds?.home) oddsHome = parseFloat(g.odds.home);
-          else if (g.markets?.[0]?.bookmakers?.[0]?.odds?.[0]?.value) oddsHome = parseFloat(g.markets[0].bookmakers[0].odds[0].value);
-          else if (g.bookmakers?.[0]?.bets?.[0]?.values?.[0]?.odd) oddsHome = parseFloat(g.bookmakers[0].bets[0].values[0].odd);
-          
-          if (g.odds?.away) oddsAway = parseFloat(g.odds.away);
-          else if (g.markets?.[0]?.bookmakers?.[0]?.odds?.[1]?.value) oddsAway = parseFloat(g.markets[0].bookmakers[0].odds[1].value);
-          else if (g.bookmakers?.[0]?.bets?.[0]?.values?.[1]?.odd) oddsAway = parseFloat(g.bookmakers[0].bets[0].values[1].odd);
+        const home = g.home_team?.name || g.home?.name || g.teams?.home?.name || "Domácí Tým";
+        const away = g.away_team?.name || g.away?.name || g.teams?.away?.name || "Hostující Tým";
+        const matchKey = `${home} - ${away}`;
 
-          activeMatches[matchKey] = {
-            id: g.id || g.fixture_id || `api_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        let oddsHome = 1.0;
+        let oddsAway = 1.0;
+
+        // Vydolujeme z API kurzy pro toto konkrétní fixtureId
+        try {
+            const oddsRes = await axios.get(`https://${apiHost}/fixtures/odds`, { headers, params: { fixtureId: fId } });
+            const oddsData = oddsRes.data?.data || oddsRes.data?.response || oddsRes.data || [];
+            
+            // OddsPapi má hlubokou strukturu pro sázkové markety
+            let bookmaker = null;
+            if (Array.isArray(oddsData) && oddsData.length > 0) bookmaker = oddsData[0]?.bookmakers?.[0];
+            else if (oddsData.bookmakers) bookmaker = oddsData.bookmakers[0];
+
+            if (bookmaker && bookmaker.markets && bookmaker.markets.length > 0) {
+                const market = bookmaker.markets[0]; // Vezmeme první market, pravděpodobně Match Winner (1X2)
+                if (market.odds && market.odds.length >= 2) {
+                    oddsHome = parseFloat(market.odds.find(o => o.name === 'Home' || o.label === '1')?.value || market.odds[0].value || 1.0);
+                    oddsAway = parseFloat(market.odds.find(o => o.name === 'Away' || o.label === '2')?.value || market.odds[1].value || 1.0);
+                }
+            }
+        } catch (e) {
+            console.log(`Nepodařilo se stáhnout kurzy pro ID ${fId}:`, e.message);
+        }
+
+        activeMatches[matchKey] = {
+            id: fId,
             home, away, oddsHome, oddsAway,
             status: g.status?.short || g.fixture?.status?.short || 'NS',
             startTime: g.start_time ? new Date(g.start_time).getTime() : (g.fixture?.timestamp ? g.fixture.timestamp * 1000 : Date.now() + 3600000),
             scoreHome: g.scores?.home || null,
             scoreAway: g.scores?.away || null,
             manual: false
-          };
-        });
-      }
+        };
+        gamesProcessed++;
     }
 
     await evaluateBetsAutomatically();
     await renderMatchesDashboard();
 
-    if (gamesFound === 0) {
-      return `API sice odpovědělo kódem 200, ale pro parametry ${JSON.stringify(params)} vrátilo **zcela prázdné pole**. Odpověď těla: ${JSON.stringify(oddsRes.data)}`;
+    if (isFallback) {
+        const lNames = [...new Set(allGames.slice(0,10).map(g => g.tournament?.name || g.league?.name))].join(', ');
+        return `Nenalezeno MS. API vidí dnes ligy: ${lNames}. Zobrazuji 5 náhodných zápasů jako důkaz spojení. Pro MS použij /admin-vytvor-zapas.`;
     }
 
     return true;
