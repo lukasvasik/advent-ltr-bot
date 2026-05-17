@@ -136,7 +136,6 @@ client.on('interactionCreate', async interaction => {
     if (focusedOption.name === 'zapas') {
       let matches = Object.keys(activeMatches);
       
-      // Pro normální sázky ukážeme jen zápasy, které ještě nezačaly (Not Started)
       if (interaction.commandName === 'vsadit') {
         matches = matches.filter(m => activeMatches[m].status === 'NS' && Date.now() < activeMatches[m].startTime);
       }
@@ -388,7 +387,6 @@ client.on("interactionCreate", async interaction => {
       if (!activeMatches[matchName]) return interaction.reply({ content: "❌ Zápas nenalezen nebo už skončil.", ephemeral: true });
       const mData = activeMatches[matchName];
 
-      // OCHRANA PROTI LIVE SÁZKÁM
       if (mData.status !== 'NS' || Date.now() >= mData.startTime) {
          return interaction.reply({ content: "❌ Na tento zápas už nelze vsadit. Už se hraje nebo začal!", ephemeral: true });
       }
@@ -500,9 +498,8 @@ async function evaluateBetsAutomatically() {
 
   for (const matchKey in activeMatches) {
     const m = activeMatches[matchKey];
-    // Zkontrolujeme, jestli zápas neskončil (FT = Full Time, AET = After Extra Time, PEN = Penalties)
     if (['FT', 'AET', 'AWT', 'PEN'].includes(m.status)) {
-      if (m.scoreHome === null || m.scoreAway === null || m.scoreHome === m.scoreAway) continue; // Safety check
+      if (m.scoreHome === null || m.scoreAway === null || m.scoreHome === m.scoreAway) continue; 
       
       const winner = m.scoreHome > m.scoreAway ? 'home' : 'away';
       let matchHadBets = false;
@@ -543,27 +540,25 @@ async function fetchMatches() {
   try {
     const headers = { 'x-apisports-key': ODDS_API_KEY };
     
-    // 1. Získat ligu MS (hledáme striktně World Championship)
     const leaguesRes = await axios.get(`https://v1.hockey.api-sports.io/leagues?search=world`, { headers });
     const targetLeague = leaguesRes.data.response?.find(l => 
         l.name.toLowerCase().includes('world championship') && 
         !l.name.toLowerCase().includes('u20') && 
-        !l.name.toLowerCase().includes('women')
-    ) || leaguesRes.data.response?.[0]; // Fallback
+        !l.name.toLowerCase().includes('women') &&
+        !l.name.toLowerCase().includes('div')
+    ) || leaguesRes.data.response?.[0]; 
 
     if (!targetLeague) return `Nenalezeno Mistrovství světa v databázi API-Sports.`;
 
     const leagueId = targetLeague.id;
     
-    // Získáme aktuální rok/sezónu z databáze ligy
-    const activeSeasonObj = targetLeague.seasons.find(s => s.current);
-    const season = activeSeasonObj ? activeSeasonObj.year : new Date().getFullYear();
+    // OPRAVA: API-Sports nepoužívá rok, ale "season" v objektu sezóny
+    const activeSeasonObj = targetLeague.seasons.find(s => s.current === true);
+    const season = activeSeasonObj ? activeSeasonObj.season : new Date().getFullYear();
 
-    // 2. Získat všechny zápasy pro danou sezónu
     const gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
     const allGames = gamesRes.data.response || [];
 
-    // Chceme jen zápasy, které nejsou starší jak 1 den (abychom měli co vyhodnocovat)
     const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
     const relevantGames = allGames
       .filter(g => new Date(g.date).getTime() > oneDayAgo)
@@ -571,7 +566,6 @@ async function fetchMatches() {
 
     const displayGames = relevantGames.slice(0, 10);
 
-    // 3. Získat kurzy
     const oddsRes = await axios.get(`https://v1.hockey.api-sports.io/odds?league=${leagueId}&season=${season}`, { headers });
     const oddsData = oddsRes.data.response || [];
 
@@ -603,7 +597,6 @@ async function fetchMatches() {
       else if (s === 'CANC') statusText = "❌ Zrušeno";
       else statusText = `🔴 LIVE (${m.scores.home} : ${m.scores.away})`; 
 
-      // Uložíme zápas do paměti i se skóre (pro automatické vyhodnocení)
       activeMatches[matchKey] = { 
         id: m.id, 
         home, 
@@ -619,17 +612,14 @@ async function fetchMatches() {
       desc += `🏒 **${matchKey}**\n🕒 <t:${Math.floor(new Date(m.date).getTime()/1000)}:f>\n📊 Stav: ${statusText}\n💰 ${oddsText}\n\n`;
     });
 
-    // Zkusíme automaticky vyhodnotit
     await evaluateBetsAutomatically();
 
     const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
     if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
 
-    const debugInfo = displayGames.length === 0 ? `\n*DEBUG: Liga: ${targetLeague.name}, Sezóna: ${season}. Žádné zápasy od včerejška do budoucna nenalezeny.*` : "";
-
     const embed = new EmbedBuilder()
       .setTitle(`🔥 Aktuální zápasy a kurzy MS`)
-      .setDescription((desc || "Žádné zápasy nenalezeny.") + debugInfo)
+      .setDescription(desc || "Žádné zápasy nenalezeny.")
       .setColor(EVENT_COLOR);
       
     const msgs = await matchCh.messages.fetch({ limit: 5 });
