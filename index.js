@@ -160,7 +160,7 @@ const commands = [
     .addNumberOption(o => o.setName("kurz_hoste").setDescription("Kurz na hosty (např. 2.1)").setRequired(true))
     .addIntegerOption(o => o.setName("zacatek_za_hodin").setDescription("Za kolik hodin zápas začíná?").setRequired(true)),
   new SlashCommandBuilder().setName("admin-zaloha-vynut").setDescription("ADMIN: Okamžitě odešle aktuální stav databáze do cloudu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-zpetne-zakazky").setDescription("ADMIN: Zpětně zkontroluje a přidá puky za staré zakázky (bez duplikace).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-zpetne-zakazky").setDescription("ADMIN: Zpětně zkontroluje a opraví zakázky, i ty poškozené.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
@@ -210,28 +210,45 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ─────────────────────────────────────────────
-// SBĚR KILOMETRŮ A MIL (Blbuvzdorné zpracování)
+// SBĚR KILOMETRŮ A MIL (Blbuvzdorné zpracování + Repair Mód)
 // ─────────────────────────────────────────────
+
+const normalizeStr = (str) => {
+    if (!str) return "";
+    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+};
+
 function extractDistanceAndPucks(text) {
-    // Zachytí číslo i s případnými mezerami, tečkami či čárkami (např. "1 692" nebo "1,692")
-    const distMatch = text.match(/(?:vzdálenost|distance|\[.*?\])[^\d]*([\d\s.,]+?)\s*(km|mi|míle|miles)/i);
-    if (!distMatch) return null;
-
-    // Nemilosrdně odstraní všechno, co není číslice
-    const cleanNumberStr = distMatch[1].replace(/[^\d]/g, '');
-    let rawDist = parseInt(cleanNumberStr, 10);
+    const regex = /(?:vzdálenost|distance|\[.*?\])[^\d]*([\d\s.,]+)\s*(km|mi|míle|miles)/gi;
+    let matches = [...text.matchAll(regex)];
     
-    // Pojistka proti nesmyslům
-    if (isNaN(rawDist) || rawDist <= 0) return null;
+    if (matches.length === 0) return null;
 
-    let unit = distMatch[2].toLowerCase();
-    let km = rawDist;
+    let bestDist = 0;
+    let bestUnit = 'km';
+    let rawMatchStr = '';
 
-    // Převod z mil
-    if (unit.includes('mi') || unit.includes('mí')) {
-        km = Math.round(rawDist * 1.60934);
+    // Projde všechna čísla s "km" v logu a vybere to největší
+    for (const m of matches) {
+        const cleanStr = m[1].replace(/[^\d]/g, '');
+        if (cleanStr.length > 0) {
+            const parsed = parseInt(cleanStr, 10);
+            if (parsed > bestDist) {
+                bestDist = parsed;
+                bestUnit = m[2].toLowerCase();
+                rawMatchStr = m[1];
+            }
+        }
     }
-    return { km, pucks: Math.floor(km / 200), isMiles: unit.includes('mi') || unit.includes('mí'), rawDist };
+
+    if (bestDist <= 0) return null;
+
+    let km = bestDist;
+    if (bestUnit.includes('mi') || bestUnit.includes('mí')) {
+        km = Math.round(bestDist * 1.60934);
+    }
+    
+    return { km, pucks: Math.floor(km / 200), isMiles: bestUnit.includes('mi') || bestUnit.includes('mí'), rawDist: bestDist, rawMatchStr };
 }
 
 async function processJobMessage(m, isBackfill = false) {
@@ -246,13 +263,14 @@ async function processJobMessage(m, isBackfill = false) {
 
   const distData = extractDistanceAndPucks(allText);
   if (!distData) return { status: 'ignored' };
-  const { km, pucks, isMiles, rawDist } = distData;
+  const { km, pucks, isMiles, rawDist, rawMatchStr } = distData;
+
+  const driverNorm = normalizeStr(driver);
 
   let userKey = Object.keys(usersDb).find(k => {
     if (k.startsWith('UNLINKED_')) return false;
-    const dbNick = usersDb[k].tbName.toLowerCase().trim();
-    const logNick = driver.toLowerCase().trim();
-    return logNick.includes(dbNick) || dbNick.includes(logNick);
+    const dbNick = normalizeStr(usersDb[k].tbName);
+    return driverNorm.includes(dbNick) || dbNick.includes(driverNorm);
   });
 
   if (!userKey && !isBackfill) {
@@ -260,8 +278,8 @@ async function processJobMessage(m, isBackfill = false) {
       const guild = await client.guilds.fetch(GUILD_ID);
       const members = await guild.members.fetch({ query: driver, limit: 10 }).catch(() => new Map());
       const matchedMember = members.find(mem => 
-        mem.user.username.toLowerCase().includes(driver.toLowerCase().trim()) || 
-        mem.displayName.toLowerCase().includes(driver.toLowerCase().trim())
+        normalizeStr(mem.user.username).includes(driverNorm) || 
+        normalizeStr(mem.displayName).includes(driverNorm)
       );
       if (matchedMember) {
         userKey = matchedMember.id;
@@ -279,14 +297,32 @@ async function processJobMessage(m, isBackfill = false) {
   }
 
   const u = getUser(userKey, driver);
-  // Absolutní pojistka proti dvojímu připsání!
-  if (u.processedJobs.includes(jobId)) return { status: 'duplicate' };
+  let unitTxt = isMiles ? `**${rawDist} mil** (*${km} km*)` : `**${km} km**`;
+
+  // Detekce a oprava pokažených zakázek
+  if (u.processedJobs.includes(jobId)) {
+      if (isBackfill && km >= 1000 && !u.processedJobs.includes('REPAIRED_' + jobId)) {
+          // Zjistíme, co přesně starý bot přečetl (typicky první číslici před mezerou)
+          const firstDigitGroup = rawMatchStr.trim().match(/^(\d+)/);
+          const oldKm = firstDigitGroup ? parseInt(firstDigitGroup[1], 10) : 0;
+          
+          const kmDiff = km - oldKm;
+          const oldPucks = Math.floor(oldKm / 200);
+          const pucksDiff = pucks - oldPucks;
+          
+          if (kmDiff > 0) {
+              u.km += kmDiff;
+              u.pucks += pucksDiff;
+              u.processedJobs.push('REPAIRED_' + jobId);
+              return { status: 'repaired', km: kmDiff, pucks: pucksDiff, driver, isGhost, jobId, unitTxt };
+          }
+      }
+      return { status: 'duplicate' };
+  }
 
   u.km += km;
   if (pucks > 0) u.pucks += pucks;
   u.processedJobs.push(jobId);
-  
-  let unitTxt = isMiles ? `**${rawDist} mil** (*${km} km*)` : `**${km} km**`;
   return { status: 'added', km, pucks, driver, isGhost, jobId, unitTxt, userKey };
 }
 
@@ -297,33 +333,53 @@ client.on('messageCreate', async (m) => {
   if (res.status === 'added') {
       saveUsers();
       const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      // TIŠŠÍ REŽIM: Zpráva se pošle pouze pokud hráč NENÍ ghost (tzn. má propojený účet).
       if (logCh && !res.isGhost) {
           logCh.send(`✅ Zakázka \`#${res.jobId}\` schválena: **${res.driver}** získal **${res.pucks} puků** za ujetých ${res.unitTxt}.`);
       }
   }
 });
 
-async function runBackfill(limit = 100) {
+async function runBackfill(limit = 1500) {
     const jobsCh = await client.channels.fetch(CH_JOBS).catch(() => null);
-    if (!jobsCh) return { processed: 0, km: 0, pucks: 0 };
-    const msgs = await jobsCh.messages.fetch({ limit }).catch(() => null);
-    if (!msgs) return { processed: 0, km: 0, pucks: 0 };
+    if (!jobsCh) return { processed: 0, repaired: 0, km: 0, pucks: 0 };
     
+    let allMsgs = new Map();
+    let lastId;
+    let fetchCount = 0;
+
+    // Masivní listování historií (tahá po 100 kusech až do limitu)
+    while (fetchCount < limit) {
+        const options = { limit: 100 };
+        if (lastId) options.before = lastId;
+        
+        const msgs = await jobsCh.messages.fetch(options).catch(() => null);
+        if (!msgs || msgs.size === 0) break;
+        
+        msgs.forEach(m => allMsgs.set(m.id, m));
+        lastId = msgs.last().id;
+        fetchCount += msgs.size;
+    }
+
     let processedCount = 0;
+    let repairedCount = 0;
     let addedKm = 0;
     let addedPucks = 0;
     
-    for (const [, m] of msgs) {
+    for (const [, m] of allMsgs) {
         const res = await processJobMessage(m, true);
         if (res.status === 'added') {
             processedCount++;
             addedKm += res.km;
             addedPucks += res.pucks;
+        } else if (res.status === 'repaired') {
+            repairedCount++;
+            addedKm += res.km;
+            addedPucks += res.pucks;
         }
     }
-    if (processedCount > 0) saveUsers();
-    return { processed: processedCount, km: addedKm, pucks: addedPucks };
+    
+    if (processedCount > 0 || repairedCount > 0) saveUsers();
+    return { processed: processedCount, repaired: repairedCount, km: addedKm, pucks: addedPucks };
 }
 
 // ─────────────────────────────────────────────
@@ -676,9 +732,11 @@ client.on("interactionCreate", async interaction => {
       let addedKm = 0; 
       let addedPucks = 0;
       
+      const nickNormalized = normalizeStr(nick);
+
       for (const gk of ghostKeys) {
-          const ghostTbName = usersDb[gk].tbName.toLowerCase();
-          if (ghostTbName.includes(nick.toLowerCase()) || nick.toLowerCase().includes(ghostTbName)) {
+          const ghostTbName = normalizeStr(usersDb[gk].tbName);
+          if (ghostTbName.includes(nickNormalized) || nickNormalized.includes(ghostTbName)) {
               addedKm += usersDb[gk].km;
               addedPucks += usersDb[gk].pucks;
               user.km += usersDb[gk].km;
@@ -931,8 +989,9 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "admin-zpetne-zakazky") {
       await interaction.deferReply({ ephemeral: true });
-      const bf = await runBackfill(100);
-      interaction.editReply(`✅ Zpětná kontrola dokončena!\nBěhem ní bylo nalezeno a připsáno **${bf.processed}** dříve nezapočítaných zakázek.\n🚚 Připsáno celkem: **${bf.km} km** a **${bf.pucks} puků** (včetně Ghost účtů).`).catch(console.error);
+      // Limit na 1500 zpráv
+      const bf = await runBackfill(1500);
+      interaction.editReply(`✅ Zpětná kontrola dokončena!\nNalezeno nových: **${bf.processed}**\nOpraveno poškozených (>1000km): **${bf.repaired}**\n🚚 Připsáno celkem: **${bf.km} km** a **${bf.pucks} puků** (včetně Ghost účtů).`).catch(console.error);
     }
   }
 });
@@ -1137,11 +1196,12 @@ client.once("ready", async () => {
   await loadBackupOnStartup();
   
   console.log("[STARTUP] Spouštím automatickou zpětnou kontrolu zakázek...");
-  const bf = await runBackfill(100);
-  if (bf.processed > 0) {
-      console.log(`[STARTUP] Zpětně dopsáno ${bf.processed} zakázek (${bf.km} km).`);
+  // Limit na 500 zajistí klidný start bota, příkazem /admin-zpetne-zakazky jich pak prohledáš 1500
+  const bf = await runBackfill(500);
+  if (bf.processed > 0 || bf.repaired > 0) {
+      console.log(`[STARTUP] Dopsáno ${bf.processed} nových, opraveno ${bf.repaired} starých.`);
       const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh) logCh.send(`🔄 **Bot se restartoval a stáhl zálohu.** Během offline doby zachytil a zpětně dopsal **${bf.processed} zakázek**!`);
+      if (logCh) logCh.send(`🔄 **Bot se restartoval a stáhl zálohu.** Během offline doby zachytil a zpětně zpracoval **${bf.processed} nových** a **${bf.repaired} opravených** zakázek!`);
   }
   
   fetchMatches(false); 
