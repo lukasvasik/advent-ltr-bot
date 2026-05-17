@@ -37,6 +37,7 @@ const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
 const BRAND_COLOR = 0x00529B; // Hokejová modrá
+const SHOP_COLOR = 0xFF2C57; // Nová LTR růžová
 
 // Kategorie pro katalog obchodu
 const SHOP_CATEGORIES = {
@@ -124,7 +125,7 @@ async function openShopCatalog(interaction, category, index) {
     .setTitle(`📦 ${pack.name}`)
     .setDescription(`Cena: **${pack.price} puků**\n*Balíček ${index + 1} z ${packKeys.length}*`)
     .setImage(pack.image)
-    .setColor(0xFF69B4); // Růžová!
+    .setColor(SHOP_COLOR);
 
   if (interaction.replied || interaction.deferred) {
     await interaction.update({ embeds: [embed], components: [row] });
@@ -206,11 +207,11 @@ client.on("interactionCreate", async interaction => {
 
     const selectedCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
 
-    await interaction.update({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: 0xFF69B4 }], components: [] });
+    await interaction.update({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: SHOP_COLOR }], components: [] });
     
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[1] }, color: 0xFF69B4 }] }), 2500);
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[2] }, color: 0xFF69B4 }] }), 5000);
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[0] }, color: 0xFF69B4 }] }), 7500);
+    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[1] }, color: SHOP_COLOR }] }), 2500);
+    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[2] }, color: SHOP_COLOR }] }), 5000);
+    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[0] }, color: SHOP_COLOR }] }), 7500);
     
     setTimeout(async () => {
       user.inventory.push(selectedCard.id);
@@ -226,7 +227,7 @@ client.on("interactionCreate", async interaction => {
           title: `${selectedCard.team} | ${selectedCard.name}`,
           description: `Pozice: **${selectedCard.role}**\nID Karty: \`${selectedCard.id}\``,
           image: { url: selectedCard.front },
-          color: 0xFF69B4
+          color: SHOP_COLOR
         }],
         components: [flipBtn]
       });
@@ -323,7 +324,7 @@ client.on("interactionCreate", async interaction => {
         title: `${card.team} | ${card.name}`,
         description: interaction.message.embeds[0].description,
         image: { url: targetFace === 'back' ? card.back : card.front },
-        color: interaction.message.embeds[0].color // Zůstane růžová v obchodě, modrá v albu
+        color: interaction.message.embeds[0].color 
       }],
       components: [newRow]
     });
@@ -538,7 +539,7 @@ client.on("interactionCreate", async interaction => {
         embeds: [{ 
           title: "🛒 Hokejový Obchod LTR", 
           description: "Vítej v obchodě s hokejovými kartičkami!\n\nVyber si v menu níže kategorii a otevři si svůj soukromý katalog, kde si můžeš v klidu prohlédnout a zakoupit všechny dostupné balíčky.\n\n*Puky získáváš ježděním (200 km = 1 puk).*.", 
-          color: 0xFF69B4
+          color: SHOP_COLOR
         }], 
         components: [row] 
       });
@@ -618,12 +619,27 @@ async function checkMilestones(userId) {
 }
 
 // ─────────────────────────────────────────────
-// THE ODDS API - AKTUALIZACE ZÁPASŮ
+// THE ODDS API - AKTUALIZACE ZÁPASŮ (CHYTRÁ DETEKCE)
 // ─────────────────────────────────────────────
 async function fetchMatches() {
   if (!ODDS_API_KEY) return "Chybí API klíč v .env souboru.";
   try {
-    const res = await axios.get(`https://api.the-odds-api.com/v4/sports/icehockey_iihf_world_championship/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h`);
+    // 1. Zjistíme, jaké hokejové ligy API aktuálně sleduje
+    const sportsRes = await axios.get(`https://api.the-odds-api.com/v4/sports/?apiKey=${ODDS_API_KEY}`);
+    const hockeyLeagues = sportsRes.data.filter(s => s.group === "Ice Hockey" || s.key.includes('icehockey'));
+
+    // 2. Najdeme klíč pro Mistrovství světa
+    const targetLeague = hockeyLeagues.find(s => s.key.includes('world') || s.key.includes('iihf') || s.key.includes('champ'));
+
+    if (!targetLeague) {
+       const available = hockeyLeagues.map(l => l.key).join(", ");
+       return `API aktuálně pod tímto free klíčem nevidí MS v hokeji. Dostupné hokejové ligy jsou: ${available || "Žádné"}`;
+    }
+
+    const sportKey = targetLeague.key; // Správný interní název z API
+
+    // 3. Stáhneme kurzy pro správnou ligu
+    const res = await axios.get(`https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h`);
     const matches = res.data.slice(0, 10); 
 
     const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
@@ -640,7 +656,7 @@ async function fetchMatches() {
       desc += `🏒 **${m.home_team} vs ${m.away_team}**\n🕒 Začátek: <t:${Math.floor(new Date(m.commence_time).getTime()/1000)}:f>\n💰 ${oddsText}\n\n`;
     });
 
-    const embed = new EmbedBuilder().setTitle("🔥 Aktuální zápasy a kurzy").setDescription(desc || "Žádné zápasy nenalezeny.").setColor(BRAND_COLOR);
+    const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy (${targetLeague.title})`).setDescription(desc || "Žádné zápasy nenalezeny.").setColor(BRAND_COLOR);
     
     const msgs = await matchCh.messages.fetch({ limit: 5 });
     if (msgs.size > 0) {
