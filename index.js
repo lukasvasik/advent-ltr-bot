@@ -36,7 +36,7 @@ const ROLE_COLLECTOR = '1505237697533444216';
 const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
-const EVENT_COLOR = 0xFF2C57; // Tvá sytá růžovo-červená
+const EVENT_COLOR = 0xFF2C57; // Tvá sytá růžovo-červená všude
 
 // Kategorie pro katalog obchodu
 const SHOP_CATEGORIES = {
@@ -75,8 +75,8 @@ const commands = [
     .addIntegerOption(o => o.setName("cena").setDescription("Cena v pucích").setRequired(true)),
   new SlashCommandBuilder().setName("trade").setDescription("Nabídne přímou výměnu hráči.")
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu chceš nabídnout trade").setRequired(true))
-    .addStringOption(o => o.setName("nabizim").setDescription("Kterou kartu dáváš (našeptávač)").setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName("chci").setDescription("Kterou kartu chceš (našeptávač)").setRequired(true).setAutocomplete(true)),
+    .addStringOption(o => o.setName("nabizim").setDescription("Vyber kartu ze svého inventáře").setRequired(true).setAutocomplete(true))
+    .addStringOption(o => o.setName("chci").setDescription("Vyber kartu od druhého hráče").setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na zápas.")
     .addStringOption(o => o.setName("zapas").setDescription("Týmy (např. CZE-CAN)").setRequired(true))
     .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true))
@@ -88,13 +88,13 @@ const commands = [
   new SlashCommandBuilder().setName("admin-karta").setDescription("ADMIN: Přidá konkrétní kartu hráči.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
-  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně vynutí stažení zápasů.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně vynutí stažení zápasů a ukáže ladící info.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
 
 // ─────────────────────────────────────────────
-// AUTOCOMPLETE PRO TRADE
+// AUTOCOMPLETE PRO TRADE (NAŠEPTÁVAČ)
 // ─────────────────────────────────────────────
 client.on('interactionCreate', async interaction => {
   if (!interaction.isAutocomplete()) return;
@@ -103,6 +103,7 @@ client.on('interactionCreate', async interaction => {
     const focusedOption = interaction.options.getFocused(true);
     let choices = [];
 
+    // Nabídne pouze unikátní karty z vlastního inventáře
     if (focusedOption.name === 'nabizim') {
       const user = getUser(interaction.user.id);
       const myUniqueInventory = [...new Set(user.inventory)];
@@ -112,20 +113,24 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // Nabídne karty z inventáře cílového hráče (pokud už je vybrán)
     if (focusedOption.name === 'chci') {
-      const targetUser = interaction.options.get('uzivatel')?.value;
-      if (targetUser) {
-        const target = getUser(targetUser);
+      const targetUserId = interaction.options.get('uzivatel')?.value;
+      if (targetUserId) {
+        const target = getUser(targetUserId);
         const targetUniqueInventory = [...new Set(target.inventory)];
         choices = targetUniqueInventory.map(id => {
           const card = cardsDb.cards.find(c => c.id === id);
           return { name: card ? `${card.team} | ${card.name} (${id})` : id, value: id };
         });
+      } else {
+        // Pokud ještě nevybral uživatele, ukážeme všechny karty jako zálohu
+        choices = cardsDb.cards.map(c => ({ name: `${c.team} | ${c.name} (${c.id})`, value: c.id }));
       }
     }
 
     const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
-    await interaction.respond(filtered);
+    await interaction.respond(filtered).catch(()=>null);
   }
 });
 
@@ -181,9 +186,11 @@ client.on('messageCreate', async (m) => {
 });
 
 // ─────────────────────────────────────────────
-// HLAVNÍ LOGIKA INTERAKCÍ
+// HLAVNÍ LOGIKA INTERAKCÍ (Tlačítka a Příkazy)
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
+  if (interaction.isAutocomplete()) return; // Ignorujeme autocomplete, to řešíme nahoře
+
   if (interaction.isStringSelectMenu() && interaction.customId === 'shop_category_select') {
     await openShopCatalog(interaction, interaction.values[0], 0);
   }
@@ -226,7 +233,7 @@ client.on("interactionCreate", async interaction => {
         components: [flipBtn]
       });
       const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh) logCh.send(`👀 Hráč <@${user.id}> právě rozbalil **${pack.name}**!`);
+      if (logCh) logCh.send(`👀 Hráč <@${user.id}> právě rozbalil **${pack.name}** a získal nového hokejistu!`);
       checkMilestones(interaction.user.id);
     }, 10000);
   }
@@ -237,7 +244,7 @@ client.on("interactionCreate", async interaction => {
     const targetIndex = parseInt(parts[3], 10);
     const user = getUser(interaction.user.id);
     const ownedTeamCards = cardsDb.cards.filter(c => c.team === team && user.inventory.includes(c.id));
-    if (ownedTeamCards.length === 0) return interaction.reply({ content: "❌ Prázdné.", ephemeral: true });
+    if (ownedTeamCards.length === 0) return interaction.reply({ content: "❌ Zatím z tohoto týmu nic nemáš.", ephemeral: true });
     const card = ownedTeamCards[targetIndex];
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`view_album_${team}_${targetIndex - 1}`).setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(targetIndex === 0),
@@ -245,7 +252,7 @@ client.on("interactionCreate", async interaction => {
       new ButtonBuilder().setCustomId(`view_album_${team}_${targetIndex + 1}`).setLabel('Další ▶').setStyle(ButtonStyle.Primary).setDisabled(targetIndex === ownedTeamCards.length - 1)
     );
     const embed = new EmbedBuilder().setTitle(`${card.team} | ${card.name}`).setDescription(`Pozice: **${card.role}**\nID: \`${card.id}\`\n*Karta ${targetIndex + 1} z ${ownedTeamCards.length}*`).setImage(card.front).setColor(EVENT_COLOR);
-    await (interaction.replied ? interaction.update({ embeds: [embed], components: [row] }) : interaction.reply({ embeds: [embed], components: [row], ephemeral: true }));
+    await (interaction.replied || interaction.deferred ? interaction.update({ embeds: [embed], components: [row] }) : interaction.reply({ embeds: [embed], components: [row], ephemeral: true }));
   }
 
   if (interaction.isButton() && interaction.customId.startsWith('flip_')) {
@@ -276,14 +283,16 @@ client.on("interactionCreate", async interaction => {
     if (buyer.pucks < price) return interaction.reply({ content: "❌ Málo puků.", ephemeral: true });
     if (!seller || !seller.inventory.includes(cardId)) {
       await interaction.message.delete().catch(()=>null);
-      return interaction.reply({ content: "❌ Už není.", ephemeral: true });
+      return interaction.reply({ content: "❌ Už není k dispozici.", ephemeral: true });
     }
     buyer.pucks -= price; seller.pucks += price;
     seller.inventory.splice(seller.inventory.indexOf(cardId), 1); buyer.inventory.push(cardId);
     saveUsers();
     await interaction.message.delete().catch(()=>null);
-    interaction.reply({ content: `✅ Koupeno!`, ephemeral: true });
+    interaction.reply({ content: `✅ Úspěšně koupeno!`, ephemeral: true });
     checkMilestones(buyer.id);
+    const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
+    if (logCh) logCh.send(`🤝 <@${buyer.id}> koupil kartu od <@${seller.id}> za **${price} puků** na tržišti!`);
   }
 
   if (interaction.isButton() && (interaction.customId.startsWith('tradeaccept_') || interaction.customId.startsWith('tradedecline_'))) {
@@ -291,16 +300,16 @@ client.on("interactionCreate", async interaction => {
     const type = parts[0];
     const initiatorId = parts[1];
     const targetId = parts[2];
-    if (interaction.user.id !== targetId) return interaction.reply({ content: "❌ Není pro tebe.", ephemeral: true });
+    if (interaction.user.id !== targetId) return interaction.reply({ content: "❌ Toto není pro tebe.", ephemeral: true });
 
     if (type === 'tradeaccept') {
       const myC = parts[3]; const theirC = parts[4];
       const ini = usersDb[initiatorId]; const tar = usersDb[targetId];
-      if (!ini.inventory.includes(myC) || !tar.inventory.includes(theirC)) return interaction.reply({ content: "❌ Karta chybí.", ephemeral: true });
+      if (!ini.inventory.includes(myC) || !tar.inventory.includes(theirC)) return interaction.reply({ content: "❌ Někdo z vás už kartu nemá.", ephemeral: true });
       ini.inventory.splice(ini.inventory.indexOf(myC), 1); ini.inventory.push(theirC);
       tar.inventory.splice(tar.inventory.indexOf(theirC), 1); tar.inventory.push(myC);
       saveUsers();
-      await interaction.message.edit({ content: `✅ **Trade proběhl!**`, components: [] });
+      await interaction.message.edit({ content: `✅ **Trade proběhl úspěšně!**`, components: [] });
       checkMilestones(initiatorId); checkMilestones(targetId);
     } else {
       await interaction.message.edit({ content: `❌ **Trade zrušen.**`, components: [] });
@@ -309,36 +318,40 @@ client.on("interactionCreate", async interaction => {
 
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === "puky") interaction.reply({ content: `🏒 Máš **${getUser(interaction.user.id).pucks} puků**.`, ephemeral: true });
+    
     if (interaction.commandName === "link") {
       const user = getUser(interaction.user.id); user.tbName = interaction.options.getString("nick");
-      saveUsers(); interaction.reply({ content: `✅ Propojeno s **${user.tbName}**.`, ephemeral: true });
+      saveUsers(); interaction.reply({ content: `✅ Propojeno s TB nickem **${user.tbName}**.`, ephemeral: true });
     }
+    
     if (interaction.commandName === "album") {
       const team = interaction.options.getString("tym").toUpperCase();
       const targetUser = interaction.options.getUser("uzivatel") || interaction.user;
       const userObj = getUser(targetUser.id);
       const teamCards = cardsDb.cards.filter(c => c.team === team);
-      if (teamCards.length === 0) return interaction.reply({ content: "❌ Neexistuje.", ephemeral: true });
+      if (teamCards.length === 0) return interaction.reply({ content: "❌ Neexistující tým.", ephemeral: true });
       let desc = ""; let ownedCount = 0;
       teamCards.forEach(c => {
         if (userObj.inventory.includes(c.id)) { desc += `✅ **${c.role}** - ${c.name} \`[${c.id}]\`\n\n`; ownedCount++; }
         else desc += `❌ **${c.role}** - *???*\n\n`;
       });
-      const embed = new EmbedBuilder().setTitle(`📖 Album: ${team} (${targetUser.username})`).setDescription(desc).setFooter({ text: `Sestava: ${ownedCount}/${teamCards.length}` }).setColor(EVENT_COLOR);
+      const embed = new EmbedBuilder().setTitle(`📖 Album: ${team} (${targetUser.username})`).setDescription(desc).setFooter({ text: `Zkompletováno: ${ownedCount}/${teamCards.length}` }).setColor(EVENT_COLOR);
       const comps = (targetUser.id === interaction.user.id && ownedCount > 0) ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`view_album_${team}_0`).setLabel('🖼️ Prohlédnout mé karty').setStyle(ButtonStyle.Success))] : [];
       interaction.reply({ embeds: [embed], components: comps });
     }
+    
     if (interaction.commandName === "prodat") {
       const cardId = interaction.options.getString("karta_id").toUpperCase();
       const price = interaction.options.getInteger("cena");
       const user = getUser(interaction.user.id);
-      if (!user.inventory.includes(cardId)) return interaction.reply({ content: "❌ Nevlastníš.", ephemeral: true });
+      if (!user.inventory.includes(cardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
       const card = cardsDb.cards.find(c => c.id === cardId);
       const marketCh = await client.channels.fetch(CH_MARKET);
-      const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`marketbuy_${user.id}_${cardId}_${price}`).setLabel(`Koupit za ${price}`).setStyle(ButtonStyle.Success));
-      await marketCh.send({ content: `🛒 Nabídka od <@${user.id}>`, embeds: [{ title: `${card.team} | ${card.name}`, image: { url: card.front }, color: EVENT_COLOR }], components: [btn] });
-      interaction.reply({ content: `✅ Vystaveno.`, ephemeral: true });
+      const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`marketbuy_${user.id}_${cardId}_${price}`).setLabel(`Koupit za ${price} puků`).setStyle(ButtonStyle.Success));
+      await marketCh.send({ content: `🛒 **Nová nabídka!**\nProdejce: <@${user.id}>`, embeds: [{ title: `${card.team} | ${card.name}`, image: { url: card.front }, color: EVENT_COLOR }], components: [btn] });
+      interaction.reply({ content: `✅ Vystaveno na trh.`, ephemeral: true });
     }
+    
     if (interaction.commandName === "trade") {
       const targetUser = interaction.options.getUser("uzivatel");
       const myCardId = interaction.options.getString("nabizim").toUpperCase();
@@ -348,16 +361,18 @@ client.on("interactionCreate", async interaction => {
         new ButtonBuilder().setCustomId(`tradeaccept_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}`).setLabel('Souhlasím').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`tradedecline_${interaction.user.id}_${targetUser.id}`).setLabel('Odmítnout').setStyle(ButtonStyle.Danger)
       );
-      await cmdsCh.send({ content: `🤝 **Trade!** <@${targetUser.id}>, <@${interaction.user.id}> nabízí \`${myCardId}\` za tvou \`${theirCardId}\`!`, components: [btnRow] });
-      interaction.reply({ content: `✅ Odesláno.`, ephemeral: true });
+      await cmdsCh.send({ content: `🤝 **Návrh na Trade!** <@${targetUser.id}>, <@${interaction.user.id}> ti nabízí kartu \`${myCardId}\` za tvou \`${theirCardId}\`!`, components: [btnRow] });
+      interaction.reply({ content: `✅ Návrh odeslán do chatu.`, ephemeral: true });
     }
+    
     if (interaction.commandName === "vsadit") {
       const user = getUser(interaction.user.id);
       const p = interaction.options.getInteger("puky");
-      if (user.pucks < p) return interaction.reply({ content: "❌ Málo puků.", ephemeral: true });
+      if (user.pucks < p) return interaction.reply({ content: "❌ Nemáš dost puků.", ephemeral: true });
       user.pucks -= p; user.bets.push({ match: interaction.options.getString("zapas"), tip: interaction.options.getString("tip"), amount: p });
       saveUsers(); interaction.reply({ content: `✅ Vsadil jsi ${p} puků.`, ephemeral: true });
     }
+    
     if (interaction.commandName === "admin-setup-shop") {
       const select = new StringSelectMenuBuilder().setCustomId('shop_category_select').setPlaceholder('Vyberte kategorii balíčků...')
         .addOptions(
@@ -365,29 +380,32 @@ client.on("interactionCreate", async interaction => {
           { label: 'Skupinové balíčky', value: 'groups', emoji: '🏆' },
           { label: 'Národní balíčky', value: 'national', emoji: '🌍' }
         );
-      await (await client.channels.fetch(CH_SHOP)).send({ embeds: [{ title: "🛒 Hokejový Obchod LTR", description: "Puky získáváš ježděním (200 km = 1 puk).", color: EVENT_COLOR }], components: [new ActionRowBuilder().addComponents(select)] });
-      interaction.reply({ content: "✅ Ok.", ephemeral: true });
+      await (await client.channels.fetch(CH_SHOP)).send({ embeds: [{ title: "🛒 Hokejový Obchod LTR", description: "Vítej v obchodě!\nVyber si v menu níže kategorii.\n\n*Puky získáváš ježděním (200 km = 1 puk).*.", color: EVENT_COLOR }], components: [new ActionRowBuilder().addComponents(select)] });
+      interaction.reply({ content: "✅ Obchod vykreslen.", ephemeral: true });
     }
+    
     if (interaction.commandName === "admin-puky") {
         const u = getUser(interaction.options.getUser("uzivatel").id);
         u.pucks += interaction.options.getInteger("pocet"); saveUsers();
-        interaction.reply({ content: `✅ Hotovo.`, ephemeral: true });
+        interaction.reply({ content: `✅ Přidáno/odebráno.`, ephemeral: true });
     }
+    
     if (interaction.commandName === "admin-karta") {
         const u = getUser(interaction.options.getUser("uzivatel").id);
         u.inventory.push(interaction.options.getString("karta_id").toUpperCase()); saveUsers();
-        interaction.reply({ content: `✅ Přidána.`, ephemeral: true });
+        interaction.reply({ content: `✅ Karta přidána.`, ephemeral: true });
     }
+    
     if (interaction.commandName === "admin-zapasy") {
       await interaction.deferReply({ ephemeral: true });
       const res = await fetchMatches();
-      interaction.editReply(res === true ? "✅ Aktualizováno." : `❌ Chyba: ${res}`);
+      interaction.editReply(res === true ? "✅ Zápasy aktualizovány v chatu." : `❌ DEBUG INFO:\n\n${res}`);
     }
   }
 });
 
 // ─────────────────────────────────────────────
-// MECHANIKA MILNÍKŮ & API
+// MECHANIKA MILNÍKŮ & ZÁPASY
 // ─────────────────────────────────────────────
 async function checkMilestones(userId) {
   const user = usersDb[userId]; if (!user) return;
@@ -404,19 +422,31 @@ async function checkMilestones(userId) {
 }
 
 async function fetchMatches() {
-  if (!ODDS_API_KEY) return "Chybí API klíč.";
+  if (!ODDS_API_KEY) return "Chybí API klíč v `.env`.";
   try {
     const sportsRes = await axios.get(`https://api.the-odds-api.com/v4/sports/?apiKey=${ODDS_API_KEY}`);
-    const targetLeague = sportsRes.data.filter(s => s.group === "Ice Hockey").find(s => !s.key.includes('winner') && (s.key.includes('world') || s.key.includes('iihf') || s.key.includes('champ')));
-    if (!targetLeague) return "MS nenalezeno.";
+    const hockeyLeagues = sportsRes.data.filter(s => s.key.includes('icehockey') || s.group === "Ice Hockey");
+
+    // Zde odfiltrujeme cokoliv, co obsahuje 'winner'
+    const targetLeague = hockeyLeagues.find(s => !s.key.includes('winner') && (s.key.includes('world') || s.key.includes('iihf') || s.key.includes('champ')));
+
+    if (!targetLeague) {
+       const available = hockeyLeagues.map(l => l.key).join("\n- ");
+       return `API aktuálně nevidí MS.\n**Dostupné hokejové ligy:**\n- ${available || "Žádné"}`;
+    }
+
     const res = await axios.get(`https://api.the-odds-api.com/v4/sports/${targetLeague.key}/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h`);
     const matchCh = await client.channels.fetch(CH_MATCHES);
     let desc = "";
+    
     res.data.slice(0, 10).forEach(m => {
       const h = m.bookmakers[0]?.markets[0].outcomes || [];
-      desc += `🏒 **${m.home_team} vs ${m.away_team}**\n🕒 <t:${Math.floor(new Date(m.commence_time).getTime()/1000)}:f>\n💰 ${h.length?`Domácí: ${h[0].price} | Hosté: ${h[1].price}`:'N/A'}\n\n`;
+      let oddsText = "Kurzy zatím nejsou k dispozici.";
+      if (h.length >= 2) oddsText = `🏠 Domácí (${h[0].name}): **${h[0].price}** | ✈️ Hosté (${h[1].name}): **${h[1].price}**`;
+      desc += `🏒 **${m.home_team} vs ${m.away_team}**\n🕒 Začátek: <t:${Math.floor(new Date(m.commence_time).getTime()/1000)}:f>\n💰 ${oddsText}\n\n`;
     });
-    const embed = new EmbedBuilder().setTitle(`🔥 Zápasy MS`).setDescription(desc || "Žádné zápasy.").setColor(EVENT_COLOR);
+    
+    const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy`).setDescription(desc || "Žádné zápasy.").setColor(EVENT_COLOR);
     const msgs = await matchCh.messages.fetch({ limit: 5 });
     if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
     return true;
