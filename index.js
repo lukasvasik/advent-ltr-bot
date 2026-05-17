@@ -29,25 +29,21 @@ const CH_SHOP = '1505184082898714784';
 const CH_MARKET = '1505189708693770300';
 const CH_CMDS = '1505236386163458119';
 const CH_LOG = '1505235716693561535';
-const CH_BACKUP = '1505571130956578917'; // Záložní kanál pro databázi
+const CH_BACKUP = '1505571130956578917';
 
 // ID Rolí
 const ROLE_COLLECTOR = '1505237697533444216';
 const ROLE_FAN = '1505237904233070692';
 const ROLE_EXPERT = '1505238178271858788';
 
-const EVENT_COLOR = 0xFF2C57; // Tvá sytá růžovo-červená všude
+const EVENT_COLOR = 0xFF2C57;
 
-// Kategorie pro katalog obchodu
 const SHOP_CATEGORIES = {
   basic: ['random', 'attack', 'defensive', 'lead', 'goal'],
   groups: ['group_a', 'group_b'],
   national: ['cze_col', 'svk_col', 'can_col', 'usa_col', 'swe_col', 'fin_col', 'sui_col', 'lat_col', 'ger_col', 'aut_col', 'hun_col', 'gbr_col', 'den_col', 'nor_col', 'slo_col', 'ita_col']
 };
 
-// ─────────────────────────────────────────────
-// ELO RATING - ZÁCHRANNÝ SYSTÉM PRO KURZY
-// ─────────────────────────────────────────────
 const TEAM_ELO = {
   "Canada": 1800, "Russia": 1780, "Sweden": 1750, "Finland": 1740, 
   "Czechia": 1730, "Czech Republic": 1730, "USA": 1700, "Switzerland": 1650, 
@@ -69,9 +65,36 @@ const saveUsers = () => fs.writeFileSync(USERS_PATH, JSON.stringify(usersDb, nul
 
 function getUser(id, tbName = null) {
   if (!usersDb[id]) {
-    usersDb[id] = { id, tbName: tbName || "Neznámý", pucks: 0, inventory: [], bets: [] };
+    usersDb[id] = { id, tbName: tbName || "Neznámý", pucks: 0, inventory: [], bets: [], lockedCards: {}, km: 0, betsTotal: 0, betsWon: 0 };
   }
+  // Zajištění kompatibility starých záznamů s novými sloupci
+  if (!usersDb[id].lockedCards) usersDb[id].lockedCards = {};
+  if (usersDb[id].km === undefined) usersDb[id].km = 0;
+  if (usersDb[id].betsTotal === undefined) usersDb[id].betsTotal = usersDb[id].bets.length || 0;
+  if (usersDb[id].betsWon === undefined) usersDb[id].betsWon = 0;
   return usersDb[id];
+}
+
+function isCardLocked(user, cardId) {
+  if (!user.lockedCards) return false;
+  const expiry = user.lockedCards[cardId];
+  if (expiry && Date.now() < expiry) return true;
+  if (expiry && Date.now() >= expiry) {
+    delete user.lockedCards[cardId];
+    return false;
+  }
+  return false;
+}
+
+function lockCard(user, cardId, durationMs) {
+  if (!user.lockedCards) user.lockedCards = {};
+  user.lockedCards[cardId] = Date.now() + durationMs;
+}
+
+function unlockCard(user, cardId) {
+  if (user.lockedCards && user.lockedCards[cardId]) {
+    delete user.lockedCards[cardId];
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -81,24 +104,28 @@ const commands = [
   new SlashCommandBuilder().setName("puky").setDescription("Zobrazí tvůj aktuální stav puků."),
   new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook nickem.")
     .addStringOption(o => o.setName("nick").setDescription("Tvůj nick na TB").setRequired(true)),
+  
+  // NOVÉ PŘÍKAZY PRO PROFIL A LEADERBOARD
+  new SlashCommandBuilder().setName("profil").setDescription("Zobrazí tvoje statistiky z celého eventu.")
+    .addUserOption(o => o.setName("uzivatel").setDescription("Čí profil chceš vidět (nepovinné)")),
+  new SlashCommandBuilder().setName("leaderboard").setDescription("Zobrazí žebříček nejlepších hráčů.")
+    .addStringOption(o => o.setName("kategorie").setDescription("Podle čeho chceš žebříček seřadit?").setRequired(true).addChoices(
+        { name: '🏒 Počet Puků', value: 'pucks' },
+        { name: '🎴 Počet Karet', value: 'cards' },
+        { name: '🚚 Najeté Kilometry', value: 'km' },
+        { name: '💰 Vyhrané Sázky', value: 'bets' }
+    )),
+
   new SlashCommandBuilder().setName("album").setDescription("Prohlédni si sbírku karet (svou nebo cizí).")
     .addStringOption(o => o.setName("tym").setDescription("Vyber národní tým").setRequired(true).addChoices(
-        { name: '🇨🇿 Česko (CZE)', value: 'CZE' },
-        { name: '🇸🇰 Slovensko (SVK)', value: 'SVK' },
-        { name: '🇨🇦 Kanada (CAN)', value: 'CAN' },
-        { name: '🇺🇸 USA (USA)', value: 'USA' },
-        { name: '🇸🇪 Švédsko (SWE)', value: 'SWE' },
-        { name: '🇫🇮 Finsko (FIN)', value: 'FIN' },
-        { name: '🇨🇭 Švýcarsko (SUI)', value: 'SUI' },
-        { name: '🇱🇻 Lotyšsko (LAT)', value: 'LAT' },
-        { name: '🇩🇪 Německo (GER)', value: 'GER' },
-        { name: '🇦🇹 Rakousko (AUT)', value: 'AUT' },
-        { name: '🇭🇺 Maďarsko (HUN)', value: 'HUN' },
-        { name: '🇬🇧 Velká Británie (GBR)', value: 'GBR' },
-        { name: '🇩🇰 Dánsko (DEN)', value: 'DEN' },
-        { name: '🇳🇴 Norsko (NOR)', value: 'NOR' },
-        { name: '🇸🇮 Slovinsko (SLO)', value: 'SLO' },
-        { name: '🇮🇹 Itálie (ITA)', value: 'ITA' }
+        { name: '🇨🇿 Česko (CZE)', value: 'CZE' }, { name: '🇸🇰 Slovensko (SVK)', value: 'SVK' },
+        { name: '🇨🇦 Kanada (CAN)', value: 'CAN' }, { name: '🇺🇸 USA (USA)', value: 'USA' },
+        { name: '🇸🇪 Švédsko (SWE)', value: 'SWE' }, { name: '🇫🇮 Finsko (FIN)', value: 'FIN' },
+        { name: '🇨🇭 Švýcarsko (SUI)', value: 'SUI' }, { name: '🇱🇻 Lotyšsko (LAT)', value: 'LAT' },
+        { name: '🇩🇪 Německo (GER)', value: 'GER' }, { name: '🇦🇹 Rakousko (AUT)', value: 'AUT' },
+        { name: '🇭🇺 Maďarsko (HUN)', value: 'HUN' }, { name: '🇬🇧 Velká Británie (GBR)', value: 'GBR' },
+        { name: '🇩🇰 Dánsko (DEN)', value: 'DEN' }, { name: '🇳🇴 Norsko (NOR)', value: 'NOR' },
+        { name: '🇸🇮 Slovinsko (SLO)', value: 'SLO' }, { name: '🇮🇹 Itálie (ITA)', value: 'ITA' }
     ))
     .addUserOption(o => o.setName("uzivatel").setDescription("Čí album chceš vidět (nepovinné)")),
   new SlashCommandBuilder().setName("prodat").setDescription("Vystaví tvou kartu na globální tržiště.")
@@ -122,7 +149,7 @@ const commands = [
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
   new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně otestuje a stáhne zápasy z RapidAPI (Ignoruje limity).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Ručně vyhodnotí sázky zápasu (automatické i manuální).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Ručně vyhodnotí sázky zápasu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(o => o.setName("zapas").setDescription("Který zápas skončil?").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Vyhráli Domácí', value: 'home'}, {name: 'Vyhráli Hosté', value: 'away'})),
   new SlashCommandBuilder().setName("admin-vytvor-zapas").setDescription("ADMIN: Ručně vytvoří zápas (když API stávkuje).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -147,7 +174,7 @@ client.on('interactionCreate', async interaction => {
     let choices = [];
     if (focusedOption.name === 'nabizim' || focusedOption.name === 'karta_id') {
       const user = getUser(interaction.user.id);
-      choices = [...new Set(user.inventory)].map(id => {
+      choices = [...new Set(user.inventory)].filter(id => !isCardLocked(user, id)).map(id => {
         const card = cardsDb.cards.find(c => c.id === id);
         return { name: card ? `${card.team} | ${card.name} (${id})` : id, value: id };
       });
@@ -181,7 +208,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ─────────────────────────────────────────────
-// POMOCNÁ FUNKCE PRO VYKRESLENÍ KATALOGU OBCHODU
+// POMOCNÉ FUNKCE
 // ─────────────────────────────────────────────
 async function openShopCatalog(interaction, category, index) {
   const packKeys = SHOP_CATEGORIES[category];
@@ -207,9 +234,7 @@ async function openShopCatalog(interaction, category, index) {
   }
 }
 
-// ─────────────────────────────────────────────
-// TRUCKSBOOK: SBĚR KILOMETRŮ
-// ─────────────────────────────────────────────
+// Sběr kilometrů
 client.on('messageCreate', async (m) => {
   if (m.channel.id !== CH_JOBS || !m.embeds.length) return;
   const e = m.embeds[0];
@@ -220,28 +245,25 @@ client.on('messageCreate', async (m) => {
     if (kmMatches) {
       const km = parseInt(kmMatches.join(''), 10);
       const ziskanePuky = Math.floor(km / 200);
-      if (ziskanePuky > 0) {
-        const userKey = Object.keys(usersDb).find(k => usersDb[k].tbName.toLowerCase() === driver.toLowerCase().trim());
-        if (userKey) {
+      
+      const userKey = Object.keys(usersDb).find(k => usersDb[k].tbName.toLowerCase() === driver.toLowerCase().trim());
+      if (userKey) {
+        usersDb[userKey].km += km; // Přičtení surových kilometrů do profilu
+        if (ziskanePuky > 0) {
           usersDb[userKey].pucks += ziskanePuky;
-          saveUsers();
         }
+        saveUsers();
       }
     }
   }
 });
 
-// ─────────────────────────────────────────────
-// FUNKCE PRO VYKRESLENÍ MATCHOVÉ NÁSTĚNKY
-// ─────────────────────────────────────────────
+// Zápasová nástěnka
 async function renderMatchesDashboard() {
   const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
   if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
 
-  const embed = new EmbedBuilder()
-    .setTitle(`🔥 Aktuální zápasy a kurzy MS`)
-    .setColor(EVENT_COLOR);
-
+  const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy MS`).setColor(EVENT_COLOR);
   const matchKeys = Object.keys(activeMatches);
 
   if (matchKeys.length === 0) {
@@ -264,25 +286,19 @@ async function renderMatchesDashboard() {
   if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
 }
 
-// ─────────────────────────────────────────────
-// MECHANIKA DISK ZÁLOHOVÁNÍ (DISCORD CLOUD)
-// ─────────────────────────────────────────────
+// Cloud zálohy
 async function sendBackup() {
   try {
     const ch = await client.channels.fetch(CH_BACKUP);
     if (fs.existsSync(USERS_PATH)) {
       await ch.send({
-        content: `📦 **Automatická záloha databáze (users_db.json)**\n🕒 Čas zálohy: <t:${Math.floor(Date.now() / 1000)}:F>\n*Tento soubor bude automaticky stažen při příštím restartu/deployi na Railway.*`,
+        content: `📦 **Automatická záloha databáze (users_db.json)**\n🕒 Čas zálohy: <t:${Math.floor(Date.now() / 1000)}:F>`,
         files: [USERS_PATH]
       });
-      console.log(`[ZÁLOHA] Soubor users_db.json byl úspěšně odeslán do záložního kanálu.`);
       return true;
     }
-    return "Soubor users_db.json neexistuje.";
-  } catch (e) {
-    console.log(`[ZÁLOHA] Selhalo odeslání zálohy do kanálu:`, e.message);
-    return e.message;
-  }
+    return false;
+  } catch (e) { return false; }
 }
 
 async function loadBackupOnStartup() {
@@ -293,22 +309,17 @@ async function loadBackupOnStartup() {
       const lastMsg = messages.first();
       const attachment = lastMsg.attachments.first();
       if (attachment && attachment.name.endsWith('.json')) {
-        console.log(`[ZÁLOHA] Nalezena cloudová záloha. Stahuji: ${attachment.url}`);
         const response = await axios.get(attachment.url);
         if (response.data && typeof response.data === 'object') {
           fs.writeFileSync(USERS_PATH, JSON.stringify(response.data, null, 2));
           usersDb = response.data;
-          console.log(`[ZÁLOHA] ÚSPĚCH! Databáze kompletně obnovena z Discord cloudu.`);
+          console.log(`[ZÁLOHA] ÚSPĚCH! Databáze obnovena.`);
           return true;
         }
       }
     }
-    console.log(`[ZÁLOHA] V kanálu nebyl nalezen žádný validní záložní soubor JSON.`);
     return false;
-  } catch (e) {
-    console.log(`[ZÁLOHA] Nepodařilo se obnovit zálohu při startu:`, e.message);
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
 // ─────────────────────────────────────────────
@@ -425,33 +436,138 @@ client.on("interactionCreate", async interaction => {
     if (logCh) logCh.send(`🤝 <@${buyer.id}> koupil kartu od <@${seller.id}> za **${price} puků** na tržišti!`);
   }
 
-  if (interaction.isButton() && (interaction.customId.startsWith('tradeaccept_') || interaction.customId.startsWith('tradedecline_'))) {
+  // OVLÁDÁNÍ TRADU
+  if (interaction.isButton() && (interaction.customId.startsWith('tradeaccept_') || interaction.customId.startsWith('tradedecline_') || interaction.customId.startsWith('tradecancel_'))) {
     const parts = interaction.customId.split('_');
     const type = parts[0];
-    const initiatorId = parts[1];
-    const targetId = parts[2];
-    if (interaction.user.id !== targetId) return interaction.reply({ content: "❌ Toto není pro tebe.", ephemeral: true });
+    const iniId = parts[1];
+    const tarId = parts[2];
+    const myC = parts[3];
+    const theirC = parts[4];
+    const timestamp = parseInt(parts[5], 10);
+
+    const ini = getUser(iniId);
+    const tar = getUser(tarId);
+
+    if (Date.now() - timestamp > 24 * 60 * 60 * 1000) {
+      unlockCard(ini, myC);
+      saveUsers();
+      return interaction.message.edit({ 
+          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("⏳ Tento návrh na Trade již vypršel (24h).").setColor(0x808080)], 
+          components: [] 
+      });
+    }
+
+    if (type === 'tradecancel') {
+      if (interaction.user.id !== iniId) return interaction.reply({ content: "❌ Pouze navrhovatel může tento trade zrušit.", ephemeral: true });
+      unlockCard(ini, myC);
+      saveUsers();
+      return interaction.message.edit({ 
+          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Trade byl zrušen navrhovatelem.").setColor(0x808080)], 
+          components: [] 
+      });
+    }
+
+    if (interaction.user.id !== tarId) return interaction.reply({ content: "❌ Toto není pro tebe.", ephemeral: true });
 
     if (type === 'tradeaccept') {
-      const myC = parts[3]; const theirC = parts[4];
-      const ini = usersDb[initiatorId]; const tar = usersDb[targetId];
-      if (!ini.inventory.includes(myC) || !tar.inventory.includes(theirC)) return interaction.reply({ content: "❌ Někdo z vás už kartu nemá.", ephemeral: true });
+      if (!ini.inventory.includes(myC) || !tar.inventory.includes(theirC)) {
+        unlockCard(ini, myC); saveUsers();
+        return interaction.message.edit({ 
+            embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Nelze dokončit. Někdo z vás už svou kartu nemá.").setColor(0xFF0000)], 
+            components: [] 
+        });
+      }
       ini.inventory.splice(ini.inventory.indexOf(myC), 1); ini.inventory.push(theirC);
       tar.inventory.splice(tar.inventory.indexOf(theirC), 1); tar.inventory.push(myC);
+      unlockCard(ini, myC);
       saveUsers();
-      await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("✅ Trade proběhl úspěšně!").setColor(0x00FF00)], components: [] });
-      checkMilestones(initiatorId); checkMilestones(targetId);
-    } else {
-      await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Trade zrušen.").setColor(0xFF0000)], components: [] });
+      await interaction.message.edit({ 
+          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("✅ Trade proběhl úspěšně!").setColor(0x00FF00)], 
+          components: [] 
+      });
+      checkMilestones(iniId); checkMilestones(tarId);
+    } else if (type === 'tradedecline') {
+      unlockCard(ini, myC);
+      saveUsers();
+      await interaction.message.edit({ 
+          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Trade byl zamítnut druhým hráčem.").setColor(0xFF0000)], 
+          components: [] 
+      });
     }
   }
 
+  // ─────────────────────────────────────────────
+  // OSTATNÍ SLASH PŘÍKAZY
+  // ─────────────────────────────────────────────
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === "puky") interaction.reply({ content: `🏒 Máš **${getUser(interaction.user.id).pucks} puků**.`, ephemeral: true });
     
     if (interaction.commandName === "link") {
       const user = getUser(interaction.user.id); user.tbName = interaction.options.getString("nick");
       saveUsers(); interaction.reply({ content: `✅ Propojeno s TB nickem **${user.tbName}**.`, ephemeral: true });
+    }
+    
+    // PROFIL HRÁČE
+    if (interaction.commandName === "profil") {
+      const targetUser = interaction.options.getUser("uzivatel") || interaction.user;
+      const u = getUser(targetUser.id);
+      
+      const totalCards = cardsDb.cards.length;
+      const uniqueCards = new Set(u.inventory).size;
+      const completion = Math.round((uniqueCards / totalCards) * 100) || 0;
+      
+      const embed = new EmbedBuilder()
+        .setTitle(`👤 Hokejový Profil: ${targetUser.username}`)
+        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+        .setColor(EVENT_COLOR)
+        .addFields(
+          { name: '🚛 TrucksBook Nick', value: `\`${u.tbName}\``, inline: true },
+          { name: '🚚 Najeto v eventu', value: `**${u.km}** km`, inline: true },
+          { name: '🏒 Aktuální puky', value: `**${u.pucks}**`, inline: true },
+          { name: '🎴 Sbírka karet', value: `**${u.inventory.length}** ks (${uniqueCards}/${totalCards} - ${completion}%)`, inline: false },
+          { name: '📈 Úspěšnost sázek', value: `**${u.betsWon}** výher z **${u.betsTotal}** sázek`, inline: false }
+        )
+        .setFooter({ text: 'LTR Hockey Event' });
+        
+      interaction.reply({ embeds: [embed] });
+    }
+
+    // LEADERBOARD (ŽEBŘÍČEK)
+    if (interaction.commandName === "leaderboard") {
+      const category = interaction.options.getString("kategorie");
+      let usersArray = Object.values(usersDb).filter(u => u.tbName !== "Neznámý");
+      let title = "";
+      let valueMapper;
+
+      if (category === 'pucks') {
+        usersArray.sort((a, b) => b.pucks - a.pucks);
+        title = "🏆 Leaderboard: Nejvíce Puků";
+        valueMapper = (u) => `**${u.pucks}** puků`;
+      } else if (category === 'cards') {
+        usersArray.sort((a, b) => b.inventory.length - a.inventory.length);
+        title = "🏆 Leaderboard: Největší sběratelé (Karty)";
+        valueMapper = (u) => `**${u.inventory.length}** karet`;
+      } else if (category === 'km') {
+        usersArray.sort((a, b) => b.km - a.km);
+        title = "🏆 Leaderboard: Nejpilnější řidiči (KM)";
+        valueMapper = (u) => `**${u.km}** km`;
+      } else if (category === 'bets') {
+        usersArray.sort((a, b) => b.betsWon - a.betsWon);
+        title = "🏆 Leaderboard: Nejlepší sázkaři";
+        valueMapper = (u) => `**${u.betsWon}** výher z ${u.betsTotal} sázek`;
+      }
+
+      const top10 = usersArray.slice(0, 10);
+      let desc = top10.map((u, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `**${i+1}.**`;
+        return `${medal} <@${u.id}> (\`${u.tbName}\`) - ${valueMapper(u)}`;
+      }).join('\n\n');
+
+      if (!desc) desc = "Zatím zde není žádný záznam.";
+
+      const embed = new EmbedBuilder().setTitle(title).setDescription(desc).setColor(EVENT_COLOR);
+      interaction.reply({ embeds: [embed] });
     }
     
     if (interaction.commandName === "album") {
@@ -475,6 +591,8 @@ client.on("interactionCreate", async interaction => {
       const price = interaction.options.getInteger("cena");
       const user = getUser(interaction.user.id);
       if (!user.inventory.includes(cardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
+      if (isCardLocked(user, cardId)) return interaction.reply({ content: "❌ Tuto kartu nemůžeš prodat, je dočasně uzamčena v aktivním návrhu na Trade.", ephemeral: true });
+
       const card = cardsDb.cards.find(c => c.id === cardId);
       const marketCh = await client.channels.fetch(CH_MARKET);
       const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`marketbuy_${user.id}_${cardId}_${price}`).setLabel(`Koupit za ${price} puků`).setStyle(ButtonStyle.Success));
@@ -486,27 +604,39 @@ client.on("interactionCreate", async interaction => {
       const targetUser = interaction.options.getUser("uzivatel");
       const myCardId = interaction.options.getString("nabizim").toUpperCase();
       const theirCardId = interaction.options.getString("chci").toUpperCase();
+      const user = getUser(interaction.user.id);
+      const target = getUser(targetUser.id);
       
+      if (!user.inventory.includes(myCardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
+      if (!target.inventory.includes(theirCardId)) return interaction.reply({ content: "❌ Druhý hráč tuto kartu nemá.", ephemeral: true });
+      if (isCardLocked(user, myCardId)) return interaction.reply({ content: "❌ Tuto kartu už nabízíš v jiném tradu (nebo je zamčená).", ephemeral: true });
+
       const myCard = cardsDb.cards.find(c => c.id === myCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
       const theirCard = cardsDb.cards.find(c => c.id === theirCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
 
+      const timestamp = Date.now();
+      lockCard(user, myCardId, 24 * 60 * 60 * 1000);
+      saveUsers();
+
       const cmdsCh = await client.channels.fetch(CH_CMDS);
       const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`tradeaccept_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}`).setLabel('Souhlasím').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`tradedecline_${interaction.user.id}_${targetUser.id}`).setLabel('Odmítnout').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId(`tradeaccept_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}_${timestamp}`).setLabel('Souhlasím').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`tradedecline_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}_${timestamp}`).setLabel('Odmítnout').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`tradecancel_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}_${timestamp}`).setLabel('Zrušit návrh').setStyle(ButtonStyle.Secondary)
       );
       
       const embed = new EmbedBuilder()
         .setTitle('🤝 Nový návrh na výměnu karet!')
         .setDescription(`<@${interaction.user.id}> ti nabízí obchod, <@${targetUser.id}>!\n\n` +
                         `**NABÍZÍ TI:**\n🏒 **${myCard.name}** (${myCard.team} - ${myCard.role})\n🆔 \`${myCard.id}\`\n\n` +
-                        `**CHCE OD TEBE:**\n🏒 **${theirCard.name}** (${theirCard.team} - ${theirCard.role})\n🆔 \`${theirCard.id}\``)
+                        `**CHCE OD TEBE:**\n🏒 **${theirCard.name}** (${theirCard.team} - ${theirCard.role})\n🆔 \`${theirCard.id}\`\n\n` +
+                        `⏳ *Platnost návrhu vyprší <t:${Math.floor((timestamp + 24*60*60*1000)/1000)}:R>*`)
         .setImage(myCard.front)
         .setThumbnail(theirCard.front)
         .setColor(EVENT_COLOR);
 
       await cmdsCh.send({ content: `<@${targetUser.id}>, máš tu návrh na výměnu!`, embeds: [embed], components: [btnRow] });
-      interaction.reply({ content: `✅ Návrh odeslán do chatu.`, ephemeral: true });
+      interaction.reply({ content: `✅ Návrh odeslán do chatu. Tvoje karta byla dočasně uzamčena.`, ephemeral: true });
     }
     
     if (interaction.commandName === "vsadit") {
@@ -530,6 +660,7 @@ client.on("interactionCreate", async interaction => {
 
       const potWin = Math.floor(puky * odd);
       user.pucks -= puky; 
+      user.betsTotal += 1; // Aktualizace pro žebříček
       user.bets.push({ match: matchName, tip, amount: puky, odd, potentialWin: potWin, resolved: false });
       saveUsers(); 
       
@@ -569,6 +700,7 @@ client.on("interactionCreate", async interaction => {
           if (!bet.resolved && bet.match === matchName) {
             if (bet.tip === winner) {
               user.pucks += bet.potentialWin;
+              user.betsWon += 1; // Aktualizace pro žebříček
               totalPayout += bet.potentialWin;
               winnersCount++;
               giveExpertRole(userId);
@@ -604,14 +736,14 @@ client.on("interactionCreate", async interaction => {
       const shopDesc = `Vítej v oficiálním **LTR Hokejovém Obchodě**! 🛒\n\n` +
                        `> Zde můžeš utratit své těžce vyježděné puky za balíčky hokejových karet do svého alba. Z každého balíčku ti padne vždy jeden náhodný hráč podle kategorie, kterou si vybereš.\n\n` +
                        `**📦 DOSTUPNÉ KATEGORIE BALÍČKŮ:**\n\n` +
-                       ` Hospital 🔹 **Základní a Poziční**\n` +
+                       `🔹 **Základní a Poziční**\n` +
                        `Chceš zkusit štěstí? Padají zde náhodní útočníci, obránci, brankáři nebo úplný random ze všech týmů.\n\n` +
                        `🔹 **Skupinové**\n` +
                        `Sbíráš konkrétní polovinu pavouka? Tyto balíčky obsahují hráče čistě ze Skupiny A nebo Skupiny B.\n\n` +
                        `🔹 **Národní**\n` +
                        `Jdeš na jistotu? Za vyšší cenu zde pořídíš garantovaného hráče z konkrétního národního týmu.\n\n` +
                        `---\n` +
-                       `*💡 Základní měnou jsou Puky. Ty získáváš automaticky ježděním (200 ujetých km na TrucksBooku = 1 Puk).*`;
+                       `*💡 Puky získáš ježděním na TrucksBooku (200 km = 1 Puk).*`;
 
       await (await client.channels.fetch(CH_SHOP)).send({ embeds: [{ title: "🛒 Hokejový Obchod LTR", description: shopDesc, color: EVENT_COLOR }], components: [new ActionRowBuilder().addComponents(select)] });
       interaction.reply({ content: "✅ Obchod úspěšně překreslen s novým designem.", ephemeral: true });
@@ -690,6 +822,7 @@ async function evaluateBetsAutomatically() {
             matchHadBets = true;
             if (bet.tip === winner) {
               user.pucks += bet.potentialWin;
+              user.betsWon += 1; // Zápis pro žebříček
               totalPayout += bet.potentialWin;
               winnersCount++;
               giveExpertRole(userId);
@@ -732,8 +865,7 @@ async function fetchMatches(isManual = false) {
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
 
     const upcomingRes = await axios.get(`https://${apiHost}/v1/bet365/upcoming`, { 
-        headers, 
-        params: { sport_id: 17 } 
+        headers, params: { sport_id: 17 } 
     });
     
     let allGames = upcomingRes.data?.results || [];
@@ -762,8 +894,7 @@ async function fetchMatches(isManual = false) {
 
         try {
             const oddsRes = await axios.get(`https://${apiHost}/v3/bet365/prematch`, { 
-                headers, 
-                params: { FI: fId } 
+                headers, params: { FI: fId } 
             });
             
             const data = oddsRes.data?.results?.[0];
@@ -784,23 +915,17 @@ async function fetchMatches(isManual = false) {
                     if (aMatch) oddsAway = parseFloat(aMatch[1]);
                 }
             }
-        } catch (e) {
-            console.log(`Nepodařilo se stáhnout kurzy pro FI ${fId}:`, e.message);
-        }
+        } catch (e) {}
 
         if (oddsHome === 1.0 || oddsAway === 1.0) {
             let eloH = TEAM_ELO[home] || 1400; 
             let eloA = TEAM_ELO[away] || 1400;
-
             let probH = 1 / (1 + Math.pow(10, (eloA - eloH) / 400));
             let probA = 1 - probH;
-
             let calcOddsH = (1 / probH) * 0.95;
             let calcOddsA = (1 / probA) * 0.95;
-
             calcOddsH = Math.max(1.01, Math.min(30.00, calcOddsH));
             calcOddsA = Math.max(1.01, Math.min(30.00, calcOddsA));
-
             oddsHome = parseFloat(calcOddsH.toFixed(2));
             oddsAway = parseFloat(calcOddsA.toFixed(2));
         }
@@ -834,14 +959,10 @@ client.once("ready", async () => {
   console.log(`Bot LTR Hockey nahozen!`);
   new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
   
-  // 1. NEJPRVE STÁHNEME ZÁLOHU Z DISCORD CLOUDU (Ochrana proti Railway wipe)
   await loadBackupOnStartup();
   
-  // 2. SPUSTÍME ZÁPASOVÉ CYKLY
   fetchMatches(false); 
-  setInterval(() => fetchMatches(false), 3 * 60 * 60 * 1000); // Každé 3 hodiny kvůli limitům
-  
-  // 3. SPUSTÍME CYKLUS ZÁLOHOVÁNÍ DATABÁZE (Každých 30 minut)
+  setInterval(() => fetchMatches(false), 3 * 60 * 60 * 1000); 
   setInterval(sendBackup, 30 * 60 * 1000);
 });
 
