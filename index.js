@@ -45,6 +45,18 @@ const SHOP_CATEGORIES = {
 };
 
 // ─────────────────────────────────────────────
+// ELO RATING - ZÁCHRANNÝ SYSTÉM PRO KURZY
+// ─────────────────────────────────────────────
+const TEAM_ELO = {
+  "Canada": 1800, "Russia": 1780, "Sweden": 1750, "Finland": 1740, 
+  "Czechia": 1730, "Czech Republic": 1730, "USA": 1700, "Switzerland": 1650, 
+  "Germany": 1600, "Slovakia": 1550, "Latvia": 1500, "Denmark": 1450, 
+  "Norway": 1400, "Belarus": 1350, "France": 1350, "Kazakhstan": 1300,
+  "Austria": 1250, "Slovenia": 1200, "Hungary": 1150, "Great Britain": 1100, 
+  "Poland": 1100, "Italy": 1100
+};
+
+// ─────────────────────────────────────────────
 // DATABÁZE A PAMĚŤ
 // ─────────────────────────────────────────────
 let usersDb = fs.existsSync(USERS_PATH) ? JSON.parse(fs.readFileSync(USERS_PATH, 'utf8')) : {};
@@ -83,7 +95,6 @@ const commands = [
     .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true).addChoices({name: 'Výhra Domácí', value: 'home'}, {name: 'Výhra Hosté', value: 'away'}))
     .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
   
-  // ADMIN PŘÍKAZY
   new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-puky").setDescription("ADMIN: Přidá nebo odebere puky.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
@@ -526,8 +537,8 @@ client.on("interactionCreate", async interaction => {
     
     if (interaction.commandName === "admin-zapasy") {
       await interaction.deferReply({ ephemeral: true });
-      const res = await fetchMatches(true); // Předáme true = manuální force
-      interaction.editReply(res === true ? "✅ Operace dokončena přes BetsAPI. Zkontroluj nástěnku!" : `❌ DEBUG REPORT:\n\n${res}`);
+      const res = await fetchMatches(true);
+      interaction.editReply(res === true ? "✅ Operace dokončena. API a statistický model zpracovaly data." : `❌ DEBUG REPORT:\n\n${res}`);
     }
   }
 });
@@ -601,13 +612,11 @@ async function evaluateBetsAutomatically() {
 }
 
 // ─────────────────────────────────────────────
-// RAPIDAPI: BETSAPI2 (BET365 WRAPPER)
+// RAPIDAPI + ELO ZÁCHRANNÝ SYSTÉM
 // ─────────────────────────────────────────────
 async function fetchMatches(isManual = false) {
-  // NOČNÍ ŠETŘENÍ LIMITŮ (Aktivní pouze 9:00 - 23:00)
   const currentHour = new Date().getHours();
   if (!isManual && (currentHour < 9 || currentHour > 23)) {
-    console.log(`[ÚSPORA] Noc zjištěna (${currentHour}:00). Automatická aktualizace přeskočena.`);
     return true; 
   }
 
@@ -622,8 +631,7 @@ async function fetchMatches(isManual = false) {
     activeMatches = {};
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
 
-    // 1. ZÍSKÁNÍ SEZNAMU ZÁPASŮ (1 request)
-    // OPRAVENO: /v3/ na /v1/ !
+    // 1. ZÍSKÁNÍ SEZNAMU ZÁPASŮ (v1 - ověřeno)
     const upcomingRes = await axios.get(`https://${apiHost}/v1/bet365/upcoming`, { 
         headers, 
         params: { sport_id: 17 } 
@@ -631,7 +639,6 @@ async function fetchMatches(isManual = false) {
     
     let allGames = upcomingRes.data?.results || [];
 
-    // Najdeme MS
     let relevantGames = allGames.filter(g => {
         const lName = (g.league?.name || "").toLowerCase();
         return (lName.includes('world championship') || lName.includes('iihf')) &&
@@ -640,13 +647,12 @@ async function fetchMatches(isManual = false) {
 
     if (relevantGames.length === 0) {
         await renderMatchesDashboard();
-        return `Nenalezeny MS zápasy pro dnešek přes BetsAPI. Zkus /admin-vytvor-zapas`;
+        return `Nenalezeny MS zápasy pro dnešek přes API.`;
     }
 
-    // VEZMEME MAXIMÁLNĚ 2 ZÁPASY KVŮLI OCHRANĚ LIMITU
     relevantGames = relevantGames.slice(0, 2);
 
-    // 2. STÁHNEME KURZY PRO KAŽDÝ ZÁPAS PŘES FI (max 2 requesty)
+    // 2. STÁHNEME KURZY (Změněno na v3 - ověřeno dle screenu)
     for (const g of relevantGames) {
         const fId = g.id;
         const home = g.home?.name || "Domácí";
@@ -657,15 +663,13 @@ async function fetchMatches(isManual = false) {
         let oddsAway = 1.0;
 
         try {
-            // OPRAVENO: /v3/ na /v1/ !
-            const oddsRes = await axios.get(`https://${apiHost}/v1/bet365/prematch`, { 
+            const oddsRes = await axios.get(`https://${apiHost}/v3/bet365/prematch`, { 
                 headers, 
                 params: { FI: fId } 
             });
             
             const data = oddsRes.data?.results?.[0];
             if (data) {
-                // Pokusíme se najít sázku na vítěze zápasu
                 const sp = data.main?.sp || data.sp;
                 const market = sp?.full_time_result || sp?.match_odds || sp?.['3_way'] || sp?.to_win;
                 
@@ -675,7 +679,6 @@ async function fetchMatches(isManual = false) {
                     if (hObj) oddsHome = parseFloat(hObj.odds);
                     if (aObj) oddsAway = parseFloat(aObj.odds);
                 } else {
-                    // Fallback extrakce - pokud mají lehce jinou strukturu
                     const str = JSON.stringify(data);
                     const hMatch = str.match(/"header":"1","odds":"([\d.]+)"/);
                     const aMatch = str.match(/"header":"2","odds":"([\d.]+)"/);
@@ -685,6 +688,24 @@ async function fetchMatches(isManual = false) {
             }
         } catch (e) {
             console.log(`Nepodařilo se stáhnout kurzy pro FI ${fId}:`, e.message);
+        }
+
+        // 3. GENIÁLNÍ ZÁCHRANNÝ ELO SYSTÉM
+        if (oddsHome === 1.0 || oddsAway === 1.0) {
+            let eloH = TEAM_ELO[home] || 1400; 
+            let eloA = TEAM_ELO[away] || 1400;
+
+            let probH = 1 / (1 + Math.pow(10, (eloA - eloH) / 400));
+            let probA = 1 - probH;
+
+            let calcOddsH = (1 / probH) * 0.95;
+            let calcOddsA = (1 / probA) * 0.95;
+
+            calcOddsH = Math.max(1.01, Math.min(30.00, calcOddsH));
+            calcOddsA = Math.max(1.01, Math.min(30.00, calcOddsA));
+
+            oddsHome = parseFloat(calcOddsH.toFixed(2));
+            oddsAway = parseFloat(calcOddsA.toFixed(2));
         }
 
         activeMatches[matchKey] = {
@@ -716,7 +737,6 @@ client.once("ready", () => {
   console.log(`Bot LTR Hockey nahozen!`);
   new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
   
-  // První stažení provedeme při spuštění, následně každé 3 hodiny kvůli šetření limitu!
   fetchMatches(false); 
   setInterval(() => fetchMatches(false), 3 * 60 * 60 * 1000); 
 });
