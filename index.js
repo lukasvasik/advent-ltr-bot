@@ -59,8 +59,9 @@ const commands = [
   new SlashCommandBuilder().setName("puky").setDescription("Zobrazí tvůj aktuální stav puků."),
   new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook nickem.")
     .addStringOption(o => o.setName("nick").setDescription("Tvůj nick na TB").setRequired(true)),
-  new SlashCommandBuilder().setName("album").setDescription("Prohlédni si svou sbírku karet.")
-    .addStringOption(o => o.setName("tym").setDescription("Zkratka týmu (CZE, SVK, CAN...)").setRequired(true)),
+  new SlashCommandBuilder().setName("album").setDescription("Prohlédni si sbírku karet (svou nebo cizí).")
+    .addStringOption(o => o.setName("tym").setDescription("Zkratka týmu (CZE, SVK, CAN...)").setRequired(true))
+    .addUserOption(o => o.setName("uzivatel").setDescription("Čí album chceš vidět (nepovinné)")),
   new SlashCommandBuilder().setName("prodat").setDescription("Vystaví tvou kartu na globální tržiště.")
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true))
     .addIntegerOption(o => o.setName("cena").setDescription("Cena v pucích").setRequired(true)),
@@ -109,7 +110,45 @@ client.on('messageCreate', async (m) => {
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   
-  // --- TLAČÍTKA: OBCHOD ---
+  // --- TLAČÍTKA: LISTOVACÍ KATALOG OBCHODU ---
+  if (interaction.isButton() && interaction.customId.startsWith('browse_shop_')) {
+    const targetIndex = parseInt(interaction.customId.replace('browse_shop_', ''), 10);
+    const packKeys = Object.keys(cardsDb.packages);
+    const packKey = packKeys[targetIndex];
+    const pack = cardsDb.packages[packKey];
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`browse_shop_${targetIndex - 1}`)
+        .setLabel('◀ Předchozí')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(targetIndex === 0),
+      new ButtonBuilder()
+        .setCustomId(`buy_pack_${packKey}`)
+        .setLabel(`Koupit za ${pack.price} puků`)
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`browse_shop_${targetIndex + 1}`)
+        .setLabel('Další ▶')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(targetIndex === packKeys.length - 1)
+    );
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📦 ${pack.name}`)
+      .setDescription(`Cena: **${pack.price} puků**\n*Balíček ${targetIndex + 1} z ${packKeys.length}*`)
+      .setImage(pack.image)
+      .setColor(BRAND_COLOR);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.update({ embeds: [embed], components: [row] });
+    } else {
+      await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    }
+    return;
+  }
+
+  // --- TLAČÍTKA: KOUPIT BALÍČEK (OBCHOD) ---
   if (interaction.isButton() && interaction.customId.startsWith('buy_pack_')) {
     const packKey = interaction.customId.replace('buy_pack_', '');
     const pack = cardsDb.packages[packKey];
@@ -134,7 +173,7 @@ client.on("interactionCreate", async interaction => {
 
     const selectedCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
 
-    await interaction.reply({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: BRAND_COLOR }], ephemeral: true });
+    await interaction.update({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: BRAND_COLOR }], components: [] });
     
     setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[1] }, color: BRAND_COLOR }] }), 2500);
     setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[2] }, color: BRAND_COLOR }] }), 5000);
@@ -167,7 +206,51 @@ client.on("interactionCreate", async interaction => {
     return;
   }
 
-  // --- TLAČÍTKA: OTOČENÍ KARTY ---
+  // --- TLAČÍTKA: GALERIE KARET V ALBU ---
+  if (interaction.isButton() && interaction.customId.startsWith('view_album_')) {
+    const parts = interaction.customId.split('_');
+    const team = parts[2];
+    const targetIndex = parseInt(parts[3], 10);
+    
+    const user = getUser(interaction.user.id);
+    const ownedTeamCards = cardsDb.cards.filter(c => c.team === team && user.inventory.includes(c.id));
+
+    if (ownedTeamCards.length === 0) return interaction.reply({ content: "❌ Zatím nemáš žádné karty tohoto týmu.", ephemeral: true });
+
+    const card = ownedTeamCards[targetIndex];
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`view_album_${team}_${targetIndex - 1}`)
+        .setLabel('◀ Předchozí')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(targetIndex === 0),
+      new ButtonBuilder()
+        .setCustomId(`flip_${card.id}_back`)
+        .setLabel('🔄 Otočit kartu')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`view_album_${team}_${targetIndex + 1}`)
+        .setLabel('Další ▶')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(targetIndex === ownedTeamCards.length - 1)
+    );
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${card.team} | ${card.name}`)
+      .setDescription(`Pozice: **${card.role}**\nID Karty: \`${card.id}\`\n*Karta ${targetIndex + 1} z ${ownedTeamCards.length}*`)
+      .setImage(card.front)
+      .setColor(BRAND_COLOR);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.update({ embeds: [embed], components: [row] });
+    } else {
+      await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    }
+    return;
+  }
+
+  // --- TLAČÍTKA: OTOČENÍ KARTY (UNIVERZÁLNÍ) ---
   if (interaction.isButton() && interaction.customId.startsWith('flip_')) {
     const parts = interaction.customId.split('_');
     const cardId = `${parts[1]}_${parts[2]}`;
@@ -177,18 +260,39 @@ client.on("interactionCreate", async interaction => {
     if(!card) return;
 
     const newFace = targetFace === 'back' ? 'front' : 'back';
-    const newBtn = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`flip_${cardId}_${newFace}`).setLabel('🔄 Otočit zpět').setStyle(ButtonStyle.Secondary)
-    );
+    const oldRow = interaction.message.components[0];
+    const newRow = new ActionRowBuilder();
+
+    if (oldRow) {
+      oldRow.components.forEach(comp => {
+        if (comp.customId.startsWith('flip_')) {
+          newRow.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`flip_${cardId}_${newFace}`)
+              .setLabel(newFace === 'back' ? '🔄 Otočit kartu' : '🔄 Otočit zpět')
+              .setStyle(ButtonStyle.Secondary)
+          );
+        } else {
+          newRow.addComponents(ButtonBuilder.from(comp));
+        }
+      });
+    } else {
+      newRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`flip_${cardId}_${newFace}`)
+          .setLabel(newFace === 'back' ? '🔄 Otočit kartu' : '🔄 Otočit zpět')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
 
     await interaction.update({
       embeds: [{
         title: `${card.team} | ${card.name}`,
-        description: `Pozice: **${card.role}**\nID Karty: \`${card.id}\``,
+        description: interaction.message.embeds[0].description,
         image: { url: targetFace === 'back' ? card.back : card.front },
         color: BRAND_COLOR
       }],
-      components: [newBtn]
+      components: [newRow]
     });
     return;
   }
@@ -276,21 +380,43 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "album") {
       const team = interaction.options.getString("tym").toUpperCase();
-      const user = getUser(interaction.user.id);
+      const targetUser = interaction.options.getUser("uzivatel") || interaction.user;
+      const userObj = getUser(targetUser.id);
       const teamCards = cardsDb.cards.filter(c => c.team === team);
       
       if (teamCards.length === 0) return interaction.reply({ content: "❌ Tento tým neexistuje (Zkus např. CZE, SVK, CAN).", ephemeral: true });
 
       let desc = "";
+      let ownedCount = 0;
+      
       teamCards.forEach(c => {
-        if (user.inventory.includes(c.id)) {
-          desc += `✅ ${c.role} - **${c.name}** \`[${c.id}]\`\n`;
+        if (userObj.inventory.includes(c.id)) {
+          desc += `✅ **${c.role}** - ${c.name} \`[${c.id}]\`\n\n`;
+          ownedCount++;
         } else {
-          desc += `❌ ${c.role} - *???*\n`;
+          desc += `❌ **${c.role}** - *???*\n\n`;
         }
       });
 
-      return interaction.reply({ embeds: [{ title: `📖 Album: ${team}`, description: desc, color: BRAND_COLOR }] });
+      const embed = new EmbedBuilder()
+        .setTitle(`📖 Album: ${team} (${targetUser.username})`)
+        .setDescription(desc)
+        .setFooter({ text: `Zkompletováno: ${ownedCount}/${teamCards.length}` })
+        .setColor(BRAND_COLOR);
+
+      const components = [];
+      if (targetUser.id === interaction.user.id && ownedCount > 0) {
+        components.push(
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`view_album_${team}_0`)
+              .setLabel('🖼️ Prohlédnout mé karty')
+              .setStyle(ButtonStyle.Success)
+          )
+        );
+      }
+
+      return interaction.reply({ embeds: [embed], components: components });
     }
 
     if (interaction.commandName === "prodat") {
@@ -364,52 +490,23 @@ client.on("interactionCreate", async interaction => {
       const shopCh = await client.channels.fetch(CH_SHOP).catch(()=>null);
       if (!shopCh) return interaction.editReply("Chyba kanálu.");
 
-      // Zpráva 1: Základní a Poziční
-      const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_pack_random').setLabel('Random (3)').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('buy_pack_attack').setLabel('Attack (6)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_defensive').setLabel('Defensive (6)').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('buy_pack_lead').setLabel('Lead (10)').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('buy_pack_goal').setLabel('Goal (15)').setStyle(ButtonStyle.Secondary)
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('browse_shop_0')
+          .setLabel('📖 Otevřít katalog balíčků')
+          .setStyle(ButtonStyle.Success)
       );
 
-      // Zpráva 2: Skupiny
-      const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_pack_group_a').setLabel('Group A (10)').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('buy_pack_group_b').setLabel('Group B (10)').setStyle(ButtonStyle.Primary)
-      );
+      await shopCh.send({ 
+        embeds: [{ 
+          title: "🛒 Hokejový Obchod LTR", 
+          description: "Vítej v obchodě s hokejovými kartičkami!\n\nKlikni na tlačítko níže a otevři si svůj soukromý katalog, kde si můžeš v klidu prohlédnout a zakoupit všechny dostupné balíčky.\n\n*Puky získáváš ježděním (200 km = 1 puk).*.", 
+          color: BRAND_COLOR 
+        }], 
+        components: [row] 
+      });
 
-      // Zpráva 3: Národní (16 států = 4 řady)
-      const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_pack_cze_col').setLabel('CZE (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_svk_col').setLabel('SVK (10)').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('buy_pack_can_col').setLabel('CAN (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_usa_col').setLabel('USA (10)').setStyle(ButtonStyle.Primary)
-      );
-      const row4 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_pack_swe_col').setLabel('SWE (10)').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('buy_pack_fin_col').setLabel('FIN (10)').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('buy_pack_sui_col').setLabel('SUI (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_lat_col').setLabel('LAT (10)').setStyle(ButtonStyle.Danger)
-      );
-      const row5 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_pack_ger_col').setLabel('GER (10)').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('buy_pack_aut_col').setLabel('AUT (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_hun_col').setLabel('HUN (10)').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('buy_pack_gbr_col').setLabel('GBR (10)').setStyle(ButtonStyle.Primary)
-      );
-      const row6 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_pack_den_col').setLabel('DEN (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_nor_col').setLabel('NOR (10)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('buy_pack_slo_col').setLabel('SLO (10)').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('buy_pack_ita_col').setLabel('ITA (10)').setStyle(ButtonStyle.Primary)
-      );
-
-      await shopCh.send({ embeds: [{ title: "🛒 Hokejový Obchod LTR - Základní a Poziční", description: "Otevři si své balíčky. Puky získáváš ježděním (200 km = 1 puk).", color: BRAND_COLOR }], components: [row1] });
-      await shopCh.send({ embeds: [{ title: "🏆 Hokejový Obchod LTR - Skupinové balíčky", color: BRAND_COLOR }], components: [row2] });
-      await shopCh.send({ embeds: [{ title: "🌍 Hokejový Obchod LTR - Národní balíčky", color: BRAND_COLOR }], components: [row3, row4, row5, row6] });
-
-      return interaction.editReply("✅ Kompletní obchod s 23 balíčky byl vykreslen.");
+      return interaction.editReply("✅ Nový katalog obchodu byl úspěšně vykreslen.");
     }
   }
 });
