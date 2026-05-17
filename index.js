@@ -46,10 +46,13 @@ const SHOP_CATEGORIES = {
 };
 
 // ─────────────────────────────────────────────
-// DATABÁZE
+// DATABÁZE A PAMĚŤ
 // ─────────────────────────────────────────────
 let usersDb = fs.existsSync(USERS_PATH) ? JSON.parse(fs.readFileSync(USERS_PATH, 'utf8')) : {};
 const cardsDb = JSON.parse(fs.readFileSync(CARDS_PATH, 'utf8'));
+
+// Dočasná paměť na zápasy a kurzy
+let activeMatches = {};
 
 const saveUsers = () => fs.writeFileSync(USERS_PATH, JSON.stringify(usersDb, null, 2));
 
@@ -78,9 +81,11 @@ const commands = [
     .addStringOption(o => o.setName("nabizim").setDescription("Vyber kartu ze svého inventáře").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("chci").setDescription("Vyber kartu od druhého hráče").setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na zápas.")
-    .addStringOption(o => o.setName("zapas").setDescription("Týmy (např. CZE-CAN)").setRequired(true))
-    .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true))
+    .addStringOption(o => o.setName("zapas").setDescription("Vyber zápas z nabídky").setRequired(true).setAutocomplete(true))
+    .addStringOption(o => o.setName("tip").setDescription("Tvůj tip na vítěze").setRequired(true).addChoices({name: 'Výhra Domácí', value: 'home'}, {name: 'Výhra Hosté', value: 'away'}))
     .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
+  
+  // ADMIN PŘÍKAZY
   new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName("admin-puky").setDescription("ADMIN: Přidá nebo odebere puky.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
@@ -88,49 +93,52 @@ const commands = [
   new SlashCommandBuilder().setName("admin-karta").setDescription("ADMIN: Přidá konkrétní kartu hráči.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
-  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně vynutí stažení zápasů a ukáže ladící info.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně vynutí stažení zápasů a kurzů.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Vyhodnotí sázky po skončení zápasu a rozdá puky.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption(o => o.setName("zapas").setDescription("Který zápas skončil?").setRequired(true).setAutocomplete(true))
+    .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Vyhráli Domácí', value: 'home'}, {name: 'Vyhráli Hosté', value: 'away'}))
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
 
 // ─────────────────────────────────────────────
-// AUTOCOMPLETE PRO TRADE (NAŠEPTÁVAČ)
+// AUTOCOMPLETE (NAŠEPTÁVAČ)
 // ─────────────────────────────────────────────
 client.on('interactionCreate', async interaction => {
   if (!interaction.isAutocomplete()) return;
+  const focusedOption = interaction.options.getFocused(true);
 
   if (interaction.commandName === 'trade') {
-    const focusedOption = interaction.options.getFocused(true);
     let choices = [];
-
-    // Nabídne pouze unikátní karty z vlastního inventáře
     if (focusedOption.name === 'nabizim') {
       const user = getUser(interaction.user.id);
-      const myUniqueInventory = [...new Set(user.inventory)];
-      choices = myUniqueInventory.map(id => {
+      choices = [...new Set(user.inventory)].map(id => {
         const card = cardsDb.cards.find(c => c.id === id);
         return { name: card ? `${card.team} | ${card.name} (${id})` : id, value: id };
       });
-    }
-
-    // Nabídne karty z inventáře cílového hráče (pokud už je vybrán)
-    if (focusedOption.name === 'chci') {
+    } else if (focusedOption.name === 'chci') {
       const targetUserId = interaction.options.get('uzivatel')?.value;
       if (targetUserId) {
         const target = getUser(targetUserId);
-        const targetUniqueInventory = [...new Set(target.inventory)];
-        choices = targetUniqueInventory.map(id => {
+        choices = [...new Set(target.inventory)].map(id => {
           const card = cardsDb.cards.find(c => c.id === id);
           return { name: card ? `${card.team} | ${card.name} (${id})` : id, value: id };
         });
       } else {
-        // Pokud ještě nevybral uživatele, ukážeme všechny karty jako zálohu
         choices = cardsDb.cards.map(c => ({ name: `${c.team} | ${c.name} (${c.id})`, value: c.id }));
       }
     }
-
     const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
     await interaction.respond(filtered).catch(()=>null);
+  } 
+  
+  else if (interaction.commandName === 'vsadit' || interaction.commandName === 'admin-vyhodnot') {
+    if (focusedOption.name === 'zapas') {
+      const matches = Object.keys(activeMatches);
+      const choices = matches.map(m => ({name: m, value: m}));
+      const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
+      await interaction.respond(filtered).catch(()=>null);
+    }
   }
 });
 
@@ -189,7 +197,7 @@ client.on('messageCreate', async (m) => {
 // HLAVNÍ LOGIKA INTERAKCÍ (Tlačítka a Příkazy)
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
-  if (interaction.isAutocomplete()) return; // Ignorujeme autocomplete, to řešíme nahoře
+  if (interaction.isAutocomplete()) return;
 
   if (interaction.isStringSelectMenu() && interaction.customId === 'shop_category_select') {
     await openShopCatalog(interaction, interaction.values[0], 0);
@@ -366,11 +374,53 @@ client.on("interactionCreate", async interaction => {
     }
     
     if (interaction.commandName === "vsadit") {
+      const matchName = interaction.options.getString("zapas");
+      const tip = interaction.options.getString("tip");
+      const puky = interaction.options.getInteger("puky");
       const user = getUser(interaction.user.id);
-      const p = interaction.options.getInteger("puky");
-      if (user.pucks < p) return interaction.reply({ content: "❌ Nemáš dost puků.", ephemeral: true });
-      user.pucks -= p; user.bets.push({ match: interaction.options.getString("zapas"), tip: interaction.options.getString("tip"), amount: p });
-      saveUsers(); interaction.reply({ content: `✅ Vsadil jsi ${p} puků.`, ephemeral: true });
+
+      if (!activeMatches[matchName]) return interaction.reply({ content: "❌ Zápas nenalezen nebo už skončil.", ephemeral: true });
+      const mData = activeMatches[matchName];
+      const odd = tip === 'home' ? mData.oddsHome : mData.oddsAway;
+
+      if (odd <= 1.0) return interaction.reply({ content: "❌ K tomuto zápasu ještě API nepřiřadilo kurzy.", ephemeral: true });
+      if (user.pucks < puky) return interaction.reply({ content: `❌ Nemáš dost puků! Máš ${user.pucks}.`, ephemeral: true });
+      if (puky <= 0) return interaction.reply({ content: "❌ Musíš vsadit alespoň 1 puk.", ephemeral: true });
+
+      const potWin = Math.floor(puky * odd);
+      user.pucks -= puky; 
+      user.bets.push({ match: matchName, tip, amount: puky, odd, potentialWin: potWin, resolved: false });
+      saveUsers(); 
+      
+      interaction.reply({ content: `✅ Vsadil jsi **${puky} puků** s kurzem **${odd}** na zápas **${matchName}**!\nPokud tvůj tým vyhraje, vyhraješ **${potWin} puků**!`, ephemeral: true });
+    }
+
+    if (interaction.commandName === "admin-vyhodnot") {
+      const matchName = interaction.options.getString("zapas");
+      const winner = interaction.options.getString("vitez");
+      let totalPayout = 0;
+      let winnersCount = 0;
+
+      for (const userId in usersDb) {
+        const user = usersDb[userId];
+        user.bets.forEach(bet => {
+          if (!bet.resolved && bet.match === matchName) {
+            if (bet.tip === winner) {
+              user.pucks += bet.potentialWin;
+              totalPayout += bet.potentialWin;
+              winnersCount++;
+              giveExpertRole(userId);
+            }
+            bet.resolved = true;
+          }
+        });
+      }
+      saveUsers();
+      
+      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
+      if (logCh && winnersCount > 0) logCh.send(`💸 Sázky na zápas **${matchName}** byly vyhodnoceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
+
+      interaction.reply({ content: `✅ Vyhodnoceno. Vyplaceno ${totalPayout} puků celkem ${winnersCount} lidem.`, ephemeral: true });
     }
     
     if (interaction.commandName === "admin-setup-shop") {
@@ -399,13 +449,13 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "admin-zapasy") {
       await interaction.deferReply({ ephemeral: true });
       const res = await fetchMatches();
-      interaction.editReply(res === true ? "✅ Zápasy aktualizovány v chatu." : `❌ DEBUG INFO:\n\n${res}`);
+      interaction.editReply(res === true ? "✅ Zápasy a kurzy aktualizovány z API-Sports." : `❌ Chyba: ${res}`);
     }
   }
 });
 
 // ─────────────────────────────────────────────
-// MECHANIKA MILNÍKŮ & ZÁPASY
+// MECHANIKA MILNÍKŮ A ODBORNÍKA
 // ─────────────────────────────────────────────
 async function checkMilestones(userId) {
   const user = usersDb[userId]; if (!user) return;
@@ -417,39 +467,75 @@ async function checkMilestones(userId) {
   try {
     const guild = await client.guilds.fetch(GUILD_ID); const member = await guild.members.fetch(userId); const logCh = await client.channels.fetch(CH_LOG);
     if (completed >= 1 && !member.roles.cache.has(ROLE_FAN)) { await member.roles.add(ROLE_FAN); logCh.send(`🏆 <@${userId}> je **HOKEJOVÝ FANOUŠEK**!`); }
-    if (completed >= 8 && !member.roles.cache.has(ROLE_COLLECTOR)) { await member.roles.add(ROLE_COLLECTOR); logCh.send(`👑 <@${userId}> je **SBĚRATEL**!`); }
+    if (completed >= 8 && !member.roles.cache.has(ROLE_COLLECTOR)) { await member.roles.add(ROLE_COLLECTOR); logCh.send(`👑 <@${userId}> je **SBĚRATELEM**!`); }
   } catch(e) {}
 }
 
-async function fetchMatches() {
-  if (!ODDS_API_KEY) return "Chybí API klíč v `.env`.";
+async function giveExpertRole(userId) {
   try {
-    const sportsRes = await axios.get(`https://api.the-odds-api.com/v4/sports/?apiKey=${ODDS_API_KEY}`);
-    const hockeyLeagues = sportsRes.data.filter(s => s.key.includes('icehockey') || s.group === "Ice Hockey");
+    const guild = await client.guilds.fetch(GUILD_ID); const member = await guild.members.fetch(userId); const logCh = await client.channels.fetch(CH_LOG);
+    if (!member.roles.cache.has(ROLE_EXPERT)) { await member.roles.add(ROLE_EXPERT); logCh.send(`🏆 <@${userId}> vyhrál sázku a stává se **EXPERTEM HOKEJE**!`); }
+  } catch(e) {}
+}
 
-    // Zde odfiltrujeme cokoliv, co obsahuje 'winner'
-    const targetLeague = hockeyLeagues.find(s => !s.key.includes('winner') && (s.key.includes('world') || s.key.includes('iihf') || s.key.includes('champ')));
+// ─────────────────────────────────────────────
+// API-SPORTS: ZÁPASY A KURZY
+// ─────────────────────────────────────────────
+async function fetchMatches() {
+  if (!ODDS_API_KEY) return "Chybí klíč v Railway.";
+  try {
+    const headers = { 'x-apisports-key': ODDS_API_KEY };
+    
+    // 1. Získat ligu MS
+    const leaguesRes = await axios.get(`https://v1.hockey.api-sports.io/leagues?search=world`, { headers });
+    const targetLeague = leaguesRes.data.response?.find(l => l.name.toLowerCase().includes('world') || l.name.toLowerCase().includes('iihf'));
+    if (!targetLeague) return `Nenalezeno MS v databázi API-Sports.`;
 
-    if (!targetLeague) {
-       const available = hockeyLeagues.map(l => l.key).join("\n- ");
-       return `API aktuálně nevidí MS.\n**Dostupné hokejové ligy:**\n- ${available || "Žádné"}`;
-    }
+    const leagueId = targetLeague.id;
+    const season = new Date().getFullYear();
 
-    const res = await axios.get(`https://api.the-odds-api.com/v4/sports/${targetLeague.key}/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h`);
-    const matchCh = await client.channels.fetch(CH_MATCHES);
+    // 2. Získat zápasy
+    const gamesRes = await axios.get(`https://v1.hockey.api-sports.io/games?league=${leagueId}&season=${season}`, { headers });
+    const upcomingGames = gamesRes.data.response.filter(g => g.status.short === 'NS' || g.status.short === 'LIVE').slice(0, 10);
+
+    // 3. Získat kurzy
+    const oddsRes = await axios.get(`https://v1.hockey.api-sports.io/odds?league=${leagueId}&season=${season}`, { headers });
+    const oddsData = oddsRes.data.response || [];
+
+    activeMatches = {};
     let desc = "";
-    
-    res.data.slice(0, 10).forEach(m => {
-      const h = m.bookmakers[0]?.markets[0].outcomes || [];
-      let oddsText = "Kurzy zatím nejsou k dispozici.";
-      if (h.length >= 2) oddsText = `🏠 Domácí (${h[0].name}): **${h[0].price}** | ✈️ Hosté (${h[1].name}): **${h[1].price}**`;
-      desc += `🏒 **${m.home_team} vs ${m.away_team}**\n🕒 Začátek: <t:${Math.floor(new Date(m.commence_time).getTime()/1000)}:f>\n💰 ${oddsText}\n\n`;
+
+    upcomingGames.forEach(m => {
+      const home = m.teams.home.name;
+      const away = m.teams.away.name;
+      const matchKey = `${home} - ${away}`;
+      
+      let oddsHome = 1.0;
+      let oddsAway = 1.0;
+      let oddsText = "Kurzy zatím nevypsány.";
+
+      const gameOdds = oddsData.find(o => o.game.id === m.id);
+      if (gameOdds && gameOdds.bookmakers && gameOdds.bookmakers.length > 0) {
+          const betMarket = gameOdds.bookmakers[0].bets[0]; 
+          if (betMarket && betMarket.values.length >= 2) {
+              oddsHome = parseFloat(betMarket.values.find(v => v.value === 'Home')?.odd || betMarket.values[0].odd);
+              oddsAway = parseFloat(betMarket.values.find(v => v.value === 'Away')?.odd || betMarket.values[1].odd);
+              oddsText = `🏠 Domácí (${home}): **${oddsHome}** | ✈️ Hosté (${away}): **${oddsAway}**`;
+          }
+      }
+
+      activeMatches[matchKey] = { id: m.id, home, away, oddsHome, oddsAway };
+      desc += `🏒 **${matchKey}**\n🕒 <t:${Math.floor(new Date(m.date).getTime()/1000)}:f>\n💰 ${oddsText}\n\n`;
     });
-    
-    const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy`).setDescription(desc || "Žádné zápasy.").setColor(EVENT_COLOR);
+
+    const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
+    if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
+
+    const embed = new EmbedBuilder().setTitle(`🔥 Aktuální zápasy a kurzy`).setDescription(desc || "Žádné zápasy nenalezeny.").setColor(EVENT_COLOR);
     const msgs = await matchCh.messages.fetch({ limit: 5 });
     if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
     return true;
+
   } catch (err) { return err.message; }
 }
 
