@@ -623,7 +623,8 @@ async function fetchMatches(isManual = false) {
     manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
 
     // 1. ZÍSKÁNÍ SEZNAMU ZÁPASŮ (1 request)
-    const upcomingRes = await axios.get(`https://${apiHost}/v3/bet365/upcoming`, { 
+    // OPRAVENO: /v3/ na /v1/ !
+    const upcomingRes = await axios.get(`https://${apiHost}/v1/bet365/upcoming`, { 
         headers, 
         params: { sport_id: 17 } 
     });
@@ -656,7 +657,8 @@ async function fetchMatches(isManual = false) {
         let oddsAway = 1.0;
 
         try {
-            const oddsRes = await axios.get(`https://${apiHost}/v3/bet365/prematch`, { 
+            // OPRAVENO: /v3/ na /v1/ !
+            const oddsRes = await axios.get(`https://${apiHost}/v1/bet365/prematch`, { 
                 headers, 
                 params: { FI: fId } 
             });
