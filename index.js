@@ -65,13 +65,14 @@ const saveUsers = () => fs.writeFileSync(USERS_PATH, JSON.stringify(usersDb, nul
 
 function getUser(id, tbName = null) {
   if (!usersDb[id]) {
-    usersDb[id] = { id, tbName: tbName || "Neznámý", pucks: 0, inventory: [], bets: [], lockedCards: {}, km: 0, betsTotal: 0, betsWon: 0, finishedEvent: false };
+    usersDb[id] = { id, tbName: tbName || "Neznámý", pucks: 0, inventory: [], bets: [], lockedCards: {}, km: 0, betsTotal: 0, betsWon: 0, finishedEvent: false, processedJobs: [] };
   }
   if (!usersDb[id].lockedCards) usersDb[id].lockedCards = {};
   if (usersDb[id].km === undefined) usersDb[id].km = 0;
   if (usersDb[id].betsTotal === undefined) usersDb[id].betsTotal = usersDb[id].bets.length || 0;
   if (usersDb[id].betsWon === undefined) usersDb[id].betsWon = 0;
   if (usersDb[id].finishedEvent === undefined) usersDb[id].finishedEvent = false;
+  if (!usersDb[id].processedJobs) usersDb[id].processedJobs = [];
   return usersDb[id];
 }
 
@@ -157,7 +158,8 @@ const commands = [
     .addNumberOption(o => o.setName("kurz_domaci").setDescription("Kurz na domácí (např. 1.5)").setRequired(true))
     .addNumberOption(o => o.setName("kurz_hoste").setDescription("Kurz na hosty (např. 2.1)").setRequired(true))
     .addIntegerOption(o => o.setName("zacatek_za_hodin").setDescription("Za kolik hodin zápas začíná?").setRequired(true)),
-  new SlashCommandBuilder().setName("admin-zaloha-vynut").setDescription("ADMIN: Okamžitě odešle aktuální stav databáze do záložního kanálu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  new SlashCommandBuilder().setName("admin-zaloha-vynut").setDescription("ADMIN: Okamžitě odešle aktuální stav databáze do cloudu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName("admin-zpetne-zakazky").setDescription("ADMIN: Zpětně zkontroluje a přidá puky za staré zakázky (bez duplikace).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
@@ -233,31 +235,67 @@ async function openShopCatalog(interaction, category, index) {
   }
 }
 
-// Sběr kilometrů
+// ─────────────────────────────────────────────
+// SBĚR KILOMETRŮ A MIL (PODPORA ATS I ETS)
+// ─────────────────────────────────────────────
+function extractDistanceAndPucks(text) {
+    // Hledá vzdálenost a její jednotku (km, mi, míle, miles)
+    const distMatch = text.match(/(?:vzdálenost|distance|\[.*?\])[^\d]*(\d+)\s*(km|mi|míle|miles)/i);
+    if (!distMatch) return null;
+
+    let rawDist = parseInt(distMatch[1], 10);
+    let unit = distMatch[2].toLowerCase();
+    let km = rawDist;
+
+    // Převod mil na kilometry, pokud je jednotka z ATS
+    if (unit.includes('mi') || unit.includes('mí')) {
+        km = Math.round(rawDist * 1.60934);
+    }
+
+    return { km, pucks: Math.floor(km / 200), isMiles: unit.includes('mi') || unit.includes('mí'), rawDist };
+}
+
 client.on('messageCreate', async (m) => {
   if (m.channel.id !== CH_JOBS || !m.embeds.length) return;
+  const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
+  
   const e = m.embeds[0];
-  const distVal = e.fields?.find(f => f.name?.toLowerCase()?.includes('vzdálenost'))?.value;
-  const driver = e.author?.name || e.fields?.find(f => f.name?.toLowerCase()?.includes('řidič'))?.value;
-  if (distVal && driver) {
-    const kmMatches = distVal.match(/(\d+)/g);
-    if (kmMatches) {
-      const km = parseInt(kmMatches.join(''), 10);
-      const ziskanePuky = Math.floor(km / 200);
-      
-      const userKey = Object.keys(usersDb).find(k => usersDb[k].tbName.toLowerCase() === driver.toLowerCase().trim());
-      if (userKey) {
-        usersDb[userKey].km += km; 
-        if (ziskanePuky > 0) {
-          usersDb[userKey].pucks += ziskanePuky;
-        }
-        saveUsers();
-      }
-    }
+  const driver = e.author?.name;
+  if (!driver) return;
+
+  const allText = [e.title, e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
+  
+  const jobIdMatch = allText.match(/#(\d+)/) || m.content.match(/#(\d+)/);
+  const jobId = jobIdMatch ? jobIdMatch[1] : `msg_${m.id}`;
+
+  const distData = extractDistanceAndPucks(allText);
+  if (!distData) return; 
+
+  const { km, pucks, isMiles, rawDist } = distData;
+
+  const userKey = Object.keys(usersDb).find(k => {
+    const dbNick = usersDb[k].tbName.toLowerCase().trim();
+    const logNick = driver.toLowerCase().trim();
+    return logNick.includes(dbNick) || dbNick.includes(logNick);
+  });
+
+  if (userKey) {
+    const u = usersDb[userKey];
+    if (u.processedJobs.includes(jobId)) return; // Prevence duplikace
+
+    u.km += km;
+    if (pucks > 0) u.pucks += pucks;
+    u.processedJobs.push(jobId);
+    saveUsers();
+
+    let unitTxt = isMiles ? `**${rawDist} mil** (*${km} km*)` : `**${km} km**`;
+    if (logCh) logCh.send(`✅ Zakázka \`#${jobId}\` schválena: **${driver}** získal **${pucks} puků** za ujetých ${unitTxt}.`);
+  } else {
+    if (logCh) logCh.send(`❌ Zakázka \`#${jobId}\` zamítnuta: Řidič **${driver}** nemá propojený Discord přes \`/link\`.`);
   }
 });
 
-// Zápasová nástěnka
+// Zápasová nástěnka pro live kurzy
 async function renderMatchesDashboard() {
   const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
   if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
@@ -281,8 +319,15 @@ async function renderMatchesDashboard() {
     });
   }
 
-  const msgs = await matchCh.messages.fetch({ limit: 5 });
-  if (msgs.size > 0) await msgs.first().edit({ embeds: [embed] }); else await matchCh.send({ embeds: [embed] });
+  const msgs = await matchCh.messages.fetch({ limit: 50 }).catch(() => null);
+  if (msgs) {
+    const botMsg = msgs.find(m => m.author.id === client.user.id);
+    if (botMsg) {
+      await botMsg.edit({ embeds: [embed] }).catch(console.error); 
+    } else {
+      await matchCh.send({ embeds: [embed] }).catch(console.error); 
+    }
+  }
 }
 
 // Cloud zálohy
@@ -761,13 +806,68 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "admin-zapasy") {
       await interaction.deferReply({ ephemeral: true });
       const res = await fetchMatches(true); 
-      interaction.editReply(res === true ? "✅ Operace dokončena. API a statistický model zpracovaly data." : `❌ DEBUG REPORT:\n\n${res}`);
+      await interaction.editReply(res === true ? "✅ Operace dokončena. API a statistický model zpracovaly data." : `❌ DEBUG REPORT:\n\n${res}`).catch(console.error);
     }
 
     if (interaction.commandName === "admin-zaloha-vynut") {
        await interaction.deferReply({ ephemeral: true });
        const status = await sendBackup();
        interaction.editReply(status === true ? "✅ Ruční záloha byla úspěšně odeslána do kanálu!" : `❌ Selhalo: ${status}`);
+    }
+
+    if (interaction.commandName === "admin-zpetne-zakazky") {
+      await interaction.deferReply({ ephemeral: true });
+      const jobsCh = await client.channels.fetch(CH_JOBS).catch(() => null);
+      if (!jobsCh) return interaction.editReply("❌ Kanál se zakázkami nenalezen.").catch(console.error);
+
+      // Získáme posledních 100 zpráv z logu
+      const msgs = await jobsCh.messages.fetch({ limit: 100 }).catch(() => null);
+      if (!msgs) return interaction.editReply("❌ Nelze načíst zprávy z kanálu.").catch(console.error);
+
+      let processedCount = 0;
+      let addedPucks = 0;
+      let addedKm = 0;
+
+      msgs.forEach(m => {
+        if (!m.embeds.length) return;
+        const e = m.embeds[0];
+        const driver = e.author?.name;
+        if (!driver) return;
+
+        const allText = [e.title, e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
+        
+        const jobIdMatch = allText.match(/#(\d+)/) || m.content.match(/#(\d+)/);
+        const jobId = jobIdMatch ? jobIdMatch[1] : `msg_${m.id}`;
+
+        const distData = extractDistanceAndPucks(allText);
+        if (!distData) return; 
+
+        const { km, pucks } = distData;
+
+        const userKey = Object.keys(usersDb).find(k => {
+          const dbNick = usersDb[k].tbName.toLowerCase().trim();
+          const logNick = driver.toLowerCase().trim();
+          return logNick.includes(dbNick) || dbNick.includes(logNick);
+        });
+
+        if (userKey) {
+          const u = usersDb[userKey];
+          // Pokud tuto zakázku ještě nemá v evidenci
+          if (!u.processedJobs.includes(jobId)) {
+            u.km += km;
+            if (pucks > 0) u.pucks += pucks;
+            u.processedJobs.push(jobId);
+            
+            addedKm += km;
+            addedPucks += pucks;
+            processedCount++;
+          }
+        }
+      });
+
+      if (processedCount > 0) saveUsers();
+      
+      interaction.editReply(`✅ Zpětná kontrola dokončena!\nBěhem ní bylo nalezeno a připsáno **${processedCount}** dříve nezapočítaných zakázek.\n🚚 Připsáno celkem: **${addedKm} km** a **${addedPucks} puků** hráčům, kterým to chybělo.`).catch(console.error);
     }
   }
 });
@@ -784,7 +884,6 @@ async function checkMilestones(userId) {
     if (cardsDb.cards.filter(c => c.team === t).every(c => user.inventory.includes(c.id))) completedTeams++;
   }
 
-  // Absolutní zkompletování alba
   const uniqueCardsCount = new Set(user.inventory).size;
   const totalCardsCount = cardsDb.cards.length;
 
@@ -794,7 +893,6 @@ async function checkMilestones(userId) {
     if (completedTeams >= 1 && !member.roles.cache.has(ROLE_FAN)) { await member.roles.add(ROLE_FAN); logCh.send(`🏆 <@${userId}> je **HOKEJOVÝ FANOUŠEK**!`); }
     if (completedTeams >= 8 && !member.roles.cache.has(ROLE_COLLECTOR)) { await member.roles.add(ROLE_COLLECTOR); logCh.send(`👑 <@${userId}> je **SBĚRATELEM**!`); }
     
-    // Vyhlášení absolutního vítěze eventu
     if (uniqueCardsCount >= totalCardsCount && !user.finishedEvent) {
        user.finishedEvent = true;
        saveUsers();
@@ -889,7 +987,7 @@ async function fetchMatches(isManual = false) {
     });
 
     if (relevantGames.length === 0) {
-        await renderMatchesDashboard();
+        await renderMatchesDashboard().catch(() => null);
         return `Nenalezeny MS zápasy pro dnešek přes API.`;
     }
 
@@ -951,11 +1049,11 @@ async function fetchMatches(isManual = false) {
     }
 
     await evaluateBetsAutomatically();
-    await renderMatchesDashboard();
+    await renderMatchesDashboard().catch(() => null);
     return true;
 
   } catch (err) {
-    await renderMatchesDashboard(); 
+    await renderMatchesDashboard().catch(() => null); 
     let errMsg = err.message;
     if (err.response && err.response.data) {
        errMsg += `\nAPI: ${JSON.stringify(err.response.data).substring(0,200)}`;
@@ -976,6 +1074,11 @@ client.once("ready", async () => {
   fetchMatches(false); 
   setInterval(() => fetchMatches(false), 3 * 60 * 60 * 1000); 
   setInterval(sendBackup, 30 * 60 * 1000);
+});
+
+// Ochrana proti pádu (Záchranná brzda Node.js)
+process.on('unhandledRejection', error => {
+    console.error('🚨 NEOŠETŘENÁ CHYBA (Pád odvrácen):', error);
 });
 
 client.login(TOKEN);
