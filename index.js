@@ -515,7 +515,7 @@ async function renderMatchesDashboard() {
 
   const embed = new EmbedBuilder()
     .setTitle(`🔥 Aktuální zápasy a kurzy MS`)
-    .setDescription("Sázej jednoduše pomocí příkazu `/vsadit`!\n\n**Vysvětlivky k sázkám:**\n🏆 **Vítěz zápasu:** Kdo vyhraje (včetně případného prodloužení nebo nájezdů).\n🥅 **Počet gólů 5.5:** Tipuješ, jestli v celém zápase padne dohromady *Méně (0 až 5 gólů)*, nebo *Více (6 a více gólů)*.")
+    .setDescription("Sázej jednoduše pomocí příkazu `/vsadit` v místnosti <#1505183898349338797>!\n\n**Vysvětlivky k sázkám:**\n🏆 **Vítěz zápasu:** Kdo vyhraje (včetně případného prodloužení nebo nájezdů).\n🥅 **Počet gólů 5.5:** Tipuješ, jestli v celém zápase padne dohromady *Méně (0 až 5 gólů)*, nebo *Více (6 a více gólů)*.")
     .setColor(EVENT_COLOR);
     
   const matchKeys = Object.keys(activeMatches);
