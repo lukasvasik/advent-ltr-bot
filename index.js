@@ -203,7 +203,7 @@ const commands = [
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
 
 // ─────────────────────────────────────────────
-// AUTOCOMPLETE (NAŠEPTÁVAČ)
+// AUTOCOMPLETE (NAŠEPTÁVAČ) VČETNĚ ZTRACENÝCH ZÁPASŮ
 // ─────────────────────────────────────────────
 client.on('interactionCreate', async interaction => {
   if (!interaction.isAutocomplete()) return;
@@ -235,11 +235,24 @@ client.on('interactionCreate', async interaction => {
   
   else if (interaction.commandName === 'vsadit' || interaction.commandName === 'admin-vyhodnot') {
     if (focusedOption.name === 'zapas') {
-      let matches = Object.keys(activeMatches);
+      let matches = new Set();
+      
       if (interaction.commandName === 'vsadit') {
-        matches = matches.filter(m => activeMatches[m].status === 'NS' && Date.now() < activeMatches[m].startTime);
+        Object.keys(activeMatches).forEach(m => {
+           if (activeMatches[m].status === 'NS' && Date.now() < activeMatches[m].startTime) matches.add(m);
+        });
+      } else if (interaction.commandName === 'admin-vyhodnot') {
+        Object.keys(activeMatches).forEach(m => matches.add(m));
+        
+        // Záchranný sken: najde všechny doposud nevyhodnocené sázky v databázi a nabídne je k vyplacení
+        for (const uid in usersDb) {
+            usersDb[uid].bets.forEach(b => {
+                if (!b.resolved) matches.add(b.match);
+            });
+        }
       }
-      const choices = matches.map(m => ({name: m, value: m}));
+      
+      const choices = Array.from(matches).map(m => ({name: m, value: m}));
       const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
       await interaction.respond(filtered).catch(()=>null);
     }
@@ -953,7 +966,13 @@ client.on("interactionCreate", async interaction => {
       user.bets.push({ match: matchName, tip, amount: puky, odd, potentialWin: potWin, resolved: false });
       saveUsers(); 
       
-      interaction.reply({ content: `✅ Vsadil jsi **${puky} puků** (Kurz: **${odd}**) na zápas **${matchName}**!\nKategorie sázky: **${BET_NAMES[tip] || tip}**\nPokud sázka vyjde, získáš **${potWin} puků**!`, ephemeral: true });
+      interaction.reply({ content: `✅ Úspěšně vsazeno. Sleduj kanál <#1505183898349338797>!`, ephemeral: true });
+
+      // Veřejné oznámení do CH_BETS o nové sázce!
+      const betsCh = await client.channels.fetch(CH_BETS).catch(()=>null);
+      if (betsCh) {
+          betsCh.send(`💸 <@${interaction.user.id}> právě vsadil **${puky} puků** na zápas **${matchName}**! *(Tip: ${BET_NAMES[tip] || tip}, Kurz: ${odd})*`);
+      }
     }
 
     if (interaction.commandName === "admin-vytvor-zapas") {
@@ -1025,8 +1044,11 @@ client.on("interactionCreate", async interaction => {
          await renderMatchesDashboard();
       }
 
-      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh && winnersCount > 0) logCh.send(`💸 Sázky na zápas **${matchName}** byly ručně vyhodnoceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
+      // Oznámení pro sázkaře do CH_BETS o výplatě výher!
+      const betsCh = await client.channels.fetch(CH_BETS).catch(()=>null);
+      if (betsCh && winnersCount > 0) {
+          betsCh.send(`🎉 **Sázky vyhodnoceny!** Zápas **${matchName}** skončil. Celkem si **${winnersCount} výherců** rozdělilo neskutečných **${totalPayout} puků**! Zkontrolujte si puky!`);
+      }
 
       interaction.reply({ content: `✅ Ručně vyhodnoceno. Vyplaceno ${totalPayout} puků celkem ${winnersCount} lidem pro všechny možné typy sázek.`, ephemeral: true });
     }
@@ -1172,9 +1194,11 @@ async function evaluateBetsAutomatically() {
 
   if (evaluatedMatches.length > 0) {
     saveUsers();
-    const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-    if (logCh) {
-       logCh.send(`💸 **Automatické vyhodnocení sázek:** Zápasy \`${evaluatedMatches.join(', ')}\` skončily a všechny sázky byly úspěšně vyplaceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
+    
+    // Oznámení pro sázkaře o automatické výplatě
+    const betsCh = await client.channels.fetch(CH_BETS).catch(()=>null);
+    if (betsCh) {
+       betsCh.send(`🎉 **Automatické vyhodnocení:** Zápasy \`${evaluatedMatches.join(', ')}\` skončily a všechny sázky byly úspěšně vyplaceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**! Zkontrolujte si puky!`);
     }
   }
 }
