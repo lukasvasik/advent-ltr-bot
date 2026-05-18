@@ -163,7 +163,7 @@ const commands = [
     .addStringOption(o => o.setName("nabizim").setDescription("Vyber kartu ze svého inventáře").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("chci").setDescription("Vyber kartu od druhého hráče").setRequired(true).setAutocomplete(true)),
   
-  // ROZŠÍŘENÉ SÁZENÍ - ZJEDNODUŠENO PRO NOVOCHY
+  // ROZŠÍŘENÉ SÁZENÍ - ZJEDNODUŠENO PRO NOVOCHY (ale s góly)
   new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na nadcházející zápas.")
     .addStringOption(o => o.setName("zapas").setDescription("Vyber zápas z nabídky").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("tip").setDescription("Typ sázky a tvůj tip").setRequired(true).addChoices(
@@ -508,7 +508,7 @@ async function openShopCatalog(interaction, category, index) {
   }
 }
 
-// Rozšířená zápasová nástěnka pro live kurzy
+// Zjednodušená zápasová nástěnka pro live kurzy
 async function renderMatchesDashboard() {
   const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
   if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
@@ -595,6 +595,16 @@ async function loadBackupOnStartup() {
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
   if (interaction.isAutocomplete()) return;
+
+  // Zrušení nabídky na trhu prodejcem
+  if (interaction.isButton() && interaction.customId.startsWith('marketcancel_')) {
+    const [, sellerId, cardId] = interaction.customId.split('_');
+    if (interaction.user.id !== sellerId) {
+        return interaction.reply({ content: "❌ Tuto nabídku může stáhnout z trhu pouze ten, kdo ji vystavil.", ephemeral: true });
+    }
+    await interaction.message.delete().catch(()=>null);
+    return interaction.reply({ content: `✅ Tvá nabídka byla úspěšně stažena z tržiště.`, ephemeral: true });
+  }
 
   // Stránkování Leaderboardu
   if (interaction.isButton() && interaction.customId.startsWith('lb_')) {
@@ -866,8 +876,13 @@ client.on("interactionCreate", async interaction => {
 
       const card = cardsDb.cards.find(c => c.id === cardId);
       const marketCh = await client.channels.fetch(CH_MARKET);
-      const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`marketbuy_${user.id}_${cardId}_${price}`).setLabel(`Koupit za ${price} puků`).setStyle(ButtonStyle.Success));
-      await marketCh.send({ content: `🛒 **Nová nabídka!**\nProdejce: <@${user.id}>`, embeds: [{ title: `${card.team} | ${card.name}`, image: { url: card.front }, color: EVENT_COLOR }], components: [btn] });
+      
+      const btnRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`marketbuy_${user.id}_${cardId}_${price}`).setLabel(`Koupit za ${price} puků`).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`marketcancel_${user.id}_${cardId}`).setLabel(`Zrušit prodej`).setStyle(ButtonStyle.Danger)
+      );
+      
+      await marketCh.send({ content: `🛒 **Nová nabídka!**\nProdejce: <@${user.id}>`, embeds: [{ title: `${card.team} | ${card.name}`, image: { url: card.front }, color: EVENT_COLOR }], components: [btnRow] });
       interaction.reply({ content: `✅ Vystaveno na trh.`, ephemeral: true });
     }
     
@@ -984,6 +999,10 @@ client.on("interactionCreate", async interaction => {
             if (bet.tip === 'winner_away' && winner === 'away') isWinner = true;
             if (bet.tip === 'over_55' && totalGoals > 5.5) isWinner = true;
             if (bet.tip === 'under_55' && totalGoals < 5.5) isWinner = true;
+            
+            // Zpětná kompatibilita (staré sázky z počátku eventu)
+            if ((bet.tip === 'winner_home_inc_ot' || bet.tip === 'home') && winner === 'home') isWinner = true;
+            if ((bet.tip === 'winner_away_inc_ot' || bet.tip === 'away') && winner === 'away') isWinner = true;
 
             if (isWinner) {
               user.pucks += bet.potentialWin;
