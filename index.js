@@ -63,18 +63,14 @@ const BET_NAMES = {
     under_55: 'Padne 5 a méně gólů'
 };
 
-// Generátor pokročilých kurzů na základě pravděpodobnosti výhry domácích
 function generateAdvancedOdds(probH_OT) {
     let probA_OT = 1 - probH_OT;
-    
     let odds = {
         winner_home: parseFloat((0.95 / probH_OT).toFixed(2)),
         winner_away: parseFloat((0.95 / probA_OT).toFixed(2)),
         over_55: 1.85,
         under_55: 1.85
     };
-
-    // Mantinely kurzů (nesmí být pod 1.01 ani nad 30)
     for(let k in odds) odds[k] = Math.max(1.01, Math.min(30.00, odds[k]));
     return odds;
 }
@@ -103,25 +99,43 @@ function getUser(id, tbName = null) {
   return usersDb[id];
 }
 
+// NOVÁ LOGIKA ZAMYKÁNÍ KARET (Počítá kusy, ne pouze ID)
+function getLockedCount(user, cardId) {
+  if (!user.lockedCards || !user.lockedCards[cardId]) return 0;
+  let locks = user.lockedCards[cardId];
+  if (!Array.isArray(locks)) locks = [locks]; // Převod starého formátu
+  
+  const validLocks = locks.filter(expiry => Date.now() < expiry);
+  return validLocks.length;
+}
+
 function isCardLocked(user, cardId) {
-  if (!user.lockedCards) return false;
-  const expiry = user.lockedCards[cardId];
-  if (expiry && Date.now() < expiry) return true;
-  if (expiry && Date.now() >= expiry) {
-    delete user.lockedCards[cardId];
-    return false;
-  }
-  return false;
+  const totalOwned = user.inventory.filter(id => id === cardId).length;
+  const totalLocked = getLockedCount(user, cardId);
+  return totalLocked >= totalOwned; // Zamčeno je, pokud jsou zamčené úplně všechny kusy dané karty
 }
 
 function lockCard(user, cardId, durationMs) {
   if (!user.lockedCards) user.lockedCards = {};
-  user.lockedCards[cardId] = Date.now() + durationMs;
+  if (!user.lockedCards[cardId]) user.lockedCards[cardId] = [];
+  else if (!Array.isArray(user.lockedCards[cardId])) user.lockedCards[cardId] = [user.lockedCards[cardId]];
+  
+  user.lockedCards[cardId] = user.lockedCards[cardId].filter(expiry => Date.now() < expiry);
+  user.lockedCards[cardId].push(Date.now() + durationMs);
 }
 
 function unlockCard(user, cardId) {
-  if (user.lockedCards && user.lockedCards[cardId]) {
-    delete user.lockedCards[cardId];
+  if (!user.lockedCards || !user.lockedCards[cardId]) return;
+  if (!Array.isArray(user.lockedCards[cardId])) {
+      delete user.lockedCards[cardId];
+  } else {
+      user.lockedCards[cardId] = user.lockedCards[cardId].filter(expiry => Date.now() < expiry);
+      if (user.lockedCards[cardId].length > 0) {
+          user.lockedCards[cardId].shift(); // Odstraní jeden (nejstarší) zámek
+      }
+      if (user.lockedCards[cardId].length === 0) {
+          delete user.lockedCards[cardId];
+      }
   }
 }
 
@@ -155,7 +169,9 @@ const commands = [
         { name: '🇸🇮 Slovinsko (SLO)', value: 'SLO' }, { name: '🇮🇹 Itálie (ITA)', value: 'ITA' }
     ))
     .addUserOption(o => o.setName("uzivatel").setDescription("Čí album chceš vidět (nepovinné)")),
+    
   new SlashCommandBuilder().setName("duplikaty").setDescription("Zobrazí všechny tvé karty, které máš vícekrát."),
+  
   new SlashCommandBuilder().setName("prodat").setDescription("Vystaví tvou kartu na globální tržiště.")
     .addStringOption(o => o.setName("karta_id").setDescription("Vyber kartu k prodeji ze svého inventáře").setRequired(true).setAutocomplete(true))
     .addIntegerOption(o => o.setName("cena").setDescription("Cena v pucích").setRequired(true)),
@@ -164,7 +180,6 @@ const commands = [
     .addStringOption(o => o.setName("nabizim").setDescription("Vyber kartu ze svého inventáře").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("chci").setDescription("Vyber kartu od druhého hráče").setRequired(true).setAutocomplete(true)),
   
-  // ROZŠÍŘENÉ SÁZENÍ
   new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na nadcházející zápas.")
     .addStringOption(o => o.setName("zapas").setDescription("Vyber zápas z nabídky").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("tip").setDescription("Typ sázky a tvůj tip").setRequired(true).addChoices(
@@ -185,7 +200,6 @@ const commands = [
     .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
   new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně otestuje a stáhne zápasy z RapidAPI (Ignoruje limity).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   
-  // ZJEDNODUŠENÉ RUČNÍ VYHODNOCENÍ
   new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Nouzové ruční vyhodnocení zápasu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(o => o.setName("zapas").setDescription("Který zápas skončil?").setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Domácí', value: 'home'}, {name: 'Hosté', value: 'away'}))
@@ -204,7 +218,7 @@ const commands = [
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
 
 // ─────────────────────────────────────────────
-// AUTOCOMPLETE (NAŠEPTÁVAČ) VČETNĚ ZTRACENÝCH ZÁPASŮ
+// AUTOCOMPLETE (NAŠEPTÁVAČ) 
 // ─────────────────────────────────────────────
 client.on('interactionCreate', async interaction => {
   if (!interaction.isAutocomplete()) return;
@@ -216,7 +230,8 @@ client.on('interactionCreate', async interaction => {
       const user = getUser(interaction.user.id);
       choices = [...new Set(user.inventory)].filter(id => !isCardLocked(user, id)).map(id => {
         const card = cardsDb.cards.find(c => c.id === id);
-        return { name: card ? `${card.team} | ${card.name} (${id})` : id, value: id };
+        const availCount = user.inventory.filter(i => i === id).length - getLockedCount(user, id);
+        return { name: card ? `${card.team} | ${card.name} (${availCount}x dostupné)` : id, value: id };
       });
     } else if (focusedOption.name === 'chci') {
       const targetUserId = interaction.options.get('uzivatel')?.value;
@@ -244,7 +259,6 @@ client.on('interactionCreate', async interaction => {
         });
       } else if (interaction.commandName === 'admin-vyhodnot') {
         Object.keys(activeMatches).forEach(m => matches.add(m));
-        
         for (const uid in usersDb) {
             usersDb[uid].bets.forEach(b => {
                 if (!b.resolved) matches.add(b.match);
@@ -737,7 +751,7 @@ client.on("interactionCreate", async interaction => {
         const parts = interaction.customId.split('_');
         sellerId = parts[1];
         price = parseInt(parts[parts.length - 1], 10);
-        cardId = parts.slice(2, parts.length - 1).join('_'); // Oprava pro stará tlačítka
+        cardId = parts.slice(2, parts.length - 1).join('_');
     }
 
     const buyer = getUser(interaction.user.id);
@@ -770,7 +784,6 @@ client.on("interactionCreate", async interaction => {
         const parts = interaction.customId.split('-');
         type = parts[0]; iniId = parts[1]; tarId = parts[2]; myC = parts[3]; theirC = parts[4]; timestamp = parseInt(parts[5], 10);
     } else {
-        // Záchrana pro stará tlačítka s podtržítkem
         const parts = interaction.customId.split('_');
         type = parts[0]; iniId = parts[1]; tarId = parts[2];
         myC = `${parts[3]}_${parts[4]}`;
@@ -892,7 +905,7 @@ client.on("interactionCreate", async interaction => {
       interaction.reply(response);
     }
     
-    // NOVÝ PŘÍKAZ PRO ZOBRAZENÍ DUPLIKÁTŮ KARET
+    // PŘÍKAZ PRO ZOBRAZENÍ DUPLIKÁTŮ KARET
     if (interaction.commandName === "duplikaty") {
       const user = getUser(interaction.user.id);
       const counts = {};
@@ -907,7 +920,7 @@ client.on("interactionCreate", async interaction => {
       duplicates.forEach(id => {
           const card = cardsDb.cards.find(c => c.id === id);
           if (card) {
-              desc += `🃏 **${card.team} | ${card.name}** \`[${id}]\` - Máš: **${counts[id]}x**\n`;
+              desc += `🃏 **${card.team} | ${card.name}** \`[${id}]\` - Máš celkem: **${counts[id]}x**\n`;
           }
       });
 
@@ -946,7 +959,7 @@ client.on("interactionCreate", async interaction => {
       const price = interaction.options.getInteger("cena");
       const user = getUser(interaction.user.id);
       if (!user.inventory.includes(cardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
-      if (isCardLocked(user, cardId)) return interaction.reply({ content: "❌ Tuto kartu nemůžeš prodat, je dočasně uzamčena (v aktivním tradu nebo už je na tržišti).", ephemeral: true });
+      if (isCardLocked(user, cardId)) return interaction.reply({ content: "❌ Všechny tvé kopie této karty jsou již uzamčené (na trhu nebo v tradu).", ephemeral: true });
 
       const card = cardsDb.cards.find(c => c.id === cardId);
       const marketCh = await client.channels.fetch(CH_MARKET);
@@ -972,7 +985,7 @@ client.on("interactionCreate", async interaction => {
       
       if (!user.inventory.includes(myCardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
       if (!target.inventory.includes(theirCardId)) return interaction.reply({ content: "❌ Druhý hráč tuto kartu nemá.", ephemeral: true });
-      if (isCardLocked(user, myCardId)) return interaction.reply({ content: "❌ Tuto kartu už nabízíš v jiném tradu (nebo je zamčená).", ephemeral: true });
+      if (isCardLocked(user, myCardId)) return interaction.reply({ content: "❌ Všechny tvé kopie této karty jsou již uzamčené (na trhu nebo v tradu).", ephemeral: true });
 
       const myCard = cardsDb.cards.find(c => c.id === myCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
       const theirCard = cardsDb.cards.find(c => c.id === theirCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
