@@ -615,6 +615,11 @@ client.on("interactionCreate", async interaction => {
     if (interaction.user.id !== sellerId) {
         return interaction.reply({ content: "❌ Tuto nabídku může stáhnout z trhu pouze ten, kdo ji vystavil.", ephemeral: true });
     }
+    
+    const seller = getUser(sellerId);
+    unlockCard(seller, cardId);
+    saveUsers();
+
     await interaction.message.delete().catch(()=>null);
     return interaction.reply({ content: `✅ Tvá nabídka byla úspěšně stažena z tržiště.`, ephemeral: true });
   }
@@ -728,6 +733,9 @@ client.on("interactionCreate", async interaction => {
     }
     buyer.pucks -= price; seller.pucks += price;
     seller.inventory.splice(seller.inventory.indexOf(cardId), 1); buyer.inventory.push(cardId);
+    
+    unlockCard(seller, cardId);
+    
     saveUsers();
     await interaction.message.delete().catch(()=>null);
     interaction.reply({ content: `✅ Úspěšně koupeno!`, ephemeral: true });
@@ -885,17 +893,20 @@ client.on("interactionCreate", async interaction => {
       const price = interaction.options.getInteger("cena");
       const user = getUser(interaction.user.id);
       if (!user.inventory.includes(cardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
-      if (isCardLocked(user, cardId)) return interaction.reply({ content: "❌ Tuto kartu nemůžeš prodat, je dočasně uzamčena v aktivním návrhu na Trade.", ephemeral: true });
+      if (isCardLocked(user, cardId)) return interaction.reply({ content: "❌ Tuto kartu nemůžeš prodat, je dočasně uzamčena (v aktivním tradu nebo už je na tržišti).", ephemeral: true });
 
       const card = cardsDb.cards.find(c => c.id === cardId);
       const marketCh = await client.channels.fetch(CH_MARKET);
+      
+      lockCard(user, cardId, 365 * 24 * 60 * 60 * 1000); // Zámek na rok (dokud se neprodá nebo nezruší)
+      saveUsers();
       
       const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`marketbuy_${user.id}_${cardId}_${price}`).setLabel(`Koupit za ${price} puků`).setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`marketcancel_${user.id}_${cardId}`).setLabel(`Zrušit prodej`).setStyle(ButtonStyle.Danger)
       );
       
-      await marketCh.send({ content: `🛒 **Nová nabídka!**\nProdejce: <@${user.id}>`, embeds: [{ title: `${card.team} | ${card.name}`, image: { url: card.front }, color: EVENT_COLOR }], components: [btnRow] });
+      await marketCh.send({ content: `@everyone 🛒 **Nová nabídka na trhu!**\nProdejce: <@${user.id}>`, embeds: [{ title: `${card.team} | ${card.name}`, image: { url: card.front }, color: EVENT_COLOR }], components: [btnRow] });
       interaction.reply({ content: `✅ Vystaveno na trh.`, ephemeral: true });
     }
     
@@ -917,7 +928,8 @@ client.on("interactionCreate", async interaction => {
       lockCard(user, myCardId, 24 * 60 * 60 * 1000);
       saveUsers();
 
-      const cmdsCh = await client.channels.fetch(CH_CMDS);
+      // ZMĚNA: Přesunuto z CH_CMDS do CH_MARKET
+      const marketCh = await client.channels.fetch(CH_MARKET);
       const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`tradeaccept_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}_${timestamp}`).setLabel('Souhlasím').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`tradedecline_${interaction.user.id}_${targetUser.id}_${myCardId}_${theirCardId}_${timestamp}`).setLabel('Odmítnout').setStyle(ButtonStyle.Danger),
@@ -926,7 +938,7 @@ client.on("interactionCreate", async interaction => {
       
       const embed = new EmbedBuilder()
         .setTitle('🤝 Nový návrh na výměnu karet!')
-        .setDescription(`<@${interaction.user.id}> ti nabízí obchod, <@${targetUser.id}>!\n\n` +
+        .setDescription(`<@${targetUser.id}>, máš tu návrh na obchod od <@${interaction.user.id}>!\n\n` +
                         `**NABÍZÍ TI:**\n🏒 **${myCard.name}** (${myCard.team} - ${myCard.role})\n🆔 \`${myCard.id}\`\n\n` +
                         `**CHCE OD TEBE:**\n🏒 **${theirCard.name}** (${theirCard.team} - ${theirCard.role})\n🆔 \`${theirCard.id}\`\n\n` +
                         `⏳ *Platnost návrhu vyprší <t:${Math.floor((timestamp + 24*60*60*1000)/1000)}:R>*`)
@@ -934,8 +946,8 @@ client.on("interactionCreate", async interaction => {
         .setThumbnail(theirCard.front)
         .setColor(EVENT_COLOR);
 
-      await cmdsCh.send({ content: `<@${targetUser.id}>, máš tu návrh na výměnu!`, embeds: [embed], components: [btnRow] });
-      interaction.reply({ content: `✅ Návrh odeslán do chatu. Tvoje karta byla dočasně uzamčena.`, ephemeral: true });
+      await marketCh.send({ content: `<@${targetUser.id}>, máš tu návrh na výměnu od <@${interaction.user.id}>!`, embeds: [embed], components: [btnRow] });
+      interaction.reply({ content: `✅ Návrh odeslán do chatu na tržiště. Tvoje karta byla dočasně uzamčena.`, ephemeral: true });
     }
     
     if (interaction.commandName === "vsadit") {
