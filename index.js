@@ -760,20 +760,16 @@ client.on("interactionCreate", async interaction => {
     if (Date.now() - timestamp > 24 * 60 * 60 * 1000) {
       unlockCard(ini, myC);
       saveUsers();
-      return interaction.message.edit({ 
-          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("⏳ Tento návrh na Trade již vypršel (24h).").setColor(0x808080)], 
-          components: [] 
-      });
+      await interaction.message.delete().catch(()=>null);
+      return interaction.reply({ content: "⏳ Tento návrh na Trade již vypršel (24h) a byl smazán z tržiště.", ephemeral: true });
     }
 
     if (type === 'tradecancel') {
       if (interaction.user.id !== iniId) return interaction.reply({ content: "❌ Pouze navrhovatel může tento trade zrušit.", ephemeral: true });
       unlockCard(ini, myC);
       saveUsers();
-      return interaction.message.edit({ 
-          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Trade byl zrušen navrhovatelem.").setColor(0x808080)], 
-          components: [] 
-      });
+      await interaction.message.delete().catch(()=>null);
+      return interaction.reply({ content: "❌ Trade byl zrušen navrhovatelem a smazán z tržiště.", ephemeral: true });
     }
 
     if (interaction.user.id !== tarId) return interaction.reply({ content: "❌ Toto není pro tebe.", ephemeral: true });
@@ -781,27 +777,27 @@ client.on("interactionCreate", async interaction => {
     if (type === 'tradeaccept') {
       if (!ini.inventory.includes(myC) || !tar.inventory.includes(theirC)) {
         unlockCard(ini, myC); saveUsers();
-        return interaction.message.edit({ 
-            embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Nelze dokončit. Někdo z vás už svou kartu nemá.").setColor(0xFF0000)], 
-            components: [] 
-        });
+        await interaction.message.delete().catch(()=>null);
+        return interaction.reply({ content: "❌ Nelze dokončit. Někdo z vás už svou kartu nemá.", ephemeral: true });
       }
       ini.inventory.splice(ini.inventory.indexOf(myC), 1); ini.inventory.push(theirC);
       tar.inventory.splice(tar.inventory.indexOf(theirC), 1); tar.inventory.push(myC);
       unlockCard(ini, myC);
       saveUsers();
-      await interaction.message.edit({ 
-          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("✅ Trade proběhl úspěšně!").setColor(0x00FF00)], 
-          components: [] 
-      });
+      
+      await interaction.message.delete().catch(()=>null);
+      interaction.reply({ content: "✅ Trade proběhl úspěšně!", ephemeral: true });
+      
       checkMilestones(iniId); checkMilestones(tarId);
+      
+      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
+      if (logCh) logCh.send(`🔄 **Trade dokončen!** Hráči <@${iniId}> a <@${tarId}> si úspěšně vyměnili karty (\`${myC}\` za \`${theirC}\`)!`);
+      
     } else if (type === 'tradedecline') {
       unlockCard(ini, myC);
       saveUsers();
-      await interaction.message.edit({ 
-          embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setTitle("❌ Trade byl zamítnut druhým hráčem.").setColor(0xFF0000)], 
-          components: [] 
-      });
+      await interaction.message.delete().catch(()=>null);
+      interaction.reply({ content: "❌ Trade byl zamítnut a smazán z tržiště.", ephemeral: true });
     }
   }
 
@@ -878,11 +874,18 @@ client.on("interactionCreate", async interaction => {
       const userObj = getUser(targetUser.id);
       const teamCards = cardsDb.cards.filter(c => c.team === team);
       if (teamCards.length === 0) return interaction.reply({ content: "❌ Neexistující tým.", ephemeral: true });
+      
       let desc = ""; let ownedCount = 0;
       teamCards.forEach(c => {
-        if (userObj.inventory.includes(c.id)) { desc += `✅ **${c.role}** - ${c.name} \`[${c.id}]\`\n\n`; ownedCount++; }
-        else desc += `❌ **${c.role}** - *???*\n\n`;
+        const count = userObj.inventory.filter(id => id === c.id).length;
+        if (count > 0) { 
+            desc += `✅ **${c.role}** - ${c.name} \`[${c.id}]\` *(Máš: ${count}x)*\n\n`; 
+            ownedCount++; 
+        } else {
+            desc += `❌ **${c.role}** - *???*\n\n`;
+        }
       });
+      
       const embed = new EmbedBuilder().setTitle(`📖 Album: ${team} (${targetUser.username})`).setDescription(desc).setFooter({ text: `Zkompletováno: ${ownedCount}/${teamCards.length}` }).setColor(EVENT_COLOR);
       const comps = (targetUser.id === interaction.user.id && ownedCount > 0) ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`view_album_${team}_0`).setLabel('🖼️ Prohlédnout mé karty').setStyle(ButtonStyle.Success))] : [];
       interaction.reply({ embeds: [embed], components: comps });
