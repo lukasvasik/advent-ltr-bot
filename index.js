@@ -122,11 +122,21 @@ function getRandomQuestId() {
 
 function getRandomDailyGoal() {
     const roll = Math.random() * 100;
-    if (roll <= 25) return { goal: 50 + Math.floor(Math.random() * 100), reward: "🎨 3x Paint Job dle výběru" };      // 25% - 50-150
-    if (roll <= 40) return { goal: 250, reward: "🚚 3x Trailer / Tuning Pack dle výběru" };                           // 15% - 250
-    if (roll <= 45) return { goal: 500, reward: "🗺️ 1x Mapové DLC do 8,99 EUR" };                                   // 5% - 500
-    if (roll <= 75) return { goal: 100 + Math.floor(Math.random() * 50), reward: "🚚 1x Trailer / Tuning Pack dle výběru" }; // 30% - 100-150
-    return { goal: 50, reward: "🎨 1x Paint Job dle výběru" };                                                       // 25% - 50
+    if (roll <= 25) {
+        const goals = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150];
+        return { goal: goals[Math.floor(Math.random() * goals.length)], reward: "🎨 3x Paint Job dle výběru" };
+    }
+    if (roll <= 40) {
+        return { goal: 250, reward: "🚚 3x Trailer / Tuning Pack dle výběru" };
+    }
+    if (roll <= 45) {
+        return { goal: 500, reward: "🗺️ 1x Mapové DLC do 8,99 EUR" };
+    }
+    if (roll <= 75) {
+        const goals = [100, 110, 120, 130, 140, 150];
+        return { goal: goals[Math.floor(Math.random() * goals.length)], reward: "🚚 1x Trailer / Tuning Pack dle výběru" };
+    }
+    return { goal: 50, reward: "🎨 1x Paint Job dle výběru" };
 }
 
 // ─────────────────────────────────────────────
@@ -477,10 +487,12 @@ async function announceDailyRoute(day) {
     const route = ROUTES[day - 1];
     const uniqueCargos = [...new Set(route.cargos)];
 
-    // VYLOSUJ NÁHODNÝ CÍL A ODMĚNU
-    const dailyGoal = getRandomDailyGoal();
-    route.goal = dailyGoal.goal;
-    systemDb.currentDailyRewardText = dailyGoal.reward;
+    // Losuj cíl a odměnu jen pokud ještě není nastaven
+    if (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "") {
+        const dailyGoal = getRandomDailyGoal();
+        route.goal = dailyGoal.goal;
+        systemDb.currentDailyRewardText = dailyGoal.reward;
+    }
     saveSystem();
 
     const embed = new EmbedBuilder()
@@ -753,6 +765,7 @@ setInterval(() => {
         systemDb.currentDay += 1;
         systemDb.communityJobsToday = 0;
         systemDb.hhCountToday = 0;
+        systemDb.currentDailyRewardText = ""; // Reset pro nový den
         saveSystem();
         announceDailyRoute(systemDb.currentDay);
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0;
@@ -936,7 +949,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "odmeny") {
         const embed = new EmbedBuilder()
             .setTitle("🎁 Přehled denních odměn & šancí")
-            .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn:\n\n🎨 **25%** - 3x Paint Job dle výběru (50-150 zakázek)\n🚚 **15%** - 3x Trailer / Tuning Pack (250 zakázek)\n🗺️ **5%** - 1x Mapové DLC do 8,99 EUR (500 zakázek)\n🚚 **30%** - 1x Trailer / Tuning Pack (100-150 zakázek)\n🎨 **25%** - 1x Paint Job dle výběru (50 zakázek)")
+            .setDescription("Každý den se losuje náhodný cíl a odměna:\n\n🎨 **25%** - 3x Paint Job (50-150 zakázek)\n🚚 **15%** - 3x Trailer / Tuning Pack (250 zakázek)\n🗺️ **5%** - 1x Mapové DLC do 8,99 EUR (500 zakázek)\n🚚 **30%** - 1x Trailer / Tuning Pack (100-150 zakázek)\n🎨 **25%** - 1x Paint Job (50 zakázek)")
             .setColor(EVENT_COLOR);
         return interaction.reply({ embeds: [embed] });
     }
@@ -1032,7 +1045,10 @@ client.on("interactionCreate", async interaction => {
                 msg += `📦 **users_db.json** - načteno ${Object.keys(usersDb).length} uživatelů\n`;
             }
             if (backup.system) {
+                // Zachovej currentDailyRewardText pokud existuje
+                const oldReward = systemDb.currentDailyRewardText;
                 systemDb = { ...systemDb, ...backup.system };
+                if (oldReward) systemDb.currentDailyRewardText = oldReward;
                 saveSystem();
                 msg += `⚙️ **system_db.json** - načten stav (den ${systemDb.currentDay})\n`;
             }
@@ -1129,7 +1145,9 @@ client.on("interactionCreate", async interaction => {
             if (systemFile) {
                 const res = await fetch(systemFile.url);
                 const data = await res.json();
+                const oldReward = systemDb.currentDailyRewardText;
                 systemDb = data;
+                if (oldReward) systemDb.currentDailyRewardText = oldReward;
                 saveSystem();
                 msg += "✅ `system_db.json` obnovena.\n";
                 await updateCommunityProgressBar(true);
