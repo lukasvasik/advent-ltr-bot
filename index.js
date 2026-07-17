@@ -37,7 +37,7 @@ const ROLE_HUNTER_DNE = '1489757276435648552';
 const ROLE_SECRET_EXPLORER = '1500670331063505066';
 
 const EVENT_COLOR = 0xFF8C00;
-const EVENT_START_DATE = new Date('2026-07-17T18:00:00+02:00').getTime(); 
+const EVENT_START_DATE = new Date('2026-07-17T19:00:00+02:00').getTime(); 
 const EVENT_END_DATE = new Date('2026-07-25T19:00:00+02:00').getTime(); 
 
 // DEV REŽIM
@@ -194,13 +194,13 @@ function getNextSecretCityResetUnix() {
     const czTime = new Date(czTimeStr);
     
     const nextResetCz = new Date(czTime.getTime());
-    if (czTime.getHours() >= 18) {
+    if (czTime.getHours() >= 19) {
         nextResetCz.setDate(nextResetCz.getDate() + 1);
-        nextResetCz.setHours(8, 0, 0, 0); // Zítra v 8:00
-    } else if (czTime.getHours() >= 8) {
-        nextResetCz.setHours(18, 0, 0, 0); // Dnes v 18:00
+        nextResetCz.setHours(7, 0, 0, 0); // Zítra v 7:00
+    } else if (czTime.getHours() >= 7) {
+        nextResetCz.setHours(19, 0, 0, 0); // Dnes v 19:00
     } else {
-        nextResetCz.setHours(8, 0, 0, 0); // Dnes v 8:00
+        nextResetCz.setHours(7, 0, 0, 0); // Dnes v 7:00
     }
     
     const msUntilReset = nextResetCz.getTime() - czTime.getTime();
@@ -476,8 +476,8 @@ async function announceDailyRoute(day) {
         .setDescription(`Dnes svážíme zásoby na oslavu z města **${route.start}** do **${route.end}**!\n\n` +
                         `📦 **Povolené náklady:**\n${route.cargos.map(c => `- ${c}`).join('\n')}\n\n` +
                         `🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek!\n` +
-                        `🎁 **Odměna za splnění cíle:** Systém vylosoval **${systemDb.currentDailyRewardText}**!\n` +
-                        `🏹 Kdo doveze trasu dnes jako první, získá roli **HUNTER DNE**!`)
+                        `🎁 **Odměna kom.cíle:** Systém vylosoval **${systemDb.currentDailyRewardText}**!\n` +
+                        `🏹 První, získá roli **HUNTER DNE**!`)
         .setImage(route.img)
         .setColor(EVENT_COLOR);
 
@@ -548,7 +548,7 @@ setInterval(() => {
         systemDb.currentDay = 1; saveSystem();
         announceDailyRoute(1); startNewSecretCity();
     } 
-    else if (czTime.getHours() === 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
+    else if (czTime.getHours() === 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
         systemDb.currentDay += 1;
         systemDb.communityJobsToday = 0; systemDb.hhCountToday = 0;
         saveSystem();
@@ -556,11 +556,11 @@ setInterval(() => {
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0; saveUsers();
     }
 
-    if ((czTime.getHours() === 8 || czTime.getHours() === 18) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
+    if ((czTime.getHours() === 8 || czTime.getHours() === 19) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
         startNewSecretCity();
     }
 
-    if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
+    if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         revealNextLetter();
     }
 
@@ -641,7 +641,7 @@ client.on("interactionCreate", async interaction => {
   // QUEST SKIP
   if (interaction.commandName === "quest-skip") {
       const u = getUser(interaction.user.id, interaction.user.username);
-      if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil. Další skip bude možný až po 18:00.", ephemeral: true });
+      if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil. Další skip bude možný až po 19:00.", ephemeral: true });
       
       u.currentQuestId = getRandomQuestId();
       u.questProgress = 0;
