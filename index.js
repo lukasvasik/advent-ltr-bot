@@ -57,14 +57,14 @@ const PROGRESS_BAR_IMAGES = [
 ];
 
 const ROUTES = [
-    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", desc: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
-    { day: 2, start: "Hamburk", end: "Brno", cargos: ["Potřeby ke stolování"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png", desc: "Po zajištění občerstvení je potřeba připravit zázemí pro hosty. V Hamburku byly naloženy potřeby ke stolování, které budou využity při slavnostním občerstvení během oslav narozenin." },
-    { day: 3, start: "Bratislava", end: "Brno", cargos: ["Květiny a stromy", "Řezané květiny"], goal: 150, img: "https://i.imgur.com/lymELya.png", desc: "Chceme, aby byla letošní oslava opravdu výjimečná. Ve spolupráci s floristy byla připravena rozsáhlá květinová výzdoba, kterou je nyní potřeba bezpečně dopravit z Bratislavy." },
-    { day: 4, start: "Štětín", end: "Brno", cargos: ["Hračky"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png", desc: "Na oslavu byli pozváni také rodinní příslušníci a nejmladší návštěvníci. Proto bylo rozhodnuto připravit speciální zábavnou zónu. Vaším úkolem je přepravit vybavení a dárky určené pro dětské návštěvníky." },
-    { day: 5, start: "Linec", end: "Brno", cargos: ["Čokolády", "Čokoláda"], goal: 250, img: "https://i.imgur.com/oWPrZey.png", desc: "Každá pořádná narozeninová oslava potřebuje dostatek sladkostí. Počet potvrzených hostů překonal všechna očekávání, a proto byla objednána mimořádná zásilka čokoládových výrobků." },
-    { day: 6, start: "Poznaň", end: "Brno", cargos: ["Limonády", "Limonáda"], goal: 250, img: "https://i.imgur.com/J8tVmQU.png", desc: "Po aktualizaci seznamu hostů bylo zjištěno, že původní zásoby nebudou dostačovat. Organizátoři proto zajistili dodatečnou zásilku limonád, která musí být doručena včas před zahájením oslav." },
-    { day: 7, start: "Linec", end: "Brno", cargos: ["Elektroniku", "Elektronika"], goal: 250, img: "https://i.imgur.com/waiarlZ.png", desc: "Blíží se vyvrcholení příprav. Do Brna je potřeba dopravit profesionální ozvučovací a světelnou techniku, která zajistí hudební doprovod a atmosféru celé narozeninové oslavy." },
-    { day: 8, start: "Berlín", end: "Brno", cargos: ["Ohňostroje", "Zábavní pyrotechnika"], goal: 250, img: "https://i.imgur.com/BO0Rgu6.png", desc: "Nastal čas na poslední a nejdůležitější úkol celé expedice. V Berlíně je připravena hlavní zásilka zábavní pyrotechniky určené pro slavnostní zakončení oslav. Vaším úkolem je bezpečně dopravit tento cenný náklad do Brna, kde po jeho doručení mohou být zahájeny oslavy." }
+    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje", "Nápoj", "Beverages", "Bottled Water", "Carbonated Water"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", desc: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
+    { day: 2, start: "Hamburk", end: "Brno", cargos: ["Potřeby ke stolování", "Stolování", "Tableware", "Potřeby", "Furniture"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png", desc: "Po zajištění občerstvení je potřeba připravit zázemí pro hosty. V Hamburku byly naloženy potřeby ke stolování, které budou využity při slavnostním občerstvení během oslav narozenin." },
+    { day: 3, start: "Bratislava", end: "Brno", cargos: ["Květiny", "Stromy", "Řezané květiny", "Cut Flowers", "Containerized Trees", "Potted Flowers", "Olive Trees", "Young Seedlings", "Květiny a stromy"], goal: 150, img: "https://i.imgur.com/lymELya.png", desc: "Chceme, aby byla letošní oslava opravdu výjimečná. Ve spolupráci s floristy byla připravena rozsáhlá květinová a stromová výzdoba, kterou je nyní potřeba bezpečně dopravit z Bratislavy." },
+    { day: 4, start: "Štětín", end: "Brno", cargos: ["Hračky", "Toys", "Hračka", "Toy"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png", desc: "Na oslavu byli pozváni také rodinní příslušníci a nejmladší návštěvníci. Proto bylo rozhodnuto připravit speciální zábavnou zónu. Vaším úkolem je přepravit vybavení a dárky určené pro dětské návštěvníky." },
+    { day: 5, start: "Vídeň", end: "Brno", cargos: ["Čokoláda", "Chocolate", "Čokolády", "Candy", "Sladkosti", "Gummy Bears", "Chewing Gums", "Sladkost"], goal: 250, img: "https://i.imgur.com/oWPrZey.png", desc: "Každá pořádná narozeninová oslava potřebuje dostatek sladkostí. Počet potvrzených hostů překonal všechna očekávání, a proto byla objednána mimořádná zásilka čokoládových výrobků z Vídně." },
+    { day: 6, start: "Poznaň", end: "Brno", cargos: ["Limonáda", "Lemonade", "Limonády", "Carbonated Water", "Bottled Water", "Beverages", "Juice", "Juice Concentrate", "Soy Milk", "Coconut Milk"], goal: 250, img: "https://i.imgur.com/J8tVmQU.png", desc: "Po aktualizaci seznamu hostů bylo zjištěno, že původní zásoby nebudou dostačovat. Organizátoři proto zajistili dodatečnou zásilku limonád, která musí být doručena včas před zahájením oslav." },
+    { day: 7, start: "Linec", end: "Brno", cargos: ["Elektronika", "Electronics", "Elektroniku", "Computer", "Computers", "Medical Equipment", "High-Tech Device"], goal: 250, img: "https://i.imgur.com/waiarlZ.png", desc: "Blíží se vyvrcholení příprav. Do Brna je potřeba dopravit profesionální ozvučovací a světelnou techniku, která zajistí hudební doprovod a atmosféru celé narozeninové oslavy." },
+    { day: 8, start: "Berlín", end: "Brno", cargos: ["Ohňostroj", "Pyrotechnika", "Fireworks", "Zábavní pyrotechnika", "Explosives", "Dynamite", "Ohňostroje"], goal: 250, img: "https://i.imgur.com/BO0Rgu6.png", desc: "Nastal čas na poslední a nejdůležitější úkol celé expedice. V Berlíně je připravena hlavní zásilka zábavní pyrotechniky určené pro slavnostní zakončení oslav. Vaším úkolem je bezpečně dopravit tento cenný náklad do Brna, kde po jeho doručení mohou být zahájeny oslavy." }
 ];
 
 const QUESTS = [
@@ -223,87 +223,60 @@ function getUser(userId, tbName = null) {
 }
 
 // ─────────────────────────────────────────────
-// EXTRAKCE DAT ZAKÁZKY
+// EXTRAKCE DAT ZAKÁZKY (OPRAVENO)
 // ─────────────────────────────────────────────
 function extractJobData(text, title) {
     const combinedText = (title + "\n" + text).replace(/\*/g, '');
 
+    // Kilometry
     let km = 0;
-    const kmPatterns = [
-        /(?:Uznaná vzdálenost|Distance):\s*([\d\s.,]+)\s*(km|mi)/im,
-        /([\d\s.,]{1,6})\s*(km|mi)[\s\n]/i,
-        /([\d\s.,]{1,6})\s*(km|mi)$/im
-    ];
-
-    for (const pattern of kmPatterns) {
-        const match = combinedText.match(pattern);
-        if (match) {
-            km = parseInt(match[1].replace(/[^\d]/g, ''), 10);
-            if (match[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
-            break;
-        }
+    const kmMatch = combinedText.match(/(?:Uznaná vzdálenost|Distance):\s*([\d\s.,]+)\s*(km|mi)/im) ||
+                   combinedText.match(/([\d\s.,]{1,6})\s*(km|mi)/i);
+    
+    if (kmMatch) {
+        km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10);
+        if (kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
     }
 
-    let dest = "neznámé";
-    const destPatterns = [
-        /(?:Kam|To|Destination):\s*(.+?)(?:\n|$)/i,
-        /(?:do)\s+([A-ZÁ-Ža-zá-ž\s\-]+?)(?:\n|$)/i,
-        /🏁\s*(.+?)(?:\n|$)/,
-        /🚩\s*(.+?)(?:\n|$)/
-    ];
-
-    for (const pattern of destPatterns) {
-        const match = combinedText.match(pattern);
-        if (match && match[1].trim().length > 1) {
-            dest = match[1].replace(/[🚚🏁🚩]/g, '').trim();
-            break;
-        }
-    }
-
+    // Města - formát s vlajkovými emoji
     let origin = "neznámé";
-    const originPatterns = [
-        /(?:Odkud|From):\s*(.+?)(?:\n|$)/i,
-        /(?:z)\s+([A-ZÁ-Ža-zá-ž\s\-]+?)(?:\n|$)/i,
-        /🚚\s*(.+?)(?:\n|$)/,
-        /🚩\s*(.+?)(?:\n|$)/
-    ];
-
-    for (const pattern of originPatterns) {
-        const match = combinedText.match(pattern);
-        if (match && match[1].trim().length > 1 && match[1].trim() !== dest) {
-            origin = match[1].replace(/[🚚🏁🚩]/g, '').trim();
-            break;
+    let dest = "neznámé";
+    
+    // Pattern: Odkud\n:flag_xx: Město\nKam\n:flag_xx: Město
+    const odkudMatch = combinedText.match(/Odkud\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
+    const kamMatch = combinedText.match(/Kam\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
+    
+    if (odkudMatch && odkudMatch[1].trim().length > 1) {
+        origin = odkudMatch[1].trim();
+    }
+    if (kamMatch && kamMatch[1].trim().length > 1) {
+        dest = kamMatch[1].trim();
+    }
+    
+    // Fallback: hledání všech vlajkových emoji s městy
+    if (origin === "neznámé" || dest === "neznámé") {
+        const flagCityPattern = /[\u{1F1E6}-\u{1F1FF}]{2}\s+([A-ZÁ-Ža-zá-ž\s\-]+)/gu;
+        const matches = [...combinedText.matchAll(flagCityPattern)];
+        if (matches.length >= 1 && origin === "neznámé") {
+            origin = matches[0][1].trim();
+        }
+        if (matches.length >= 2 && dest === "neznámé") {
+            dest = matches[1][1].trim();
         }
     }
 
+    // Náklad
     let cargo = "neznámé";
-    const cargoPatterns = [
-        /(?:Náklad|Cargo):\s*(.+?)(?:\n|$)/i,
-        /📦\s*(.+?)(?:\n|$)/,
-        /Náklad:\s*\n\s*(.+?)(?:\n|$)/i
-    ];
-
-    for (const pattern of cargoPatterns) {
-        const match = combinedText.match(pattern);
-        if (match) {
-            cargo = match[1].split(/[\(\[\{]/)[0].trim();
-            if (cargo.length > 1) break;
-        }
+    const cargoMatch = combinedText.match(/(?:Náklad|Cargo):\s*(.+?)(?:\n|$)/i);
+    if (cargoMatch) {
+        cargo = cargoMatch[1].split(/[\(\[\{]/)[0].trim();
     }
 
+    // Tahač
     let truck = "neznámé";
-    const truckPatterns = [
-        /(?:Tahač|Truck|Vehicle):\s*(.+?)(?:\n|$)/i,
-        /🚛\s*(.+?)(?:\n|$)/,
-        /Tahač:\s*\n\s*(.+?)(?:\n|$)/i
-    ];
-
-    for (const pattern of truckPatterns) {
-        const match = combinedText.match(pattern);
-        if (match && match[1].trim().length > 1) {
-            truck = match[1].trim();
-            break;
-        }
+    const truckMatch = combinedText.match(/(?:Tahač|Truck):\s*(.+?)(?:\n|$)/i);
+    if (truckMatch && truckMatch[1].trim().length > 1) {
+        truck = truckMatch[1].trim();
     }
 
     if (km < 50) return null;
@@ -844,12 +817,12 @@ const commands = [
         .addIntegerOption(o => o.setName("xp").setDescription("Počet XP (kladné pro přidání, záporné pro odečtení)").setRequired(true))
 ].map(c => c.toJSON());
 
-// ⬇️ CLIENT JE DEFINOVANÝ TADY ⬇️
+// ⬇️ CLIENT ⬇️
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
-// ⬇️ MESSAGE CREATE HANDLER - HNED ZA CLIENTEM ⬇️
+// ⬇️ MESSAGE CREATE HANDLER ⬇️
 client.on('messageCreate', async (m) => {
     if (m.channel.id !== CH_JOBS_1 && m.channel.id !== CH_JOBS_2) return;
 
@@ -1009,7 +982,7 @@ client.on("interactionCreate", async interaction => {
         if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
             const route = ROUTES[systemDb.currentDay - 1];
             const allowedCargos = route.cargos.map(normalizeStr);
-            const isEventCargo = allowedCargos.some(c => jobData.cargo.includes(c));
+            const isEventCargo = allowedCargos.some(c => jobData.cargo.includes(c) || c.includes(jobData.cargo));
             const isEventDest = jobData.dest.includes(normalizeStr(route.end));
             isEventRoute = isEventCargo && isEventDest;
         }
