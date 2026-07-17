@@ -499,46 +499,6 @@ async function processJobMessage(m) {
 }
 
 // ─────────────────────────────────────────────
-// MESSAGE CREATE HANDLER
-// ─────────────────────────────────────────────
-client.on('messageCreate', async (m) => {
-    if (m.channel.id !== CH_JOBS_1 && m.channel.id !== CH_JOBS_2) return;
-
-    const res = await processJobMessage(m);
-
-    if (res.status === 'added' && !res.userKey.startsWith('UNLINKED_')) {
-        if (res.secretCityFound) {
-            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, systemDb.secretExplorerUserId, res.userKey);
-            systemDb.secretExplorerUserId = res.userKey;
-            saveSystem();
-        }
-        if (res.isNewHunterDne) {
-            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, systemDb.hunterDneUserId, res.userKey);
-            systemDb.hunterDneUserId = res.userKey;
-            saveSystem();
-        }
-
-        const logCh = await client.channels.fetch(CH_LOG).catch(() => null);
-        if (logCh) {
-            let msg = `✅ **${res.driver}** dovezl/a zakázku (${res.jobData.km} km).`;
-            if (res.isEventRoute) msg += ` 🎯 Eventová trasa (+100 XP).`;
-            else msg += ` 🚚 Normální trasa (+50 XP).`;
-            if (res.isNewHunterDne) msg += ` 🏹 Získává titul **HUNTER DNE**!`;
-            if (res.isHappyHourJob) msg += ` 🌟 **HAPPY HOUR 1.5x XP!**`;
-            msg += ` Získal/a **+${res.earnedXP} XP**.`;
-            if (res.questCompleted) msg += ` 🏆 Splnil/a QUEST a získal/a **+${res.earnedQuestXP} XP**!`;
-            if (res.secretCityFound) msg += ` 🕵️‍♂️ **ODHALIL/A TAJNÉ MĚSTO (+1000 XP)**!`;
-
-            logCh.send(msg).catch(() => {});
-        }
-    }
-
-    if (res.status.startsWith('duplicate')) {
-        console.log(`🔄 Duplicitní zakázka ignorována: ${res.status}`);
-    }
-});
-
-// ─────────────────────────────────────────────
 // MECHANIKA TRAS A PROGRESS BARU
 // ─────────────────────────────────────────────
 async function announceDailyRoute(day) {
@@ -884,8 +844,46 @@ const commands = [
         .addIntegerOption(o => o.setName("xp").setDescription("Počet XP (kladné pro přidání, záporné pro odečtení)").setRequired(true))
 ].map(c => c.toJSON());
 
+// ⬇️ CLIENT JE DEFINOVANÝ TADY ⬇️
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+});
+
+// ⬇️ MESSAGE CREATE HANDLER - HNED ZA CLIENTEM ⬇️
+client.on('messageCreate', async (m) => {
+    if (m.channel.id !== CH_JOBS_1 && m.channel.id !== CH_JOBS_2) return;
+
+    const res = await processJobMessage(m);
+
+    if (res.status === 'added' && !res.userKey.startsWith('UNLINKED_')) {
+        if (res.secretCityFound) {
+            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, systemDb.secretExplorerUserId, res.userKey);
+            systemDb.secretExplorerUserId = res.userKey;
+            saveSystem();
+        }
+        if (res.isNewHunterDne) {
+            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, systemDb.hunterDneUserId, res.userKey);
+            systemDb.hunterDneUserId = res.userKey;
+            saveSystem();
+        }
+
+        const logCh = await client.channels.fetch(CH_LOG).catch(() => null);
+        if (logCh) {
+            let msg = `✅ **${res.driver}** dovezl/a zakázku (${res.jobData.km} km).`;
+            if (res.isEventRoute) msg += ` 🎯 Eventová trasa (+100 XP).`;
+            else msg += ` 🚚 Normální trasa (+50 XP).`;
+            if (res.isNewHunterDne) msg += ` 🏹 Získává titul **HUNTER DNE**!`;
+            if (res.isHappyHourJob) msg += ` 🌟 **HAPPY HOUR 1.5x XP!**`;
+            msg += ` Získal/a **+${res.earnedXP} XP**.`;
+            if (res.questCompleted) msg += ` 🏆 Splnil/a QUEST a získal/a **+${res.earnedQuestXP} XP**!`;
+            if (res.secretCityFound) msg += ` 🕵️‍♂️ **ODHALIL/A TAJNÉ MĚSTO (+1000 XP)**!`;
+            logCh.send(msg).catch(() => {});
+        }
+    }
+
+    if (res.status.startsWith('duplicate')) {
+        console.log(`🔄 Duplicitní zakázka ignorována: ${res.status}`);
+    }
 });
 
 // ─────────────────────────────────────────────
