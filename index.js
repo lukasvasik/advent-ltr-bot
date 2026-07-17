@@ -120,13 +120,13 @@ function getRandomQuestId() {
     return randomQ.id;
 }
 
-function getRandomDailyReward() {
+function getRandomDailyGoal() {
     const roll = Math.random() * 100;
-    if (roll <= 25) return "🎨 3x Paint Job dle výběru";
-    if (roll <= 40) return "🚚 3x Trailer // Tuning Pack dle výběru";
-    if (roll <= 45) return "🗺️ 1x Mapové DLC do 8,99 EUR";
-    if (roll <= 75) return "🚚 1x Trailer // Tuning Pack dle výběru";
-    return "🎨 1x Paint Job dle výběru";
+    if (roll <= 25) return { goal: 50 + Math.floor(Math.random() * 100), reward: "🎨 3x Paint Job dle výběru" };      // 25% - 50-150
+    if (roll <= 40) return { goal: 250, reward: "🚚 3x Trailer / Tuning Pack dle výběru" };                           // 15% - 250
+    if (roll <= 45) return { goal: 500, reward: "🗺️ 1x Mapové DLC do 8,99 EUR" };                                   // 5% - 500
+    if (roll <= 75) return { goal: 100 + Math.floor(Math.random() * 50), reward: "🚚 1x Trailer / Tuning Pack dle výběru" }; // 30% - 100-150
+    return { goal: 50, reward: "🎨 1x Paint Job dle výběru" };                                                       // 25% - 50
 }
 
 // ─────────────────────────────────────────────
@@ -223,7 +223,7 @@ function getUser(userId, tbName = null) {
 }
 
 // ─────────────────────────────────────────────
-// EXTRAKCE DAT ZAKÁZKY (OPRAVENO)
+// EXTRAKCE DAT ZAKÁZKY
 // ─────────────────────────────────────────────
 function extractJobData(text, title) {
     const combinedText = (title + "\n" + text).replace(/\*/g, '');
@@ -242,7 +242,6 @@ function extractJobData(text, title) {
     let origin = "neznámé";
     let dest = "neznámé";
     
-    // Pattern: Odkud\n:flag_xx: Město\nKam\n:flag_xx: Město
     const odkudMatch = combinedText.match(/Odkud\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
     const kamMatch = combinedText.match(/Kam\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
     
@@ -253,7 +252,6 @@ function extractJobData(text, title) {
         dest = kamMatch[1].trim();
     }
     
-    // Fallback: hledání všech vlajkových emoji s městy
     if (origin === "neznámé" || dest === "neznámé") {
         const flagCityPattern = /[\u{1F1E6}-\u{1F1FF}]{2}\s+([A-ZÁ-Ža-zá-ž\s\-]+)/gu;
         const matches = [...combinedText.matchAll(flagCityPattern)];
@@ -479,7 +477,10 @@ async function announceDailyRoute(day) {
     const route = ROUTES[day - 1];
     const uniqueCargos = [...new Set(route.cargos)];
 
-    systemDb.currentDailyRewardText = getRandomDailyReward();
+    // VYLOSUJ NÁHODNÝ CÍL A ODMĚNU
+    const dailyGoal = getRandomDailyGoal();
+    route.goal = dailyGoal.goal;
+    systemDb.currentDailyRewardText = dailyGoal.reward;
     saveSystem();
 
     const embed = new EmbedBuilder()
@@ -935,7 +936,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "odmeny") {
         const embed = new EmbedBuilder()
             .setTitle("🎁 Přehled denních odměn & šancí")
-            .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn:\n\n🎨 **25%** - 3x Paint Job dle výběru\n🚚 **15%** - 3x Trailer / Tuning Pack\n🗺️ **5%** - 1x Mapové DLC do 8,99 EUR\n🚚 **30%** - 1x Trailer / Tuning Pack\n🎨 **25%** - 1x Paint Job dle výběru")
+            .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn:\n\n🎨 **25%** - 3x Paint Job dle výběru (50-150 zakázek)\n🚚 **15%** - 3x Trailer / Tuning Pack (250 zakázek)\n🗺️ **5%** - 1x Mapové DLC do 8,99 EUR (500 zakázek)\n🚚 **30%** - 1x Trailer / Tuning Pack (100-150 zakázek)\n🎨 **25%** - 1x Paint Job dle výběru (50 zakázek)")
             .setColor(EVENT_COLOR);
         return interaction.reply({ embeds: [embed] });
     }
