@@ -182,7 +182,20 @@ const commands = [
     .addStringOption(o => o.setName("text").setDescription("Vlož text zakázky z bota").setRequired(true)),
   new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim bez ohledu na datum startu eventu."),
   new SlashCommandBuilder().setName("dev-reprocess").setDescription("🛠️ (DEV) Zpětně projde zakázky a uzná ty, co chyběly.")
-    .addStringOption(o => o.setName("kanal").setDescription("ID kanálu").setRequired(true))
+    .addStringOption(o => o.setName("kanal").setDescription("ID kanálu").setRequired(true)),
+
+  // NOUZOVÉ A ADMIN PŘÍKAZY
+  new SlashCommandBuilder().setName("admin-restore").setDescription("🛠️ ADMIN: Obnoví databázi z nahraných JSON souborů.")
+    .addAttachmentOption(o => o.setName("users_db").setDescription("Soubor users_db.json ze zálohy").setRequired(false))
+    .addAttachmentOption(o => o.setName("system_db").setDescription("Soubor system_db.json ze zálohy").setRequired(false)),
+  new SlashCommandBuilder().setName("admin-unlink").setDescription("🛠️ ADMIN: Smaže uživatele z databáze (odpojení linku).")
+    .addUserOption(o => o.setName("hrac").setDescription("Hráč k odpojení").setRequired(true)),
+  new SlashCommandBuilder().setName("admin-link").setDescription("🛠️ ADMIN: Ručně propojí hráče s TB nickem.")
+    .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true))
+    .addStringOption(o => o.setName("nick").setDescription("TrucksBook / Trucky Nick").setRequired(true)),
+  new SlashCommandBuilder().setName("admin-addxp").setDescription("🛠️ ADMIN: Přidá nebo odebere hráči XP.")
+    .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true))
+    .addIntegerOption(o => o.setName("xp").setDescription("Počet XP (kladné pro přidání, záporné pro odečtení)").setRequired(true))
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
@@ -198,11 +211,11 @@ function getNextSecretCityResetUnix() {
     const nextResetCz = new Date(czTime.getTime());
     if (czTime.getHours() >= 19) {
         nextResetCz.setDate(nextResetCz.getDate() + 1);
-        nextResetCz.setHours(7, 0, 0, 0); // Zítra v 7:00
+        nextResetCz.setHours(7, 0, 0, 0); 
     } else if (czTime.getHours() >= 7) {
-        nextResetCz.setHours(19, 0, 0, 0); // Dnes v 19:00
+        nextResetCz.setHours(19, 0, 0, 0); 
     } else {
-        nextResetCz.setHours(7, 0, 0, 0); // Dnes v 7:00
+        nextResetCz.setHours(7, 0, 0, 0); 
     }
     
     const msUntilReset = nextResetCz.getTime() - czTime.getTime();
@@ -230,7 +243,6 @@ function startNewSecretCity() {
     systemDb.secretCity = randomCity;
     systemDb.secretCityRevealed = new Array(randomCity.length).fill(false);
     
-    // Odhalí pouze jedno náhodné písmeno (které není mezera)
     const validIndices = [];
     for (let i = 0; i < randomCity.length; i++) {
         if (randomCity[i] !== ' ') validIndices.push(i);
@@ -273,7 +285,12 @@ async function announceSecretCityWordle() {
             .setTitle("🕵️‍♂️ Tajné Město bylo odhaleno!")
             .setDescription(`Gratulujeme! <@${systemDb.secretCityFoundBy}> rozluštil/a záhadu a dovezl/a náklad do města **${systemDb.secretCity}**! Získává bonus 1000 XP a titul **Secret Explorer**.\n\n⏳ Další město se objeví **<t:${resetUnix}:R>** (<t:${resetUnix}:t>).`)
             .setColor(0x00FF00);
-        return ch.send({ embeds: [embed] });
+            
+        const msgs = await ch.messages.fetch({ limit: 10 });
+        const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město (Wordle)!"));
+        
+        if (oldBotMsg) return oldBotMsg.edit({ embeds: [embed] });
+        else return ch.send({ embeds: [embed] });
     }
 
     let displayStr = "";
@@ -288,10 +305,14 @@ async function announceSecretCityWordle() {
         .setDescription(`Doruč libovolný náklad (delší než 500 km) do tohoto města jako první a získej obří bonus **1000 XP** a titul **Secret Explorer**!\n\n⏳ **Čas do změny města:** <t:${resetUnix}:R> (<t:${resetUnix}:t>)\n💡 Nápověda se odkrývá každé 3 hodiny.\n\nMěsto: ${displayStr}`)
         .setColor(0x8A2BE2);
     
-    const msgs = await ch.messages.fetch({ limit: 5 });
-    const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
-    if (oldBotMsg) await oldBotMsg.delete().catch(()=>null);
-    ch.send({ embeds: [embed] });
+    const msgs = await ch.messages.fetch({ limit: 10 });
+    const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město (Wordle)!"));
+    
+    if (oldBotMsg) {
+        await oldBotMsg.edit({ embeds: [embed] }).catch(()=>null);
+    } else {
+        await ch.send({ embeds: [embed] });
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -310,11 +331,9 @@ function extractJobData(text, title) {
     let origin = "neznáme";
     let dest = "neznáme";
     
-    // Zkouška na formát "KAM: Město" nebo "Destination: Město"
     const kamMatch = combinedText.match(/(?:KAM|Destination|do):\s*([a-zA-Zá-žÁ-Ž ]+)/i);
     if (kamMatch) dest = kamMatch[1].trim();
 
-    // Zkouška na TrucksBook tabulku
     const tbCitiesMatch = combinedText.match(/Odkud\s*Kam\n(?:.*?\s+)?(.*?)\s+(?:.*?\s+)?(.*)\n/i);
     if (tbCitiesMatch && dest === "neznáme") {
         origin = tbCitiesMatch[1].replace(/🚚|🏁|🚩/g, '').trim();
@@ -332,7 +351,6 @@ function extractJobData(text, title) {
     const truckMatch = combinedText.match(/(?:Tahač|Truck):\s*([a-zA-Z0-9 -]+)/i);
     if (truckMatch) truck = truckMatch[1].trim();
 
-    // Teleport prevence: méně než 50 km se ignoruje
     if (km < 50) return null;
 
     return {
@@ -365,7 +383,6 @@ async function processJobMessage(m) {
         return driverNorm.includes(dbNick) || dbNick.includes(driverNorm);
     });
 
-    // AUTOLINK logic (Prohledání Discord Members, pokud nenajde spojení v databázi)
     if (!userKey && m.guild) {
         try {
             const cachedMembers = m.guild.members.cache;
@@ -386,12 +403,11 @@ async function processJobMessage(m) {
     }
 
     let isEventRoute = false;
-    let earnedXP = 50; // Základní XP pro obyčejnou zakázku mimo event trasu
+    let earnedXP = 50; 
     let isHappyHourJob = false;
     let secretCityFound = false;
     let isNewHunterDne = false;
 
-    // Kontrola Tajného Města
     if (systemDb.secretCity && !systemDb.secretCityFoundBy && jobData.dest.includes(normalizeStr(systemDb.secretCity)) && jobData.km >= 500) {
         secretCityFound = true;
         earnedXP += 1000;
@@ -402,15 +418,13 @@ async function processJobMessage(m) {
         }
     }
 
-    // Kontrola Denní Trasy
     if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
         const dailyRoute = ROUTES[systemDb.currentDay - 1];
         const allowedCargosNorm = dailyRoute.cargos.map(normalizeStr);
         
-        // Cíl a náklad se shodují (km nezajímá, pokud je > 50 coz resi extractJobData)
         if (jobData.dest.includes(normalizeStr(dailyRoute.end)) && allowedCargosNorm.some(c => jobData.cargo.includes(c))) {
             isEventRoute = true;
-            earnedXP = 100; // Eventová zakázka má základ 100 XP
+            earnedXP = 100; 
             u.eventJobs += 1;
             systemDb.communityJobsToday += 1;
             if (!u.completedRoutesDays.includes(systemDb.currentDay)) u.completedRoutesDays.push(systemDb.currentDay);
@@ -424,7 +438,6 @@ async function processJobMessage(m) {
         }
     }
 
-    // Happy Hour se vztahuje POUZE na eventové zakázky
     if (isEventRoute && Date.now() < systemDb.hhActiveUntil) {
         isHappyHourJob = true;
         earnedXP = Math.floor(earnedXP * 1.5);
@@ -436,7 +449,6 @@ async function processJobMessage(m) {
     u.recentJobHashes.push(jobHash);
     if (u.recentJobHashes.length > 10) u.recentJobHashes.shift(); 
 
-    // GACHA Quest systém
     let questCompleted = false;
     let earnedQuestXP = 0;
     const q = QUESTS.find(quest => quest.id === u.currentQuestId);
@@ -469,7 +481,6 @@ async function processJobMessage(m) {
 }
 
 client.on('messageCreate', async (m) => {
-    // Pro live poslech z obou kanálů
     if (m.channel.id !== CH_JOBS_1 && m.channel.id !== CH_JOBS_2) return;
     const res = await processJobMessage(m);
     
@@ -507,7 +518,7 @@ async function announceDailyRoute(day) {
     if (day > 8) return; 
 
     const route = ROUTES[day - 1];
-    const uniqueCargos = [...new Set(route.cargos)]; // Odstraní duplicity
+    const uniqueCargos = [...new Set(route.cargos)];
     
     systemDb.currentDailyRewardText = getRandomDailyReward();
     saveSystem();
@@ -554,7 +565,7 @@ async function updateCommunityProgressBar(forceNew = false) {
     }
 
     const msgs = await annCh.messages.fetch({ limit: 10 });
-    const botMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Komunitní Gól"));
+    const botMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes(`Komunitní Gól - Den ${systemDb.currentDay}`));
 
     if (botMsg && !forceNew) await botMsg.edit({ embeds: [embed] });
     else await annCh.send({ embeds: [embed] });
@@ -629,7 +640,6 @@ async function checkMilestoneRoles(userId) {
         const u = usersDb[userId];
         if (!u) return;
         const guild = await client.guilds.fetch(GUILD_ID);
-        // Force fetch pro zajištění správného vyhodnocení stavu rolí
         const member = await guild.members.fetch({ user: userId, force: true });
         const logCh = await client.channels.fetch(CH_LOG);
 
@@ -654,7 +664,6 @@ async function checkMilestoneRoles(userId) {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  // PROFIL
   if (interaction.commandName === "profil") {
       const targetUser = interaction.options.getUser("hrac") || interaction.user;
       const u = usersDb[targetUser.id];
@@ -674,7 +683,6 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
   }
 
-  // LINK
   if (interaction.commandName === "link") {
       const nick = interaction.options.getString("nick");
       const u = getUser(interaction.user.id, nick);
@@ -683,7 +691,6 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `✅ Tvůj Discord byl úspěšně propojen s TrucksBook nickem **${nick}**.`, ephemeral: true });
   }
 
-  // QUEST SKIP
   if (interaction.commandName === "quest-skip") {
       const u = getUser(interaction.user.id, interaction.user.username);
       if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil/a. Další skip bude možný až po 19:00.", ephemeral: true });
@@ -697,7 +704,6 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `✅ Quest byl přeskočen! Tvůj nový úkol:\n**${q ? q.desc : "Neznámý"}**`, ephemeral: true });
   }
 
-  // ODMENY
   if (interaction.commandName === "odmeny") {
       const embed = new EmbedBuilder()
           .setTitle("🎁 Přehled denních odměn & šancí")
@@ -711,11 +717,17 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
   }
 
-  // LEADERBOARD
   if (interaction.commandName === "leaderboard") {
       const kategorie = interaction.options.getString("kategorie");
       const sorted = Object.values(usersDb)
-          .filter(u => !u.id.startsWith("UNLINKED_"))
+          .filter(u => {
+              if (u.id.startsWith("UNLINKED_")) return false;
+              if (kategorie === "xp" && u.xp === 0) return false;
+              if (kategorie === "km" && u.km === 0) return false;
+              if (kategorie === "jobs" && u.eventJobs === 0) return false;
+              if (kategorie === "quests" && u.completedQuests === 0) return false;
+              return true; 
+          })
           .sort((a, b) => {
               if (kategorie === "xp") return b.xp - a.xp;
               if (kategorie === "km") return b.km - a.km;
@@ -724,7 +736,7 @@ client.on("interactionCreate", async interaction => {
               return 0;
           }).slice(0, 10);
 
-      if (sorted.length === 0) return interaction.reply({ content: "Žebříček je zatím prázdný.", ephemeral: true });
+      if (sorted.length === 0) return interaction.reply({ content: "Žebříček je zatím prázdný. Nikdo ještě nezískal žádné body!", ephemeral: true });
 
       let desc = "";
       sorted.forEach((u, index) => {
@@ -743,7 +755,6 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
   }
 
-  // TESTOVACÍ ČTENÍ
   if (interaction.commandName === "test-cteni") {
       const text = interaction.options.getString("text");
       const jobData = extractJobData(text, "TEST ZAKÁZKA");
@@ -769,6 +780,87 @@ client.on("interactionCreate", async interaction => {
           .setColor(0x00FF00);
           
       return interaction.reply({ embeds: [embed], ephemeral: true });
+  }
+
+  // ----------------------------------------------------------------------
+  // NOUZOVÉ A ADMIN PŘÍKAZY
+  // ----------------------------------------------------------------------
+  
+  if (interaction.commandName === "admin-restore") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      const usersFile = interaction.options.getAttachment("users_db");
+      const systemFile = interaction.options.getAttachment("system_db");
+
+      if (!usersFile && !systemFile) {
+          return interaction.editReply("❌ Nebyl nahrán žádný soubor k obnově.");
+      }
+
+      let msg = "";
+      try {
+          if (usersFile) {
+              const res = await fetch(usersFile.url);
+              const data = await res.json();
+              usersDb = data;
+              saveUsers();
+              msg += "✅ `users_db.json` byla úspěšně obnovena a načtena do paměti.\n";
+          }
+          if (systemFile) {
+              const res = await fetch(systemFile.url);
+              const data = await res.json();
+              systemDb = data;
+              saveSystem();
+              msg += "✅ `system_db.json` byla úspěšně obnovena a načtena do paměti.\n";
+          }
+          
+          msg += "\n💡 **Doporučení:** Pokud proběhly nějaké zakázky mezitím, co jsi zálohu stahoval a teď nahrál, použij `/dev-reprocess` pro jejich dopsání.";
+          return interaction.editReply(msg);
+      } catch (error) {
+          console.error(error);
+          return interaction.editReply("❌ Při stahování nebo zpracování souboru došlo k chybě (Zkontroluj, zda nahráváš platný JSON).");
+      }
+  }
+
+  if (interaction.commandName === "admin-unlink") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
+      const targetUser = interaction.options.getUser("hrac");
+      
+      if (usersDb[targetUser.id]) {
+          delete usersDb[targetUser.id];
+          saveUsers();
+          return interaction.reply({ content: `✅ Záznam hráče **${targetUser.username}** byl vymazán z databáze (úspěšný unlink). Nyní se může zapsat znovu přes /link.`, ephemeral: true });
+      } else {
+          return interaction.reply({ content: `❌ Uživatel **${targetUser.username}** nemá žádný aktivní profil.`, ephemeral: true });
+      }
+  }
+
+  if (interaction.commandName === "admin-link") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
+      const targetUser = interaction.options.getUser("hrac");
+      const nick = interaction.options.getString("nick");
+      
+      const u = getUser(targetUser.id, nick);
+      u.tbName = nick;
+      saveUsers();
+      return interaction.reply({ content: `✅ Hráč **${targetUser.username}** byl úspěšně ručně propojen s nickem **${nick}**.`, ephemeral: true });
+  }
+
+  if (interaction.commandName === "admin-addxp") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
+      const targetUser = interaction.options.getUser("hrac");
+      const xpToAdd = interaction.options.getInteger("xp");
+      
+      const u = getUser(targetUser.id, targetUser.username);
+      u.xp += xpToAdd;
+      saveUsers();
+      
+      // Zkontroluje, jestli zisk XP nepřekročil milník
+      await checkMilestoneRoles(targetUser.id);
+      
+      return interaction.reply({ content: `✅ Hráči **${u.tbName}** bylo přidáno (nebo odečteno) **${xpToAdd} XP**. Jeho aktuální stav je **${u.xp} XP**.`, ephemeral: true });
   }
 
   // DEV OVERRIDE
@@ -798,9 +890,7 @@ client.on("interactionCreate", async interaction => {
       let validCount = 0;
       
       try {
-          // Stáhne posledních 100 zpráv
           const messages = await targetChannel.messages.fetch({ limit: 100 });
-          // Zpracuje od nejstarší po nejnovější pro správný flow (Role/Goals)
           const msgArray = Array.from(messages.values()).reverse();
 
           for (const msg of msgArray) {
@@ -818,7 +908,6 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-// REGISTRACE PŘÍKAZŮ PŘI SPUŠTĚNÍ
 client.on("ready", async () => {
     console.log(`Bot úspěšně běží jako ${client.user.tag}`);
     try {
@@ -826,17 +915,14 @@ client.on("ready", async () => {
         await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
         console.log("Slash příkazy byly úspěšně zaregistrovány na Discordu.");
         
-        // Cache načtení členů do paměti po startu pro Autolink
         const guild = client.guilds.cache.get(GUILD_ID);
         if (guild) await guild.members.fetch();
 
-        // Obnova Tajného Města po restartu z databáze
         const scCh = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
         if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) {
             const msgs = await scCh.messages.fetch({ limit: 10 });
             const oldMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
             if (!oldMsg) {
-                // Pokud zpráva náhodou zmizela, znovu ji pošle s aktuálním progresem, nové slovo nelosuje
                 announceSecretCityWordle();
             }
         }
