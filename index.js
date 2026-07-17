@@ -664,7 +664,7 @@ client.on("interactionCreate", async interaction => {
       }
 
       const embed = new EmbedBuilder()
-          .setTitle(`👤 Řidičák: ${targetUser.username}`)
+          .setTitle(`👤 Řidič: ${targetUser.username}`)
           .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
           .setColor(EVENT_COLOR)
           .addFields(
@@ -705,7 +705,7 @@ client.on("interactionCreate", async interaction => {
                           "• 3x Trailer // Tuning Pack\n" +
                           "• 9x Window Flags DLC\n" +
                           "• 5x 10th Anniversary Paint Job Set\n\n" +
-                          "**🎯 KOMUNITNÍ ODMIĚNY (Za denní góly)**\n" +
+                          "**🎯 KOMUNITNÍ ODMĚNY (Za denní góly)**\n" +
                           "Každý den se na začátku vyhlášení trasy losuje, o co se pojede. Odměna padne pouze, pokud komunita splní společný počet zakázek (Goal).\n\n" +
                           "**Šance při losování 3 ks výhry:**\n" +
                           "• 25 % šance: 3x Paint Job\n" +
@@ -716,7 +716,8 @@ client.on("interactionCreate", async interaction => {
                           "• 5 % šance: 1x Mapové DLC (do 8,99 EUR)")
           .setColor(EVENT_COLOR);
       
-      interaction.reply({ embeds: [embed], files: ["NAROZKYODMĚNY.jpg"] });
+      // Zde odebráno problematické pole 'files' pro obrázek!
+      interaction.reply({ embeds: [embed] });
   }
 
   if (interaction.commandName === "link") {
