@@ -167,6 +167,7 @@ const normalizeStr = (str) => str ? str.normalize("NFD").replace(/[\u0300-\u036f
 const commands = [
   new SlashCommandBuilder().setName("profil").setDescription("Zobrazí tvůj nebo cizí profil v eventu.")
     .addUserOption(o => o.setName("hrac").setDescription("Vyber hráče (volitelné)").setRequired(false)),
+  new SlashCommandBuilder().setName("quest").setDescription("Zobrazí tvůj aktuální quest a jeho postup."),
   new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook/Trucky nickem.")
     .addStringOption(o => o.setName("nick").setDescription("Tvůj nick").setRequired(true)),
   new SlashCommandBuilder().setName("quest-skip").setDescription("Přeskočí aktuální quest a vylosuje ti jiný (1x denně zdarma)."),
@@ -183,8 +184,6 @@ const commands = [
   new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim bez ohledu na datum startu eventu."),
   new SlashCommandBuilder().setName("dev-reprocess").setDescription("🛠️ (DEV) Zpětně projde zakázky a uzná ty, co chyběly.")
     .addStringOption(o => o.setName("kanal").setDescription("ID kanálu").setRequired(true)),
-
-  // NOUZOVÉ A ADMIN PŘÍKAZY
   new SlashCommandBuilder().setName("admin-restore").setDescription("🛠️ ADMIN: Obnoví databázi z nahraných JSON souborů.")
     .addAttachmentOption(o => o.setName("users_db").setDescription("Soubor users_db.json ze zálohy").setRequired(false))
     .addAttachmentOption(o => o.setName("system_db").setDescription("Soubor system_db.json ze zálohy").setRequired(false)),
@@ -233,9 +232,7 @@ async function transferRole(guildId, roleId, oldUserId, newUserId) {
             const newMember = await guild.members.fetch(newUserId).catch(()=>null);
             if (newMember) await newMember.roles.add(roleId).catch(()=>null);
         }
-    } catch(e) {
-        console.error("Chyba při transferu role:", e);
-    }
+    } catch(e) {}
 }
 
 function startNewSecretCity() {
@@ -564,10 +561,15 @@ async function updateCommunityProgressBar(forceNew = false) {
         annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme, kdo získá **${systemDb.currentDailyRewardText}**!`);
     }
 
+    if (forceNew) {
+        await annCh.send({ embeds: [embed] });
+        return;
+    }
+
     const msgs = await annCh.messages.fetch({ limit: 10 });
     const botMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes(`Komunitní Gól - Den ${systemDb.currentDay}`));
 
-    if (botMsg && !forceNew) await botMsg.edit({ embeds: [embed] });
+    if (botMsg) await botMsg.edit({ embeds: [embed] });
     else await annCh.send({ embeds: [embed] });
 }
 
@@ -680,6 +682,34 @@ client.on("interactionCreate", async interaction => {
               { name: "🎯 Aktuální Quest", value: q ? `${q.desc}\nProgres: ${u.questProgress} / ${q.targetCount || q.targetKm || q.target}` : "Žádný", inline: false }
           )
           .setColor(EVENT_COLOR);
+      return interaction.reply({ embeds: [embed] });
+  }
+
+  // NOVÝ PŘÍKAZ /QUEST
+  if (interaction.commandName === "quest") {
+      const u = getUser(interaction.user.id, interaction.user.username);
+      const q = QUESTS.find(quest => quest.id === u.currentQuestId);
+      
+      if (!q) return interaction.reply({ content: "❌ Nepodařilo se načíst tvůj quest.", ephemeral: true });
+
+      let tierColor = 0xFFFFFF;
+      let tierName = "Běžný";
+      if (q.tier === "common") { tierColor = 0x808080; tierName = "⚪ Běžný (Common)"; }
+      if (q.tier === "rare") { tierColor = 0x0070FF; tierName = "🔵 Vzácný (Rare)"; }
+      if (q.tier === "epic") { tierColor = 0xA335EE; tierName = "🟣 Epický (Epic)"; }
+
+      const targetRequired = q.targetCount || q.targetKm || q.target;
+      const progressPercent = Math.min(100, Math.floor((u.questProgress / targetRequired) * 100));
+
+      const embed = new EmbedBuilder()
+          .setTitle(`🎯 Tvůj aktuální quest`)
+          .setDescription(`**${q.desc}**\n\n` +
+                          `📊 **Postup:** ${u.questProgress} / ${targetRequired} (${progressPercent}%)\n` +
+                          `🎁 **Odměna:** ${q.reward} XP\n` +
+                          `⭐ **Rarita:** ${tierName}`)
+          .setColor(tierColor)
+          .setFooter({ text: "Pokud ti úkol nevyhovuje, můžeš ho 1x denně přeskočit pomocí /quest-skip" });
+
       return interaction.reply({ embeds: [embed] });
   }
 
@@ -814,13 +844,16 @@ client.on("interactionCreate", async interaction => {
               systemDb = data;
               saveSystem();
               msg += "✅ `system_db.json` byla úspěšně obnovena a načtena do paměti.\n";
+              
+              await updateCommunityProgressBar(true); 
+              await announceSecretCityWordle();       
           }
           
-          msg += "\n💡 **Doporučení:** Pokud proběhly nějaké zakázky mezitím, co jsi zálohu stahoval a teď nahrál, použij `/dev-reprocess` pro jejich dopsání.";
+          msg += "\n💡 **Nástěnky byly obnoveny.** Doporučuji v kanálech ručně smazat ty původní špatné zprávy s progresem a městem, ať tam nestraší dvě naráz. Nyní spusť `/dev-reprocess` pro dopsání ušlých zakázek.";
           return interaction.editReply(msg);
       } catch (error) {
           console.error(error);
-          return interaction.editReply("❌ Při stahování nebo zpracování souboru došlo k chybě (Zkontroluj, zda nahráváš platný JSON).");
+          return interaction.editReply("❌ Při stahování nebo zpracování souboru došlo k chybě.");
       }
   }
 
@@ -857,9 +890,7 @@ client.on("interactionCreate", async interaction => {
       u.xp += xpToAdd;
       saveUsers();
       
-      // Zkontroluje, jestli zisk XP nepřekročil milník
       await checkMilestoneRoles(targetUser.id);
-      
       return interaction.reply({ content: `✅ Hráči **${u.tbName}** bylo přidáno (nebo odečteno) **${xpToAdd} XP**. Jeho aktuální stav je **${u.xp} XP**.`, ephemeral: true });
   }
 
@@ -872,7 +903,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: `🛠️ Testovací režim (DEV) byl přepnut na: **${isDevMode ? "ZAPNUTO" : "VYPNUTO"}**.`, ephemeral: true });
   }
 
-  // DEV REPROCESS
+  // DEV REPROCESS - STRÁNKOVÁNÍ
   if (interaction.commandName === "dev-reprocess") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
           return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
@@ -888,22 +919,34 @@ client.on("interactionCreate", async interaction => {
 
       let processedCount = 0;
       let validCount = 0;
+      let lastId;
+      let allMessages = [];
       
       try {
-          const messages = await targetChannel.messages.fetch({ limit: 100 });
-          const msgArray = Array.from(messages.values()).reverse();
+          for (let i = 0; i < 5; i++) {
+              const options = { limit: 100 };
+              if (lastId) options.before = lastId;
+              
+              const fetched = await targetChannel.messages.fetch(options);
+              if (fetched.size === 0) break;
+              
+              allMessages.push(...fetched.values());
+              lastId = fetched.last().id;
+          }
 
-          for (const msg of msgArray) {
+          allMessages.reverse();
+
+          for (const msg of allMessages) {
               if (msg.embeds.length > 0) {
                   const result = await processJobMessage(msg);
                   processedCount++;
                   if (result.status === 'added') validCount++;
               }
           }
-          return interaction.editReply(`✅ Zpětná analýza dokončena. Zkontrolováno zpráv: **${processedCount}**. Nově zpracovaných a uznaných zakázek: **${validCount}**.`);
+          return interaction.editReply(`✅ Zpětná analýza dokončena. Zkontrolováno zpráv: **${processedCount}** (Historie navýšena). Nově zpracovaných a uznaných zakázek: **${validCount}**.`);
       } catch (error) {
           console.error(error);
-          return interaction.editReply("❌ Došlo k chybě při načítání historie zpráv.");
+          return interaction.editReply("❌ Došlo k chybě při načítání rozsáhlé historie zpráv.");
       }
   }
 });
