@@ -57,7 +57,7 @@ const PROGRESS_BAR_IMAGES = [
 ];
 
 const ROUTES = [
-    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje", "Nápoje"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", desc: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
+    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", desc: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
     { day: 2, start: "Hamburk", end: "Brno", cargos: ["Potřeby ke stolování"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png", desc: "Po zajištění občerstvení je potřeba připravit zázemí pro hosty. V Hamburku byly naloženy potřeby ke stolování, které budou využity při slavnostním občerstvení během oslav narozenin." },
     { day: 3, start: "Bratislava", end: "Brno", cargos: ["Květiny a stromy", "Řezané květiny"], goal: 150, img: "https://i.imgur.com/lymELya.png", desc: "Chceme, aby byla letošní oslava opravdu výjimečná. Ve spolupráci s floristy byla připravena rozsáhlá květinová výzdoba, kterou je nyní potřeba bezpečně dopravit z Bratislavy." },
     { day: 4, start: "Štětín", end: "Brno", cargos: ["Hračky"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png", desc: "Na oslavu byli pozváni také rodinní příslušníci a nejmladší návštěvníci. Proto bylo rozhodnuto připravit speciální zábavnou zónu. Vaším úkolem je přepravit vybavení a dárky určené pro dětské návštěvníky." },
@@ -271,7 +271,7 @@ async function announceSecretCityWordle() {
     if (systemDb.secretCityFoundBy) {
         const embed = new EmbedBuilder()
             .setTitle("🕵️‍♂️ Tajné Město bylo odhaleno!")
-            .setDescription(`Gratulujeme! <@${systemDb.secretCityFoundBy}> rozluštil záhadu a dovezl náklad do města **${systemDb.secretCity}**! Získává bonus 1000 XP a titul **Secret Explorer**.\n\n⏳ Další město se objeví **<t:${resetUnix}:R>** (<t:${resetUnix}:t>).`)
+            .setDescription(`Gratulujeme! <@${systemDb.secretCityFoundBy}> rozluštil/a záhadu a dovezl/a náklad do města **${systemDb.secretCity}**! Získává bonus 1000 XP a titul **Secret Explorer**.\n\n⏳ Další město se objeví **<t:${resetUnix}:R>** (<t:${resetUnix}:t>).`)
             .setColor(0x00FF00);
         return ch.send({ embeds: [embed] });
     }
@@ -487,14 +487,14 @@ client.on('messageCreate', async (m) => {
 
         const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
         if (logCh) {
-            let msg = `✅ **${res.driver}** dovezl zakázku (${res.km} km).`;
+            let msg = `✅ **${res.driver}** dovezl/a zakázku (${res.km} km).`;
             if (res.isEventRoute) msg += ` 🎯 Eventová trasa (+ XP).`;
             else msg += ` 🚚 Normální trasa (Snížené XP).`;
             if (res.isNewHunterDne) msg += ` 🏹 Získává titul **HUNTER DNE**!`;
             if (res.isHappyHourJob) msg += ` 🌟 **HAPPY HOUR 1.5x XP!**`;
-            msg += ` Získal **+${res.earnedXP} XP**.`;
-            if (res.questCompleted) msg += ` 🏆 Splnil QUEST a získal **+${res.earnedQuestXP} XP** (Byl mu vylosován nový)!`;
-            if (res.secretCityFound) msg += ` 🕵️‍♂️ **ODHALIL TAJNÉ MĚSTO (+1000 XP) a získal titul SECRET EXPLORER!**`;
+            msg += ` Získal/a **+${res.earnedXP} XP**.`;
+            if (res.questCompleted) msg += ` 🏆 Splnil/a QUEST a získal/a **+${res.earnedQuestXP} XP** (Byl vylosován nový)!`;
+            if (res.secretCityFound) msg += ` 🕵️‍♂️ **ODHALIL/A TAJNÉ MĚSTO (+1000 XP) a získal/a titul SECRET EXPLORER!**`;
             logCh.send(msg);
         }
     }
@@ -507,19 +507,21 @@ async function announceDailyRoute(day) {
     if (day > 8) return; 
 
     const route = ROUTES[day - 1];
+    const uniqueCargos = [...new Set(route.cargos)]; // Odstraní duplicity
     
     systemDb.currentDailyRewardText = getRandomDailyReward();
     saveSystem();
 
     const embed = new EmbedBuilder()
         .setTitle(`🚚 EVENT DEN ${day}/8: Nová trasa vyhlášena!`)
-        .setDescription(`**${route.desc}**\n\n` +
+        .setDescription(`${route.desc}\n\n` +
                         `📍 **Odkud:** ${route.start}\n` +
                         `🏁 **Kam:** ${route.end}\n` +
-                        `📦 **Povolené náklady:**\n${route.cargos.map(c => `• ${c}`).join('\n')}\n\n` +
-                        `🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek!\n` +
-                        `🎁 **Odměna kom. cíle:** Systém vylosoval **${systemDb.currentDailyRewardText}**!\n` +
-                        `🏹 První, kdo doručí, získá roli **HUNTER DNE**!`)
+                        `📦 **Povolené náklady:** ${uniqueCargos.join(', ')}\n\n` +
+                        `---\n` +
+                        `🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek\n` +
+                        `🎁 **Odměna:** ${systemDb.currentDailyRewardText}\n` +
+                        `🏹 **Bonus:** Kdo doručí jako první, získá roli **HUNTER DNE**!`)
         .setImage(route.img)
         .setColor(EVENT_COLOR);
 
@@ -543,12 +545,12 @@ async function updateCommunityProgressBar(forceNew = false) {
 
     const embed = new EmbedBuilder()
         .setTitle(`📊 Komunitní Gól - Den ${systemDb.currentDay}`)
-        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${percent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText}`)
+        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${percent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText}\n\n*(Aktualizuje se ihned po každé uznané zakázce)*`)
         .setImage(imgUrl)
         .setColor(EVENT_COLOR);
 
     if (systemDb.communityJobsToday === route.goal && !forceNew) {
-        annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme výherce **${systemDb.currentDailyRewardText}**!`);
+        annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme, kdo získá **${systemDb.currentDailyRewardText}**!`);
     }
 
     const msgs = await annCh.messages.fetch({ limit: 10 });
@@ -581,7 +583,7 @@ setInterval(() => {
         systemDb.eventClosedAnnounced = true;
         saveSystem();
         client.channels.fetch(CH_ROUTES).then(ch => {
-            ch.send("🏁 **EVENT JE OFICIÁLNĚ U KONCE!** 🏁\n\nDěkujeme všem za účast! Přijímání zakázek bylo právě ukončeno. Nyní zpracováváme data a vyhlášení vítězů proběhne po 20:00!");
+            ch.send("🏁 **EVENT JE OFICIÁLNĚ U KONCE!** 🏁\n\nDěkujeme všem za účast! Přijímání zakázek bylo právě ukončeno. Nyní zpracováváme data a vyhlášení výsledků proběhne po 20:00!");
         }).catch(()=>null);
         return; 
     }
@@ -633,15 +635,15 @@ async function checkMilestoneRoles(userId) {
 
         if (u.xp >= 10000 && !member.roles.cache.has(ROLE_KING)) {
             await member.roles.add(ROLE_KING);
-            logCh.send(`👑 <@${userId}> dosáhl 10 000 XP a získává roli **Výroční Král**!`);
+            logCh.send(`👑 <@${userId}> dosáhl/a 10 000 XP a získává roli **Výroční Král**!`);
         }
         if (u.completedQuests >= 10 && !member.roles.cache.has(ROLE_QUESTMASTER)) {
             await member.roles.add(ROLE_QUESTMASTER);
-            logCh.send(`📜 <@${userId}> splnil 10 úkolů a stává se z něj **Quest Master**!`);
+            logCh.send(`📜 <@${userId}> splnil/a 10 úkolů a získává roli **Quest Master**!`);
         }
         if (u.completedRoutesDays.length >= 4 && !member.roles.cache.has(ROLE_3RD_ANNIVERSARY)) {
             await member.roles.add(ROLE_3RD_ANNIVERSARY);
-            logCh.send(`🎉 <@${userId}> absolvoval polovinu eventu a získává roli **3rd Anniversary**!`);
+            logCh.send(`🎉 <@${userId}> absolvoval/a polovinu eventu a získává roli **3rd Anniversary**!`);
         }
     } catch(e) {}
 }
@@ -656,7 +658,7 @@ client.on("interactionCreate", async interaction => {
   if (interaction.commandName === "profil") {
       const targetUser = interaction.options.getUser("hrac") || interaction.user;
       const u = usersDb[targetUser.id];
-      if (!u) return interaction.reply({ content: "❌ Tento hráč nemá v eventu žádný profil.", ephemeral: true });
+      if (!u) return interaction.reply({ content: "❌ Tento profil v eventu zatím neexistuje.", ephemeral: true });
       const q = QUESTS.find(quest => quest.id === u.currentQuestId);
       
       const embed = new EmbedBuilder()
@@ -684,7 +686,7 @@ client.on("interactionCreate", async interaction => {
   // QUEST SKIP
   if (interaction.commandName === "quest-skip") {
       const u = getUser(interaction.user.id, interaction.user.username);
-      if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil. Další skip bude možný až po 19:00.", ephemeral: true });
+      if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil/a. Další skip bude možný až po 19:00.", ephemeral: true });
       
       u.currentQuestId = getRandomQuestId();
       u.questProgress = 0;
@@ -699,7 +701,7 @@ client.on("interactionCreate", async interaction => {
   if (interaction.commandName === "odmeny") {
       const embed = new EmbedBuilder()
           .setTitle("🎁 Přehled denních odměn & šancí")
-          .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn pro náhodného řidiče, co dnes odjel trasu:\n\n" +
+          .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn pro náhodného účastníka eventu, který dnes dokončil trasu:\n\n" +
                           "🎨 **25%** - 3x Paint Job dle výběru\n" +
                           "🚚 **15%** - 3x Trailer // Tuning Pack dle výběru\n" +
                           "🗺️ **5%** - 1x Mapové DLC do 8,99 EUR\n" +
@@ -827,6 +829,18 @@ client.on("ready", async () => {
         // Cache načtení členů do paměti po startu pro Autolink
         const guild = client.guilds.cache.get(GUILD_ID);
         if (guild) await guild.members.fetch();
+
+        // Obnova Tajného Města po restartu z databáze
+        const scCh = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
+        if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) {
+            const msgs = await scCh.messages.fetch({ limit: 10 });
+            const oldMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
+            if (!oldMsg) {
+                // Pokud zpráva náhodou zmizela, znovu ji pošle s aktuálním progresem, nové slovo nelosuje
+                announceSecretCityWordle();
+            }
+        }
+
     } catch (error) {
         console.error(error);
     }
