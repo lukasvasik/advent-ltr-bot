@@ -14,10 +14,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const USERS_PATH = path.join(__dirname, 'users_db.json');
 const SYSTEM_PATH = path.join(__dirname, 'system_db.json');
-const BACKUP_PATH = path.join(__dirname, 'backups');
-
-// Zajistíme složku pro zálohy
-if (!fs.existsSync(BACKUP_PATH)) fs.mkdirSync(BACKUP_PATH, { recursive: true });
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -145,17 +141,16 @@ let systemDb = {
     eventClosedAnnounced: false, globalProcessedJobs: [], globalJobHashes: []
 };
 
-// Načtení existujících databází
 function loadDatabases() {
     try {
         if (fs.existsSync(USERS_PATH)) {
             usersDb = JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
-            console.log(`✅ Načteno ${Object.keys(usersDb).length} uživatelů z users_db.json`);
+            console.log(`✅ Načteno ${Object.keys(usersDb).length} uživatelů`);
         }
         if (fs.existsSync(SYSTEM_PATH)) {
             const loadedSystem = JSON.parse(fs.readFileSync(SYSTEM_PATH, 'utf8'));
             systemDb = { ...systemDb, ...loadedSystem };
-            console.log(`✅ Načten systémový stav ze system_db.json (den ${systemDb.currentDay})`);
+            console.log(`✅ Načten systémový stav (den ${systemDb.currentDay})`);
         }
     } catch (error) {
         console.error('❌ Chyba při načítání databází:', error);
@@ -179,7 +174,7 @@ const saveSystem = () => {
 };
 
 // ─────────────────────────────────────────────
-// VYLEPŠENÁ NORMALIZACE TEXTU
+// NORMALIZACE TEXTU
 // ─────────────────────────────────────────────
 const normalizeStr = (str) => {
     if (!str) return "";
@@ -193,7 +188,7 @@ const normalizeStr = (str) => {
 };
 
 // ─────────────────────────────────────────────
-// ZÍSKÁNÍ A INICIALIZACE UŽIVATELE
+// ZÍSKÁNÍ UŽIVATELE
 // ─────────────────────────────────────────────
 function getUser(userId, tbName = null) {
     if (!usersDb[userId]) {
@@ -214,8 +209,6 @@ function getUser(userId, tbName = null) {
     }
 
     const u = usersDb[userId];
-
-    // Zajistíme, že všechna pole existují
     if (!u.recentJobHashes) u.recentJobHashes = [];
     if (!u.completedRoutesDays) u.completedRoutesDays = [];
     if (u.completedQuests === undefined || u.completedQuests === null) u.completedQuests = 0;
@@ -230,12 +223,11 @@ function getUser(userId, tbName = null) {
 }
 
 // ─────────────────────────────────────────────
-// EXTRACT JOB DATA (OPRAVENÝ)
+// EXTRAKCE DAT ZAKÁZKY
 // ─────────────────────────────────────────────
 function extractJobData(text, title) {
     const combinedText = (title + "\n" + text).replace(/\*/g, '');
 
-    // Extrakce kilometrů - podporuje různé formáty
     let km = 0;
     const kmPatterns = [
         /(?:Uznaná vzdálenost|Distance):\s*([\d\s.,]+)\s*(km|mi)/im,
@@ -252,7 +244,6 @@ function extractJobData(text, title) {
         }
     }
 
-    // Extrakce destinace
     let dest = "neznámé";
     const destPatterns = [
         /(?:Kam|To|Destination):\s*(.+?)(?:\n|$)/i,
@@ -269,7 +260,6 @@ function extractJobData(text, title) {
         }
     }
 
-    // Extrakce originu
     let origin = "neznámé";
     const originPatterns = [
         /(?:Odkud|From):\s*(.+?)(?:\n|$)/i,
@@ -286,7 +276,6 @@ function extractJobData(text, title) {
         }
     }
 
-    // Extrakce nákladu
     let cargo = "neznámé";
     const cargoPatterns = [
         /(?:Náklad|Cargo):\s*(.+?)(?:\n|$)/i,
@@ -302,7 +291,6 @@ function extractJobData(text, title) {
         }
     }
 
-    // Extrakce tahače
     let truck = "neznámé";
     const truckPatterns = [
         /(?:Tahač|Truck|Vehicle):\s*(.+?)(?:\n|$)/i,
@@ -318,7 +306,6 @@ function extractJobData(text, title) {
         }
     }
 
-    // Validace minimální vzdálenosti
     if (km < 50) return null;
 
     return {
@@ -335,7 +322,7 @@ function extractJobData(text, title) {
 }
 
 // ─────────────────────────────────────────────
-// VYLEPŠENÉ ZPRACOVÁNÍ ZAKÁZEK
+// ZPRACOVÁNÍ ZAKÁZKY
 // ─────────────────────────────────────────────
 async function processJobMessage(m) {
     const messageTime = m.createdTimestamp;
@@ -349,18 +336,15 @@ async function processJobMessage(m) {
     const titleText = e.title || "";
     const allText = [e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
 
-    // Generování unikátního ID zakázky
     const jobIdMatch = titleText.match(/#(\d+)/) || allText.match(/#(\d+)/);
     const jobId = jobIdMatch ? `job_${jobIdMatch[1]}` : `msg_${m.id}`;
 
     const jobData = extractJobData(allText, titleText);
     if (!jobData) return { status: 'ignored_no_data' };
 
-    // Vytvoření hashe pro kontrolu duplicit
     const jobHash = `${jobData.cargo}_${jobData.dest}_${jobData.origin}_${jobData.km}`;
     const driverNorm = normalizeStr(driver);
 
-    // GLOBÁLNÍ KONTROLA DUPLICIT
     if (!systemDb.globalProcessedJobs) systemDb.globalProcessedJobs = [];
     if (!systemDb.globalJobHashes) systemDb.globalJobHashes = [];
 
@@ -371,53 +355,36 @@ async function processJobMessage(m) {
         return { status: 'duplicate_global_job_hash' };
     }
 
-    // Hledání uživatele v databázi
     let userKey = null;
-    let bestMatchScore = 0;
 
     for (const [key, user] of Object.entries(usersDb)) {
         if (key.startsWith('UNLINKED_')) continue;
         const dbNick = normalizeStr(user.tbName);
-
-        // Přesná shoda
         if (dbNick === driverNorm) {
             userKey = key;
             break;
         }
-
-        // Částečná shoda
         if (dbNick.includes(driverNorm) || driverNorm.includes(dbNick)) {
-            const matchScore = Math.min(dbNick.length, driverNorm.length) /
-                              Math.max(dbNick.length, driverNorm.length);
-            if (matchScore > bestMatchScore) {
-                bestMatchScore = matchScore;
-                userKey = key;
-            }
+            if (!userKey) userKey = key;
         }
     }
 
-    // Hledání přes Discord členy jako fallback
     if (!userKey && m.guild) {
         try {
             const members = await m.guild.members.fetch();
             const foundMember = members.find(member => {
                 const displayNorm = normalizeStr(member.displayName);
                 const userNorm = normalizeStr(member.user.username);
-                return displayNorm.includes(driverNorm) ||
-                       userNorm.includes(driverNorm) ||
-                       driverNorm.includes(displayNorm) ||
-                       driverNorm.includes(userNorm);
+                return displayNorm.includes(driverNorm) || userNorm.includes(driverNorm) ||
+                       driverNorm.includes(displayNorm) || driverNorm.includes(userNorm);
             });
             if (foundMember) userKey = foundMember.id;
-        } catch (e) {
-            console.error('Error fetching guild members:', e);
-        }
+        } catch (e) {}
     }
 
     if (!userKey) userKey = 'UNLINKED_' + driverNorm.replace(/\s+/g, '_');
     const u = getUser(userKey, driver);
 
-    // LOKÁLNÍ KONTROLA DUPLICIT
     if (u.processedJobs && u.processedJobs.includes(jobId)) {
         return { status: 'duplicate_local_job_id' };
     }
@@ -433,11 +400,9 @@ async function processJobMessage(m) {
     let questCompleted = false;
     let earnedQuestXP = 0;
 
-    // KONTROLA TAJNÉHO MĚSTA
-    if (systemDb.secretCity &&
-        !systemDb.secretCityFoundBy &&
-        jobData.dest === normalizeStr(systemDb.secretCity) &&
-        jobData.km >= 500) {
+    // TAJNÉ MĚSTO
+    if (systemDb.secretCity && !systemDb.secretCityFoundBy &&
+        jobData.dest === normalizeStr(systemDb.secretCity) && jobData.km >= 500) {
         secretCityFound = true;
         earnedXP += 1000;
         if (!userKey.startsWith('UNLINKED_')) {
@@ -447,19 +412,14 @@ async function processJobMessage(m) {
         }
     }
 
-    // KONTROLA EVENTOVÉ TRASY
+    // EVENTOVÁ TRASA
     if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
         const dailyRoute = ROUTES[systemDb.currentDay - 1];
         const allowedCargosNorm = dailyRoute.cargos.map(normalizeStr);
         const endCityNorm = normalizeStr(dailyRoute.end);
 
-        const isCorrectDestination = jobData.dest.includes(endCityNorm) ||
-                                    endCityNorm.includes(jobData.dest);
-
-        const isCorrectCargo = allowedCargosNorm.some(allowedCargo => {
-            return jobData.cargo.includes(allowedCargo) ||
-                   allowedCargo.includes(jobData.cargo);
-        });
+        const isCorrectDestination = jobData.dest.includes(endCityNorm) || endCityNorm.includes(jobData.dest);
+        const isCorrectCargo = allowedCargosNorm.some(c => jobData.cargo.includes(c) || c.includes(jobData.cargo));
 
         if (isCorrectDestination && isCorrectCargo) {
             isEventRoute = true;
@@ -482,55 +442,40 @@ async function processJobMessage(m) {
         }
     }
 
-    // HAPPY HOUR BONUS
+    // HAPPY HOUR
     if (isEventRoute && Date.now() < systemDb.hhActiveUntil) {
         isHappyHourJob = true;
         earnedXP = Math.floor(earnedXP * 1.5);
     }
 
-    // PŘIČTENÍ ZÁKLADNÍCH STATISTIK
+    // PŘIČTENÍ
     u.xp += earnedXP;
     u.km += jobData.km;
 
-    // ULOŽENÍ IDENTIFIKÁTORŮ PROTI DUPLICITÁM
     u.processedJobs.push(jobId);
     u.recentJobHashes.push(jobHash);
     systemDb.globalProcessedJobs.push(jobId);
     systemDb.globalJobHashes.push(jobHash);
 
-    // Omezení velikosti polí
     if (u.processedJobs.length > 500) u.processedJobs = u.processedJobs.slice(-400);
     if (u.recentJobHashes.length > 100) u.recentJobHashes = u.recentJobHashes.slice(-80);
     if (systemDb.globalProcessedJobs.length > 10000) systemDb.globalProcessedJobs = systemDb.globalProcessedJobs.slice(-8000);
     if (systemDb.globalJobHashes.length > 10000) systemDb.globalJobHashes = systemDb.globalJobHashes.slice(-8000);
 
-    // ZPRACOVÁNÍ QUESTŮ
+    // QUESTY
     const q = QUESTS.find(quest => quest.id === u.currentQuestId);
-
     if (q) {
         let progressIncrement = 0;
-
         switch (q.type) {
-            case "km":
-                progressIncrement = jobData.km;
-                break;
-            case "jobs":
-                if (isEventRoute) progressIncrement = 1;
-                break;
-            case "city":
-                if (jobData.dest.includes(normalizeStr(q.target))) progressIncrement = 1;
-                break;
-            case "truck":
-                if (jobData.truck.includes(normalizeStr(q.target))) progressIncrement = 1;
-                break;
-            case "long_jobs":
-                if (jobData.km >= q.targetKm) progressIncrement = 1;
-                break;
+            case "km": progressIncrement = jobData.km; break;
+            case "jobs": if (isEventRoute) progressIncrement = 1; break;
+            case "city": if (jobData.dest.includes(normalizeStr(q.target))) progressIncrement = 1; break;
+            case "truck": if (jobData.truck.includes(normalizeStr(q.target))) progressIncrement = 1; break;
+            case "long_jobs": if (jobData.km >= q.targetKm) progressIncrement = 1; break;
         }
 
         if (progressIncrement > 0) {
             u.questProgress = (u.questProgress || 0) + progressIncrement;
-
             const targetRequired = q.targetCount || q.targetKm || q.target;
             if (u.questProgress >= targetRequired) {
                 u.xp += q.reward;
@@ -544,28 +489,17 @@ async function processJobMessage(m) {
     }
 
     saveUsers();
-
-    if (!userKey.startsWith('UNLINKED_')) {
-        await checkMilestoneRoles(userKey);
-    }
+    if (!userKey.startsWith('UNLINKED_')) await checkMilestoneRoles(userKey);
 
     return {
-        status: 'added',
-        jobData: jobData,
-        isEventRoute,
-        questCompleted,
-        earnedXP,
-        earnedQuestXP,
-        driver,
-        userKey,
-        secretCityFound,
-        isHappyHourJob,
-        isNewHunterDne
+        status: 'added', jobData, isEventRoute, questCompleted,
+        earnedXP, earnedQuestXP, driver, userKey,
+        secretCityFound, isHappyHourJob, isNewHunterDne
     };
 }
 
 // ─────────────────────────────────────────────
-// EVENT HANDLER PRO ZPRÁVY
+// MESSAGE CREATE HANDLER
 // ─────────────────────────────────────────────
 client.on('messageCreate', async (m) => {
     if (m.channel.id !== CH_JOBS_1 && m.channel.id !== CH_JOBS_2) return;
@@ -586,7 +520,6 @@ client.on('messageCreate', async (m) => {
 
         const logCh = await client.channels.fetch(CH_LOG).catch(() => null);
         if (logCh) {
-            let msg = `✅ **${res.driver}** dovezl/a zakázku (${res.jobData.km} km)
             let msg = `✅ **${res.driver}** dovezl/a zakázku (${res.jobData.km} km).`;
             if (res.isEventRoute) msg += ` 🎯 Eventová trasa (+100 XP).`;
             else msg += ` 🚚 Normální trasa (+50 XP).`;
@@ -595,12 +528,11 @@ client.on('messageCreate', async (m) => {
             msg += ` Získal/a **+${res.earnedXP} XP**.`;
             if (res.questCompleted) msg += ` 🏆 Splnil/a QUEST a získal/a **+${res.earnedQuestXP} XP**!`;
             if (res.secretCityFound) msg += ` 🕵️‍♂️ **ODHALIL/A TAJNÉ MĚSTO (+1000 XP)**!`;
-            
+
             logCh.send(msg).catch(() => {});
         }
     }
-    
-    // Debug log pro ignorované zprávy
+
     if (res.status.startsWith('duplicate')) {
         console.log(`🔄 Duplicitní zakázka ignorována: ${res.status}`);
     }
@@ -611,7 +543,6 @@ client.on('messageCreate', async (m) => {
 // ─────────────────────────────────────────────
 async function announceDailyRoute(day) {
     if (day > 8) return;
-
     const route = ROUTES[day - 1];
     const uniqueCargos = [...new Set(route.cargos)];
 
@@ -620,14 +551,7 @@ async function announceDailyRoute(day) {
 
     const embed = new EmbedBuilder()
         .setTitle(`🚚 EVENT DEN ${day}/8: Nová trasa vyhlášena!`)
-        .setDescription(`${route.desc}\n\n` +
-                        `📍 **Odkud:** ${route.start}\n` +
-                        `🏁 **Kam:** ${route.end}\n` +
-                        `📦 **Povolené náklady:** ${uniqueCargos.join(', ')}\n\n` +
-                        `---\n` +
-                        `🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek\n` +
-                        `🎁 **Odměna:** ${systemDb.currentDailyRewardText}\n` +
-                        `🏹 **Bonus:** Kdo doručí jako první, získá roli **HUNTER DNE**!`)
+        .setDescription(`${route.desc}\n\n📍 **Odkud:** ${route.start}\n🏁 **Kam:** ${route.end}\n📦 **Povolené náklady:** ${uniqueCargos.join(', ')}\n\n---\n🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek\n🎁 **Odměna:** ${systemDb.currentDailyRewardText}\n🏹 **Bonus:** Kdo doručí jako první, získá roli **HUNTER DNE**!`)
         .setImage(route.img)
         .setColor(EVENT_COLOR);
 
@@ -640,7 +564,6 @@ async function announceDailyRoute(day) {
 
 async function updateCommunityProgressBar(forceNew = false) {
     if (systemDb.currentDay === 0 || systemDb.currentDay > 8) return;
-
     const route = ROUTES[systemDb.currentDay - 1];
     const percent = Math.min(100, Math.floor((systemDb.communityJobsToday / route.goal) * 100));
     const imageIndex = Math.floor(percent / 5);
@@ -667,12 +590,9 @@ async function updateCommunityProgressBar(forceNew = false) {
     try {
         const msgs = await annCh.messages.fetch({ limit: 10 });
         const botMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes(`Komunitní Gól - Den ${systemDb.currentDay}`));
-
         if (botMsg) await botMsg.edit({ embeds: [embed] });
         else await annCh.send({ embeds: [embed] });
-    } catch (e) {
-        console.error('Chyba při aktualizaci progress baru:', e);
-    }
+    } catch (e) {}
 }
 
 // ─────────────────────────────────────────────
@@ -682,8 +602,8 @@ function getNextSecretCityResetUnix() {
     const now = new Date();
     const czTimeStr = now.toLocaleString("en-US", {timeZone: "Europe/Prague"});
     const czTime = new Date(czTimeStr);
-
     const nextResetCz = new Date(czTime.getTime());
+
     if (czTime.getHours() >= 19) {
         nextResetCz.setDate(nextResetCz.getDate() + 1);
         nextResetCz.setHours(7, 0, 0, 0);
@@ -708,9 +628,7 @@ async function transferRole(guildId, roleId, oldUserId, newUserId) {
             const newMember = await guild.members.fetch(newUserId).catch(() => null);
             if (newMember) await newMember.roles.add(roleId).catch(() => null);
         }
-    } catch (e) {
-        console.error('Chyba při přenosu role:', e);
-    }
+    } catch (e) {}
 }
 
 function startNewSecretCity() {
@@ -729,7 +647,6 @@ function startNewSecretCity() {
 
     systemDb.secretCityFoundBy = null;
     systemDb.nextSecretCityResetUnix = getNextSecretCityResetUnix();
-
     saveSystem();
     announceSecretCityWordle();
 }
@@ -740,7 +657,6 @@ function revealNextLetter() {
     systemDb.secretCityRevealed.forEach((isRevealed, idx) => {
         if (!isRevealed && systemDb.secretCity[idx] !== ' ') unrevealedIndices.push(idx);
     });
-
     if (unrevealedIndices.length > 0) {
         const randomIdx = unrevealedIndices[Math.floor(Math.random() * unrevealedIndices.length)];
         systemDb.secretCityRevealed[randomIdx] = true;
@@ -764,12 +680,9 @@ async function announceSecretCityWordle() {
         try {
             const msgs = await ch.messages.fetch({ limit: 10 });
             const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
-
             if (oldBotMsg) await oldBotMsg.edit({ embeds: [embed] });
             else await ch.send({ embeds: [embed] });
-        } catch (e) {
-            console.error('Chyba při oznamování tajného města:', e);
-        }
+        } catch (e) {}
         return;
     }
 
@@ -788,12 +701,9 @@ async function announceSecretCityWordle() {
     try {
         const msgs = await ch.messages.fetch({ limit: 10 });
         const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
-
         if (oldBotMsg) await oldBotMsg.edit({ embeds: [embed] });
         else await ch.send({ embeds: [embed] });
-    } catch (e) {
-        console.error('Chyba při oznamování tajného města:', e);
-    }
+    } catch (e) {}
 }
 
 // ─────────────────────────────────────────────
@@ -819,9 +729,7 @@ async function checkMilestoneRoles(userId) {
             await member.roles.add(ROLE_3RD_ANNIVERSARY);
             if (logCh) logCh.send(`🎉 <@${userId}> absolvoval/a polovinu eventu a získává roli **3rd Anniversary**!`);
         }
-    } catch (e) {
-        console.error('Chyba při kontrole rolí:', e);
-    }
+    } catch (e) {}
 }
 
 // ─────────────────────────────────────────────
@@ -837,7 +745,7 @@ async function fetchBackupFromDiscord() {
 
         console.log('📥 Stahuji zálohy z Discordu...');
         const messages = await backupCh.messages.fetch({ limit: 50 });
-        
+
         let latestUsersData = null;
         let latestSystemData = null;
         let latestTimestamp = 0;
@@ -848,7 +756,7 @@ async function fetchBackupFromDiscord() {
                     try {
                         const response = await fetch(attachment.url);
                         const data = await response.json();
-                        
+
                         if (attachment.name.includes('users_db') && msg.createdTimestamp > latestTimestamp) {
                             latestUsersData = data;
                             latestTimestamp = msg.createdTimestamp;
@@ -857,18 +765,12 @@ async function fetchBackupFromDiscord() {
                             latestSystemData = data;
                             latestTimestamp = msg.createdTimestamp;
                         }
-                    } catch (e) {
-                        console.error(`Chyba při stahování ${attachment.name}:`, e);
-                    }
+                    } catch (e) {}
                 }
             }
         }
 
-        return {
-            users: latestUsersData,
-            system: latestSystemData,
-            timestamp: latestTimestamp
-        };
+        return { users: latestUsersData, system: latestSystemData, timestamp: latestTimestamp };
     } catch (error) {
         console.error('❌ Chyba při stahování záloh:', error);
         return null;
@@ -892,9 +794,7 @@ setInterval(async () => {
                 });
             }
         }
-    } catch (e) {
-        console.error('Chyba při automatické záloze:', e);
-    }
+    } catch (e) {}
 }, 15 * 60 * 1000);
 
 setInterval(() => {
@@ -915,8 +815,7 @@ setInterval(() => {
         saveSystem();
         announceDailyRoute(1);
         startNewSecretCity();
-    }
-    else if (czTime.getHours() === 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
+    } else if (czTime.getHours() === 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
         systemDb.currentDay += 1;
         systemDb.communityJobsToday = 0;
         systemDb.hhCountToday = 0;
@@ -968,14 +867,14 @@ const commands = [
         )),
     new SlashCommandBuilder().setName("test-cteni").setDescription("🛠️ (DEV) Otestuje, jak bot přečte zkopírovaný text zakázky.")
         .addStringOption(o => o.setName("text").setDescription("Vlož text zakázky z bota").setRequired(true)),
-    new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim bez ohledu na datum startu eventu."),
+    new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim."),
     new SlashCommandBuilder().setName("dev-reprocess").setDescription("🛠️ (DEV) Zpětně projde zakázky a uzná ty, co chyběly.")
         .addStringOption(o => o.setName("kanal").setDescription("ID kanálu").setRequired(true)),
     new SlashCommandBuilder().setName("dev-fetch-backup").setDescription("🛠️ (DEV) Stáhne a aplikuje poslední zálohu z backup kanálu."),
     new SlashCommandBuilder().setName("admin-restore").setDescription("🛠️ ADMIN: Obnoví databázi z nahraných JSON souborů.")
-        .addAttachmentOption(o => o.setName("users_db").setDescription("Soubor users_db.json ze zálohy").setRequired(false))
-        .addAttachmentOption(o => o.setName("system_db").setDescription("Soubor system_db.json ze zálohy").setRequired(false)),
-    new SlashCommandBuilder().setName("admin-unlink").setDescription("🛠️ ADMIN: Smaže uživatele z databáze (odpojení linku).")
+        .addAttachmentOption(o => o.setName("users_db").setDescription("Soubor users_db.json").setRequired(false))
+        .addAttachmentOption(o => o.setName("system_db").setDescription("Soubor system_db.json").setRequired(false)),
+    new SlashCommandBuilder().setName("admin-unlink").setDescription("🛠️ ADMIN: Smaže uživatele z databáze.")
         .addUserOption(o => o.setName("hrac").setDescription("Hráč k odpojení").setRequired(true)),
     new SlashCommandBuilder().setName("admin-link").setDescription("🛠️ ADMIN: Ručně propojí hráče s TB nickem.")
         .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true))
@@ -1019,7 +918,6 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "quest") {
         const u = getUser(interaction.user.id, interaction.user.username);
         const q = QUESTS.find(quest => quest.id === u.currentQuestId);
-
         if (!q) return interaction.reply({ content: "❌ Nepodařilo se načíst tvůj quest.", ephemeral: true });
 
         let tierColor = 0x808080;
@@ -1066,12 +964,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "odmeny") {
         const embed = new EmbedBuilder()
             .setTitle("🎁 Přehled denních odměn & šancí")
-            .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn:\n\n" +
-                          "🎨 **25%** - 3x Paint Job dle výběru\n" +
-                          "🚚 **15%** - 3x Trailer / Tuning Pack\n" +
-                          "🗺️ **5%** - 1x Mapové DLC do 8,99 EUR\n" +
-                          "🚚 **30%** - 1x Trailer / Tuning Pack\n" +
-                          "🎨 **25%** - 1x Paint Job dle výběru")
+            .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn:\n\n🎨 **25%** - 3x Paint Job dle výběru\n🚚 **15%** - 3x Trailer / Tuning Pack\n🗺️ **5%** - 1x Mapové DLC do 8,99 EUR\n🚚 **30%** - 1x Trailer / Tuning Pack\n🎨 **25%** - 1x Paint Job dle výběru")
             .setColor(EVENT_COLOR);
         return interaction.reply({ embeds: [embed] });
     }
@@ -1112,7 +1005,6 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "test-cteni") {
         const text = interaction.options.getString("text");
         const jobData = extractJobData(text, "TEST ZAKÁZKA");
-
         if (!jobData) return interaction.reply({ content: "❌ Bot v textu nenašel platná data zakázky (nebo je menší než 50 km).", ephemeral: true });
 
         let isEventRoute = false;
@@ -1147,7 +1039,7 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `🛠️ Testovací režim (DEV): **${isDevMode ? "ZAPNUTO" : "VYPNUTO"}**.`, ephemeral: true });
     }
 
-    // DEV FETCH BACKUP - NOVÝ PŘÍKAZ!
+    // DEV FETCH BACKUP
     if (interaction.commandName === "dev-fetch-backup") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
@@ -1157,19 +1049,16 @@ client.on("interactionCreate", async interaction => {
 
         try {
             const backup = await fetchBackupFromDiscord();
-
             if (!backup || (!backup.users && !backup.system)) {
                 return interaction.editReply("❌ Nepodařilo se najít žádnou platnou zálohu v backup kanálu.");
             }
 
             let msg = "✅ **Záloha úspěšně načtena z Discordu!**\n\n";
-
             if (backup.users) {
                 usersDb = backup.users;
                 saveUsers();
                 msg += `📦 **users_db.json** - načteno ${Object.keys(usersDb).length} uživatelů\n`;
             }
-
             if (backup.system) {
                 systemDb = { ...systemDb, ...backup.system };
                 saveSystem();
@@ -1179,7 +1068,6 @@ client.on("interactionCreate", async interaction => {
             msg += `\n🕐 Čas zálohy: ${new Date(backup.timestamp).toLocaleString('cs-CZ')}`;
             msg += `\n\n💡 Pro zpětné doplnění zakázek použij **/dev-reprocess** s ID kanálu.`;
 
-            // Obnov zobrazení progress baru a tajného města
             if (systemDb.currentDay > 0) {
                 await updateCommunityProgressBar(true);
                 await announceSecretCityWordle();
@@ -1187,7 +1075,6 @@ client.on("interactionCreate", async interaction => {
 
             return interaction.editReply(msg);
         } catch (error) {
-            console.error('Chyba při fetch-backup:', error);
             return interaction.editReply(`❌ Chyba: ${error.message}`);
         }
     }
@@ -1212,25 +1099,19 @@ client.on("interactionCreate", async interaction => {
         let lastId;
         let allMessages = [];
 
-        // Status zpráva
         await interaction.editReply("⏳ Stahuji zprávy z kanálu...");
 
         try {
-            // Stáhni až 1000 zpráv
             for (let i = 0; i < 10; i++) {
                 const options = { limit: 100 };
                 if (lastId) options.before = lastId;
-
                 const fetched = await targetChannel.messages.fetch(options);
                 if (fetched.size === 0) break;
-
                 allMessages.push(...fetched.values());
                 lastId = fetched.last().id;
             }
 
-            // Zpracuj od nejstarších
             allMessages.reverse();
-
             await interaction.editReply(`⏳ Zpracovávám ${allMessages.length} zpráv...`);
 
             for (const msg of allMessages) {
@@ -1243,15 +1124,9 @@ client.on("interactionCreate", async interaction => {
             }
 
             return interaction.editReply(
-                `✅ Zpětná analýza dokončena!\n\n` +
-                `📊 **Statistiky:**\n` +
-                `📝 Zkontrolováno zpráv: **${processedCount}**\n` +
-                `✅ Nově uznaných: **${validCount}**\n` +
-                `🔄 Duplicitních: **${duplicateCount}**\n` +
-                `💾 Data uložena.`
+                `✅ Zpětná analýza dokončena!\n\n📊 **Statistiky:**\n📝 Zkontrolováno: **${processedCount}**\n✅ Nově uznaných: **${validCount}**\n🔄 Duplicitních: **${duplicateCount}**\n💾 Data uložena.`
             );
         } catch (error) {
-            console.error('Chyba při reprocess:', error);
             return interaction.editReply(`❌ Chyba: ${error.message}`);
         }
     }
@@ -1285,11 +1160,9 @@ client.on("interactionCreate", async interaction => {
                 systemDb = data;
                 saveSystem();
                 msg += "✅ `system_db.json` obnovena.\n";
-
                 await updateCommunityProgressBar(true);
                 await announceSecretCityWordle();
             }
-
             msg += "\n💡 Pro zpětné doplnění zakázek použij `/dev-reprocess`.";
             return interaction.editReply(msg);
         } catch (error) {
@@ -1303,14 +1176,12 @@ client.on("interactionCreate", async interaction => {
             return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
         }
         const targetUser = interaction.options.getUser("hrac");
-
         if (usersDb[targetUser.id]) {
             delete usersDb[targetUser.id];
             saveUsers();
             return interaction.reply({ content: `✅ Záznam hráče **${targetUser.username}** byl vymazán.`, ephemeral: true });
-        } else {
-            return interaction.reply({ content: `❌ Uživatel **${targetUser.username}** nemá profil.`, ephemeral: true });
         }
+        return interaction.reply({ content: `❌ Uživatel **${targetUser.username}** nemá profil.`, ephemeral: true });
     }
 
     // ADMIN LINK
@@ -1320,7 +1191,6 @@ client.on("interactionCreate", async interaction => {
         }
         const targetUser = interaction.options.getUser("hrac");
         const nick = interaction.options.getString("nick");
-
         const u = getUser(targetUser.id, nick);
         u.tbName = nick;
         saveUsers();
@@ -1334,11 +1204,9 @@ client.on("interactionCreate", async interaction => {
         }
         const targetUser = interaction.options.getUser("hrac");
         const xpToAdd = interaction.options.getInteger("xp");
-
         const u = getUser(targetUser.id, targetUser.username);
         u.xp += xpToAdd;
         saveUsers();
-
         await checkMilestoneRoles(targetUser.id);
         return interaction.reply({ content: `✅ Hráči **${u.tbName}** upraveno XP o **${xpToAdd}**. Nyní: **${u.xp} XP**.`, ephemeral: true });
     }
@@ -1350,34 +1218,25 @@ client.on("interactionCreate", async interaction => {
 client.on("ready", async () => {
     console.log(`✅ Bot úspěšně běží jako ${client.user.tag}`);
 
-    // Načtení databází
     loadDatabases();
 
     try {
-        // Registrace slash příkazů
         const rest = new REST({ version: '10' }).setToken(TOKEN);
         await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
         console.log("✅ Slash příkazy zaregistrovány.");
 
-        // Načtení členů guildy
         const guild = client.guilds.cache.get(GUILD_ID);
         if (guild) await guild.members.fetch();
 
-        // Obnovení zobrazení tajného města
         const scCh = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
         if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) {
             const msgs = await scCh.messages.fetch({ limit: 10 });
             const oldMsg = msgs.find(m => m.author.id === client.user.id &&
                 m.embeds[0]?.title?.includes("Najdi Tajné Město"));
-            if (!oldMsg) {
-                announceSecretCityWordle();
-            }
+            if (!oldMsg) announceSecretCityWordle();
         }
 
-        // Obnovení progress baru
-        if (systemDb.currentDay > 0) {
-            updateCommunityProgressBar(true);
-        }
+        if (systemDb.currentDay > 0) updateCommunityProgressBar(true);
 
         console.log("🎉 Bot je připraven!");
     } catch (error) {
