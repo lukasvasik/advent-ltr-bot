@@ -178,7 +178,6 @@ const commands = [
         { name: '📦 Doručené Zakázky', value: 'jobs' },
         { name: '📜 Splněné Questy', value: 'quests' }
     )),
-  // 🛠️ TESTOVACÍ PŘÍKAZY (NOVÉ)
   new SlashCommandBuilder().setName("test-cteni").setDescription("🛠️ (DEV) Otestuje, jak bot přečte zkopírovaný text zakázky.")
     .addStringOption(o => o.setName("text").setDescription("Vlož text zakázky z bota").setRequired(true)),
   new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim bez ohledu na datum startu eventu.")
@@ -324,7 +323,6 @@ function extractJobData(text, title) {
 }
 
 async function processJobMessage(m) {
-    // DEV MODE kontrola
     if (!isDevMode && m.createdTimestamp < EVENT_START_DATE) return { status: 'ignored_old' };
     if (!isDevMode && Date.now() > EVENT_END_DATE) return { status: 'event_ended' }; 
     if (!m.embeds.length) return { status: 'ignored' };
@@ -550,7 +548,6 @@ setInterval(() => {
         systemDb.currentDay = 1; saveSystem();
         announceDailyRoute(1); startNewSecretCity();
     } 
-    // Přepnutí na další den trasy v 18:00
     else if (czTime.getHours() === 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
         systemDb.currentDay += 1;
         systemDb.communityJobsToday = 0; systemDb.hhCountToday = 0;
@@ -559,12 +556,10 @@ setInterval(() => {
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0; saveUsers();
     }
 
-    // Generování nového Tajného města (vždy 8:00 ráno a 18:00 večer)
     if ((czTime.getHours() === 8 || czTime.getHours() === 18) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
         startNewSecretCity();
     }
 
-    // Odkrývání nápovědy u Tajného města (Každé 3 hodiny, vyjma 18:00 kdy se generuje nové)
     if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         revealNextLetter();
     }
@@ -614,6 +609,95 @@ async function checkMilestoneRoles(userId) {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  // PROFIL
+  if (interaction.commandName === "profil") {
+      const targetUser = interaction.options.getUser("hrac") || interaction.user;
+      const u = usersDb[targetUser.id];
+      if (!u) return interaction.reply({ content: "❌ Tento hráč nemá v eventu žádný profil.", ephemeral: true });
+      const q = QUESTS.find(quest => quest.id === u.currentQuestId);
+      
+      const embed = new EmbedBuilder()
+          .setTitle(`📊 Profil hráče - ${u.tbName}`)
+          .addFields(
+              { name: "⭐ Získané XP", value: `${u.xp} XP`, inline: true },
+              { name: "🚚 Najeté kilometry", value: `${u.km} km`, inline: true },
+              { name: "📦 Eventové zakázky", value: `${u.eventJobs}`, inline: true },
+              { name: "📜 Splněné questy", value: `${u.completedQuests}`, inline: true },
+              { name: "🎯 Aktuální Quest", value: q ? `${q.desc}\nProgres: ${u.questProgress} / ${q.targetCount || q.targetKm || q.target}` : "Žádný", inline: false }
+          )
+          .setColor(EVENT_COLOR);
+      return interaction.reply({ embeds: [embed] });
+  }
+
+  // LINK
+  if (interaction.commandName === "link") {
+      const nick = interaction.options.getString("nick");
+      const u = getUser(interaction.user.id, nick);
+      u.tbName = nick;
+      saveUsers();
+      return interaction.reply({ content: `✅ Tvůj Discord byl úspěšně propojen s TrucksBook nickem **${nick}**.`, ephemeral: true });
+  }
+
+  // QUEST SKIP
+  if (interaction.commandName === "quest-skip") {
+      const u = getUser(interaction.user.id, interaction.user.username);
+      if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil. Další skip bude možný až po 18:00.", ephemeral: true });
+      
+      u.currentQuestId = getRandomQuestId();
+      u.questProgress = 0;
+      u.lastQuestSkip = 1;
+      saveUsers();
+      
+      const q = QUESTS.find(quest => quest.id === u.currentQuestId);
+      return interaction.reply({ content: `✅ Quest byl přeskočen! Tvůj nový úkol:\n**${q ? q.desc : "Neznámý"}**`, ephemeral: true });
+  }
+
+  // ODMENY
+  if (interaction.commandName === "odmeny") {
+      const embed = new EmbedBuilder()
+          .setTitle("🎁 Přehled denních odměn & šancí")
+          .setDescription("Každý den při splnění komunitního cíle losujeme jednu z těchto odměn pro náhodného řidiče, co dnes odjel trasu:\n\n" +
+                          "🎨 **25%** - 3x Paint Job dle výběru\n" +
+                          "🚚 **15%** - 3x Trailer // Tuning Pack dle výběru\n" +
+                          "🗺️ **5%** - 1x Mapové DLC do 8,99 EUR\n" +
+                          "🚚 **30%** - 1x Trailer // Tuning Pack dle výběru\n" +
+                          "🎨 **25%** - 1x Paint Job dle výběru")
+          .setColor(EVENT_COLOR);
+      return interaction.reply({ embeds: [embed] });
+  }
+
+  // LEADERBOARD
+  if (interaction.commandName === "leaderboard") {
+      const kategorie = interaction.options.getString("kategorie");
+      const sorted = Object.values(usersDb)
+          .filter(u => !u.id.startsWith("UNLINKED_"))
+          .sort((a, b) => {
+              if (kategorie === "xp") return b.xp - a.xp;
+              if (kategorie === "km") return b.km - a.km;
+              if (kategorie === "jobs") return b.eventJobs - a.eventJobs;
+              if (kategorie === "quests") return b.completedQuests - a.completedQuests;
+              return 0;
+          }).slice(0, 10);
+
+      if (sorted.length === 0) return interaction.reply({ content: "Žebříček je zatím prázdný.", ephemeral: true });
+
+      let desc = "";
+      sorted.forEach((u, index) => {
+          let val = 0;
+          if (kategorie === "xp") val = `${u.xp} XP`;
+          if (kategorie === "km") val = `${u.km} km`;
+          if (kategorie === "jobs") val = `${u.eventJobs} zakázek`;
+          if (kategorie === "quests") val = `${u.completedQuests} questů`;
+          desc += `${index + 1}. **${u.tbName}** - ${val}\n`;
+      });
+
+      const embed = new EmbedBuilder()
+          .setTitle(`🏆 TOP 10 Žebříček - podle ${kategorie.toUpperCase()}`)
+          .setDescription(desc)
+          .setColor(EVENT_COLOR);
+      return interaction.reply({ embeds: [embed] });
+  }
+
   // TESTOVACÍ ČTENÍ
   if (interaction.commandName === "test-cteni") {
       const text = interaction.options.getString("text");
@@ -644,133 +728,24 @@ client.on("interactionCreate", async interaction => {
 
   // DEV OVERRIDE
   if (interaction.commandName === "dev-override") {
-      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš oprávnění na tento příkaz.", ephemeral: true });
-      
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
+      }
       isDevMode = !isDevMode;
-      return interaction.reply({ content: `🛠️ **DEV REŽIM:** ${isDevMode ? "✅ ZAPNUTO (Datum eventu se ignoruje, bot přijímá zakázky z kanálů)" : "❌ VYPNUTO (Bot čeká na 17. 7. 2026)"}`, ephemeral: true });
-  }
-
-  if (interaction.commandName === "profil") {
-      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Příkazy fungují pouze v kanále <#${CH_CMDS}>.`, ephemeral: true });
-      
-      const targetUser = interaction.options.getUser("hrac") || interaction.user;
-      const u = getUser(targetUser.id);
-      
-      let questText = "Žádný aktivní úkol. (Bug?)";
-      const q = QUESTS.find(quest => quest.id === u.currentQuestId);
-      if (q) {
-          const target = q.targetCount || q.targetKm || q.target;
-          questText = `**${q.desc}**\nPostup: ${u.questProgress} / ${target}\nOdměna: ${q.reward} XP`;
-      }
-
-      const embed = new EmbedBuilder()
-          .setTitle(`👤 Řidič: ${targetUser.username}`)
-          .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-          .setColor(EVENT_COLOR)
-          .addFields(
-              { name: '⭐ Získané XP', value: `**${u.xp}**`, inline: true },
-              { name: '📦 Eventové zakázky', value: `**${u.eventJobs}**`, inline: true },
-              { name: '🚚 Celkem najeto', value: `**${u.km}** km`, inline: true },
-              { name: '🗺️ Unikátních tras', value: `**${u.completedRoutesDays.length}/8**`, inline: true },
-              { name: '📜 Splněno questů', value: `**${u.completedQuests}**`, inline: true },
-              { name: '🎯 Aktuální vylosovaný Quest', value: questText, inline: false }
-          );
-      
-      interaction.reply({ embeds: [embed] }); 
-  }
-
-  if (interaction.commandName === "quest-skip") {
-      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Mimo command kanál.`, ephemeral: true });
-      
-      const u = getUser(interaction.user.id);
-      const todayDate = new Date().toLocaleDateString("cs-CZ", {timeZone: "Europe/Prague"});
-      if (u.lastQuestSkip === todayDate) return interaction.reply({ content: "❌ Dnes už jsi quest přeskočil. Další losování zdarma máš zítra po půlnoci.", ephemeral: true });
-
-      u.lastQuestSkip = todayDate;
-      u.currentQuestId = getRandomQuestId(); 
-      u.questProgress = 0;
-      saveUsers();
-      interaction.reply({ content: `✅ Quest přeskočen! Systém ti vylosoval nový úkol z gacha poolu. Zkontroluj si ho přes \`/profil\`.`, ephemeral: true }); 
-  }
-
-  if (interaction.commandName === "odmeny") {
-      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Mimo command kanál.`, ephemeral: true });
-      
-      const embed = new EmbedBuilder()
-          .setTitle("🎁 Odměny a Pravidla Losování")
-          .setDescription("Zde je přehled toho, co můžeš v rámci narozeninového eventu vyhrát a jaké jsou šance na drop!\n\n" +
-                          "**🏆 HLAVNÍ CENY (Losování po skončení eventu)**\n" +
-                          "Pro zařazení do slosování musíš ujet alespoň 4 z 8 tras. Čím více máš XP, tím máš větší šanci u losování.\n" +
-                          "• 1x Mapové DLC (do 8,99 EUR)\n" +
-                          "• 3x Trailer // Tuning Pack\n" +
-                          "• 9x Window Flags DLC\n" +
-                          "• 5x 10th Anniversary Paint Job Set\n\n" +
-                          "**🎯 KOMUNITNÍ ODMĚNY (Za denní góly)**\n" +
-                          "Každý den se na začátku vyhlášení trasy losuje, o co se pojede. Odměna padne pouze, pokud komunita splní společný počet zakázek (Goal).\n\n" +
-                          "**Šance při losování 3 ks výhry:**\n" +
-                          "• 25 % šance: 3x Paint Job\n" +
-                          "• 15 % šance: 3x Trailer // Tuning Pack\n\n" +
-                          "**Šance při losování 1 ks výhry:**\n" +
-                          "• 30 % šance: 1x Trailer // Tuning Pack\n" +
-                          "• 25 % šance: 1x Paint Job\n" +
-                          "• 5 % šance: 1x Mapové DLC (do 8,99 EUR)")
-          .setColor(EVENT_COLOR);
-      
-      // Zde odebráno problematické pole 'files' pro obrázek!
-      interaction.reply({ embeds: [embed] });
-  }
-
-  if (interaction.commandName === "link") {
-      const nick = interaction.options.getString("nick");
-      const user = getUser(interaction.user.id, nick);
-      user.tbName = nick;
-
-      const ghostKeys = Object.keys(usersDb).filter(k => k.startsWith('UNLINKED_'));
-      let addedKm = 0; 
-      const nickNormalized = normalizeStr(nick);
-
-      for (const gk of ghostKeys) {
-          const ghostTbName = normalizeStr(usersDb[gk].tbName);
-          if (ghostTbName.includes(nickNormalized) || nickNormalized.includes(ghostTbName)) {
-              addedKm += usersDb[gk].km;
-              user.km += usersDb[gk].km;
-              user.eventJobs += usersDb[gk].eventJobs || 0;
-              user.xp += usersDb[gk].xp || 0;
-              user.processedJobs = [...new Set([...user.processedJobs, ...usersDb[gk].processedJobs])]; 
-              delete usersDb[gk];
-          }
-      }
-      saveUsers(); 
-      let msg = `✅ Propojeno s nickem **${user.tbName}**.`;
-      if (addedKm > 0) msg += `\n🎉 Bylo nalezeno tvé ježdění před propojením! Tvé statistiky byly sloučeny.`;
-      interaction.reply({ content: msg, ephemeral: true }); 
-      checkMilestoneRoles(user.id);
-  }
-
-  if (interaction.commandName === "leaderboard") {
-      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Mimo command kanál.`, ephemeral: true });
-
-      const category = interaction.options.getString("kategorie");
-      let usersArray = Object.values(usersDb).filter(u => u.tbName !== "Neznámý" && !u.id.startsWith('UNLINKED_'));
-      
-      let title = ""; let valFunc;
-      if (category === "xp") { usersArray.sort((a,b) => b.xp - a.xp); title = "🏆 Top XP v Eventu"; valFunc = u => `**${u.xp}** XP`; }
-      if (category === "km") { usersArray.sort((a,b) => b.km - a.km); title = "🏆 Nejvíce najeto"; valFunc = u => `**${u.km}** km`; }
-      if (category === "jobs") { usersArray.sort((a,b) => b.eventJobs - a.eventJobs); title = "🏆 Nejvíc Event Zakázek"; valFunc = u => `**${u.eventJobs}** zakázek`; }
-      if (category === "quests") { usersArray.sort((a,b) => b.completedQuests - a.completedQuests); title = "🏆 Nejvíce splněných questů"; valFunc = u => `**${u.completedQuests}** questů`; }
-
-      const top10 = usersArray.slice(0, 10);
-      let desc = top10.map((u, i) => `**${i+1}.** <@${u.id}> (\`${u.tbName}\`) - ${valFunc(u)}`).join('\n\n') || "Zatím žádná data.";
-
-      const embed = new EmbedBuilder().setTitle(title).setDescription(desc).setColor(EVENT_COLOR);
-      interaction.reply({ embeds: [embed] }); 
+      return interaction.reply({ content: `🛠️ Testovací režim (DEV) byl přepnut na: **${isDevMode ? "ZAPNUTO" : "VYPNUTO"}**.`, ephemeral: true });
   }
 });
 
-client.once("ready", () => {
-  console.log(`Narozeninový TruckBot je online!`);
-  new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+// REGISTRACE PŘÍKAZŮ PŘI SPUŠTĚNÍ
+client.on("ready", async () => {
+    console.log(`Bot úspěšně běží jako ${client.user.tag}`);
+    try {
+        const rest = new REST({ version: '10' }).setToken(TOKEN);
+        await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+        console.log("Slash příkazy byly úspěšně zaregistrovány na Discordu.");
+    } catch (error) {
+        console.error(error);
+    }
 });
 
-process.on('unhandledRejection', error => console.error('🚨 CHYBA:', error));
 client.login(TOKEN);
