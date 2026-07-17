@@ -233,7 +233,7 @@ function getUser(userId, tbName = null) {
 }
 
 // ─────────────────────────────────────────────
-// EXTRAKCE DAT ZAKÁZKY
+// EXTRAKCE DAT ZAKÁZKY - OPRAVENO!
 // ─────────────────────────────────────────────
 function extractJobData(text, title) {
     const combinedText = (title + "\n" + text).replace(/\*/g, '');
@@ -245,47 +245,67 @@ function extractJobData(text, title) {
     
     if (kmMatch) {
         km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10);
-        if (kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
+        if (kmMatch[2] && kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
     }
 
-    // Města - formát s vlajkovými emoji
+    // Města - hledáme v řádcích s vlajkou
     let origin = "neznámé";
     let dest = "neznámé";
     
-    const odkudMatch = combinedText.match(/Odkud\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
-    const kamMatch = combinedText.match(/Kam\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
+    const lines = combinedText.split('\n');
+    let foundOdkud = false;
+    let foundKam = false;
     
-    if (odkudMatch && odkudMatch[1].trim().length > 1) {
-        origin = odkudMatch[1].trim();
-    }
-    if (kamMatch && kamMatch[1].trim().length > 1) {
-        dest = kamMatch[1].trim();
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        if (line === 'Odkud' || line.startsWith('Odkud')) {
+            foundOdkud = true;
+            continue;
+        }
+        
+        if (line === 'Kam' || line.startsWith('Kam')) {
+            foundOdkud = false;
+            foundKam = true;
+            continue;
+        }
+        
+        // Extrahujeme město (ignorujeme vlajkové emoji)
+        const flagEmoji = line.match(/[\u{1F1E6}-\u{1F1FF}]{2}/u);
+        if (flagEmoji || foundOdkud || foundKam) {
+            const cityMatch = line.match(/[\u{1F1E6}-\u{1F1FF}]{2}\s*(.+)/u) || line.match(/^(.+)$/);
+            if (cityMatch && cityMatch[1] && cityMatch[1].trim().length > 1) {
+                const city = cityMatch[1].trim();
+                if (foundOdkud) {
+                    origin = city;
+                    foundOdkud = false;
+                } else if (foundKam) {
+                    dest = city;
+                    foundKam = false;
+                }
+            }
+        }
     }
     
+    // Fallback: hledání dvou vlajkových emoji s městy
     if (origin === "neznámé" || dest === "neznámé") {
-        const flagCityPattern = /[\u{1F1E6}-\u{1F1FF}]{2}\s+([A-ZÁ-Ža-zá-ž\s\-]+)/gu;
+        const flagCityPattern = /[\u{1F1E6}-\u{1F1FF}]{2}\s+([A-Za-zÁ-Žá-ž\s\-]+)/gu;
         const matches = [...combinedText.matchAll(flagCityPattern)];
-        if (matches.length >= 1 && origin === "neznámé") {
-            origin = matches[0][1].trim();
-        }
-        if (matches.length >= 2 && dest === "neznámé") {
-            dest = matches[1][1].trim();
-        }
+        if (matches.length >= 1 && origin === "neznámé") origin = matches[0][1].trim();
+        if (matches.length >= 2 && dest === "neznámé") dest = matches[1][1].trim();
     }
 
     // Náklad
     let cargo = "neznámé";
-    const cargoMatch = combinedText.match(/(?:Náklad|Cargo):\s*(.+?)(?:\n|$)/i);
-    if (cargoMatch) {
-        cargo = cargoMatch[1].split(/[\(\[\{]/)[0].trim();
-    }
+    const cargoMatch = combinedText.match(/(?:Náklad|Cargo):\s*(.+?)(?:\n|Uznaná|Zisk|Tahač|$)/i);
+    if (cargoMatch) cargo = cargoMatch[1].split(/[\(\[\{]/)[0].trim();
 
     // Tahač
     let truck = "neznámé";
-    const truckMatch = combinedText.match(/(?:Tahač|Truck):\s*(.+?)(?:\n|$)/i);
-    if (truckMatch && truckMatch[1].trim().length > 1) {
-        truck = truckMatch[1].trim();
-    }
+    const truckMatch = combinedText.match(/(?:Tahač|Truck):\s*(.+?)(?:\n|Statistika|Pořadí|Obrázek|$)/i);
+    if (truckMatch && truckMatch[1].trim().length > 1) truck = truckMatch[1].trim();
+
+    console.log(`🔎 EXTRAKCE: ${origin} → ${dest}, ${cargo}, ${km}km, ${truck}`);
 
     if (km < 50) return null;
 
@@ -315,7 +335,14 @@ async function processJobMessage(m) {
     const e = m.embeds[0];
     const driver = e.author?.name || "Neznámý";
     const titleText = e.title || "";
-    const allText = [e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
+    
+    // Získáme text z description a fields
+    let allText = (e.description || '') + '\n';
+    if (e.fields) {
+        for (const field of e.fields) {
+            allText += (field.name || '') + '\n' + (field.value || '') + '\n';
+        }
+    }
 
     const jobIdMatch = titleText.match(/#(\d+)/) || allText.match(/#(\d+)/);
     const jobId = jobIdMatch ? `job_${jobIdMatch[1]}` : `msg_${m.id}`;
@@ -402,6 +429,8 @@ async function processJobMessage(m) {
         const isCorrectDestination = jobData.dest.includes(endCityNorm) || endCityNorm.includes(jobData.dest);
         const isCorrectCargo = allowedCargosNorm.some(c => jobData.cargo.includes(c) || c.includes(jobData.cargo));
 
+        console.log(`🎯 Event check: dest=${isCorrectDestination} (${jobData.rawDest} vs ${dailyRoute.end}), cargo=${isCorrectCargo} (${jobData.rawCargo})`);
+
         if (isCorrectDestination && isCorrectCargo) {
             isEventRoute = true;
             earnedXP = 100;
@@ -420,6 +449,9 @@ async function processJobMessage(m) {
 
             saveSystem();
             updateCommunityProgressBar();
+            console.log(`✅ EVENTOVÁ! +100 XP`);
+        } else {
+            console.log(`⚠️ Normální +50 XP`);
         }
     }
 
@@ -472,6 +504,7 @@ async function processJobMessage(m) {
     saveUsers();
     if (!userKey.startsWith('UNLINKED_')) await checkMilestoneRoles(userKey);
 
+    console.log(`🎉 HOTOVO! +${earnedXP} XP`);
     return {
         status: 'added', jobData, isEventRoute, questCompleted,
         earnedXP, earnedQuestXP, driver, userKey,
