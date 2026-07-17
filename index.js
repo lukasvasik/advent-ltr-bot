@@ -197,11 +197,11 @@ function getNextSecretCityResetUnix() {
     const nextResetCz = new Date(czTime.getTime());
     if (czTime.getHours() >= 18) {
         nextResetCz.setDate(nextResetCz.getDate() + 1);
-        nextResetCz.setHours(6, 0, 0, 0); // Zítra v 6:00
-    } else if (czTime.getHours() >= 6) {
+        nextResetCz.setHours(8, 0, 0, 0); // Zítra v 8:00
+    } else if (czTime.getHours() >= 8) {
         nextResetCz.setHours(18, 0, 0, 0); // Dnes v 18:00
     } else {
-        nextResetCz.setHours(6, 0, 0, 0); // Dnes v 6:00
+        nextResetCz.setHours(8, 0, 0, 0); // Dnes v 8:00
     }
     
     const msUntilReset = nextResetCz.getTime() - czTime.getTime();
@@ -559,13 +559,13 @@ setInterval(() => {
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0; saveUsers();
     }
 
-    // Generování nového Tajného města (vždy 6:00 ráno a 18:00 večer)
-    if ((czTime.getHours() === 6 || czTime.getHours() === 18) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
+    // Generování nového Tajného města (vždy 8:00 ráno a 18:00 večer)
+    if ((czTime.getHours() === 8 || czTime.getHours() === 18) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
         startNewSecretCity();
     }
 
-    // Odkrývání nápovědy u Tajného města (Každé 3 hodiny, vyjma momentu, kdy se generuje nové)
-    if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 6 && czTime.getHours() !== 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
+    // Odkrývání nápovědy u Tajného města (Každé 3 hodiny, vyjma 18:00 kdy se generuje nové)
+    if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         revealNextLetter();
     }
 
