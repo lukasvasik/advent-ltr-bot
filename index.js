@@ -57,14 +57,14 @@ const PROGRESS_BAR_IMAGES = [
 ];
 
 const ROUTES = [
-    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje", "Nápoj", "Beverages", "Bottled Water", "Carbonated Water"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", desc: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
-    { day: 2, start: "Hamburk", end: "Brno", cargos: ["Potřeby ke stolování", "Stolování", "Tableware", "Potřeby", "Furniture"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png", desc: "Po zajištění občerstvení je potřeba připravit zázemí pro hosty. V Hamburku byly naloženy potřeby ke stolování, které budou využity při slavnostním občerstvení během oslav narozenin." },
-    { day: 3, start: "Bratislava", end: "Brno", cargos: ["Květiny", "Stromy", "Řezané květiny", "Cut Flowers", "Containerized Trees", "Potted Flowers", "Olive Trees", "Young Seedlings", "Květiny a stromy"], goal: 150, img: "https://i.imgur.com/lymELya.png", desc: "Chceme, aby byla letošní oslava opravdu výjimečná. Ve spolupráci s floristy byla připravena rozsáhlá květinová a stromová výzdoba, kterou je nyní potřeba bezpečně dopravit z Bratislavy." },
-    { day: 4, start: "Štětín", end: "Brno", cargos: ["Hračky", "Toys", "Hračka", "Toy"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png", desc: "Na oslavu byli pozváni také rodinní příslušníci a nejmladší návštěvníci. Proto bylo rozhodnuto připravit speciální zábavnou zónu. Vaším úkolem je přepravit vybavení a dárky určené pro dětské návštěvníky." },
-    { day: 5, start: "Vídeň", end: "Brno", cargos: ["Čokoláda", "Chocolate", "Čokolády", "Candy", "Sladkosti", "Gummy Bears", "Chewing Gums", "Sladkost"], goal: 250, img: "https://i.imgur.com/oWPrZey.png", desc: "Každá pořádná narozeninová oslava potřebuje dostatek sladkostí. Počet potvrzených hostů překonal všechna očekávání, a proto byla objednána mimořádná zásilka čokoládových výrobků z Vídně." },
-    { day: 6, start: "Poznaň", end: "Brno", cargos: ["Limonáda", "Lemonade", "Limonády", "Carbonated Water", "Bottled Water", "Beverages", "Juice", "Juice Concentrate", "Soy Milk", "Coconut Milk"], goal: 250, img: "https://i.imgur.com/J8tVmQU.png", desc: "Po aktualizaci seznamu hostů bylo zjištěno, že původní zásoby nebudou dostačovat. Organizátoři proto zajistili dodatečnou zásilku limonád, která musí být doručena včas před zahájením oslav." },
-    { day: 7, start: "Linec", end: "Brno", cargos: ["Elektronika", "Electronics", "Elektroniku", "Computer", "Computers", "Medical Equipment", "High-Tech Device"], goal: 250, img: "https://i.imgur.com/waiarlZ.png", desc: "Blíží se vyvrcholení příprav. Do Brna je potřeba dopravit profesionální ozvučovací a světelnou techniku, která zajistí hudební doprovod a atmosféru celé narozeninové oslavy." },
-    { day: 8, start: "Berlín", end: "Brno", cargos: ["Ohňostroj", "Pyrotechnika", "Fireworks", "Zábavní pyrotechnika", "Explosives", "Dynamite", "Ohňostroje"], goal: 250, img: "https://i.imgur.com/BO0Rgu6.png", desc: "Nastal čas na poslední a nejdůležitější úkol celé expedice. V Berlíně je připravena hlavní zásilka zábavní pyrotechniky určené pro slavnostní zakončení oslav. Vaším úkolem je bezpečně dopravit tento cenný náklad do Brna, kde po jeho doručení mohou být zahájeny oslavy." }
+    { day: 1, start: "Praha", end: "Brno", displayCargo: "Nápoje", cargos: ["Nápoje", "Nápoj", "Beverages", "Bottled Water", "Carbonated Water", "Drinks", "Water", "Voda", "Pití"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", desc: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
+    { day: 2, start: "Hamburk", end: "Brno", displayCargo: "Potřeby ke stolování", cargos: ["Potřeby ke stolování", "Stolování", "Tableware", "Potřeby", "Furniture", "Nábytek", "Stoly", "Židle", "Chairs", "Tables"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png", desc: "Po zajištění občerstvení je potřeba připravit zázemí pro hosty. V Hamburku byly naloženy potřeby ke stolování, které budou využity při slavnostním občerstvení během oslav narozenin." },
+    { day: 3, start: "Bratislava", end: "Brno", displayCargo: "Květiny a stromy", cargos: ["Květiny", "Stromy", "Řezané květiny", "Cut Flowers", "Containerized Trees", "Potted Flowers", "Olive Trees", "Young Seedlings", "Květiny a stromy", "Flowers", "Trees", "Rostliny", "Plants", "Květina", "Strom", "Saplings"], goal: 150, img: "https://i.imgur.com/lymELya.png", desc: "Chceme, aby byla letošní oslava opravdu výjimečná. Ve spolupráci s floristy byla připravena rozsáhlá květinová a stromová výzdoba, kterou je nyní potřeba bezpečně dopravit z Bratislavy." },
+    { day: 4, start: "Štětín", end: "Brno", displayCargo: "Hračky", cargos: ["Hračky", "Toys", "Hračka", "Toy", "Hry", "Games", "Dolls", "Panenky", "Auta", "Cars", "Lego", "Puzzle"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png", desc: "Na oslavu byli pozváni také rodinní příslušníci a nejmladší návštěvníci. Proto bylo rozhodnuto připravit speciální zábavnou zónu. Vaším úkolem je přepravit vybavení a dárky určené pro dětské návštěvníky." },
+    { day: 5, start: "Vídeň", end: "Brno", displayCargo: "Čokoláda a sladkosti", cargos: ["Čokoláda", "Chocolate", "Čokolády", "Candy", "Sladkosti", "Gummy Bears", "Chewing Gums", "Sladkost", "Bonbóny", "Cukrovinky", "Sweets", "Lízátka", "Cakes", "Dorty", "Cookies", "Sušenky"], goal: 250, img: "https://i.imgur.com/oWPrZey.png", desc: "Každá pořádná narozeninová oslava potřebuje dostatek sladkostí. Počet potvrzených hostů překonal všechna očekávání, a proto byla objednána mimořádná zásilka čokoládových výrobků z Vídně." },
+    { day: 6, start: "Poznaň", end: "Brno", displayCargo: "Limonády a nápoje", cargos: ["Limonáda", "Lemonade", "Limonády", "Carbonated Water", "Bottled Water", "Beverages", "Juice", "Juice Concentrate", "Soy Milk", "Coconut Milk", "Džus", "Nápoje", "Nápoj", "Pití", "Drinks", "Water", "Voda", "Soda", "Cola", "Energy Drink"], goal: 250, img: "https://i.imgur.com/J8tVmQU.png", desc: "Po aktualizaci seznamu hostů bylo zjištěno, že původní zásoby nebudou dostačovat. Organizátoři proto zajistili dodatečnou zásilku limonád, která musí být doručena včas před zahájením oslav." },
+    { day: 7, start: "Linec", end: "Brno", displayCargo: "Elektronika", cargos: ["Elektronika", "Electronics", "Elektroniku", "Computer", "Computers", "Medical Equipment", "High-Tech Device", "Počítače", "Technika", "Přístroje", "TV", "Televize", "Monitory", "Notebooky", "Laptops", "Mobily", "Phones", "Tablety", "Tablets"], goal: 250, img: "https://i.imgur.com/waiarlZ.png", desc: "Blíží se vyvrcholení příprav. Do Brna je potřeba dopravit profesionální ozvučovací a světelnou techniku, která zajistí hudební doprovod a atmosféru celé narozeninové oslavy." },
+    { day: 8, start: "Berlín", end: "Brno", displayCargo: "Pyrotechnika", cargos: ["Ohňostroj", "Pyrotechnika", "Fireworks", "Zábavní pyrotechnika", "Explosives", "Dynamite", "Ohňostroje", "Rachejtle", "Petardy", "Pyro", "Firecrackers", "Rockets"], goal: 250, img: "https://i.imgur.com/BO0Rgu6.png", desc: "Nastal čas na poslední a nejdůležitější úkol celé expedice. V Berlíně je připravena hlavní zásilka zábavní pyrotechniky určené pro slavnostní zakončení oslav. Vaším úkolem je bezpečně dopravit tento cenný náklad do Brna, kde po jeho doručení mohou být zahájeny oslavy." }
 ];
 
 const QUESTS = [
@@ -485,7 +485,6 @@ async function processJobMessage(m) {
 async function announceDailyRoute(day) {
     if (day > 8) return;
     const route = ROUTES[day - 1];
-    const uniqueCargos = [...new Set(route.cargos)];
 
     // Losuj cíl a odměnu jen pokud ještě není nastaven
     if (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "") {
@@ -497,7 +496,7 @@ async function announceDailyRoute(day) {
 
     const embed = new EmbedBuilder()
         .setTitle(`🚚 EVENT DEN ${day}/8: Nová trasa vyhlášena!`)
-        .setDescription(`${route.desc}\n\n📍 **Odkud:** ${route.start}\n🏁 **Kam:** ${route.end}\n📦 **Povolené náklady:** ${uniqueCargos.join(', ')}\n\n---\n🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek\n🎁 **Odměna:** ${systemDb.currentDailyRewardText}\n🏹 **Bonus:** Kdo doručí jako první, získá roli **HUNTER DNE**!`)
+        .setDescription(`${route.desc}\n\n📍 **Odkud:** ${route.start}\n🏁 **Kam:** ${route.end}\n📦 **Povolené náklady:** ${route.displayCargo}\n\n---\n🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek\n🎁 **Odměna:** ${systemDb.currentDailyRewardText}\n🏹 **Bonus:** Kdo doručí jako první, získá roli **HUNTER DNE**!`)
         .setImage(route.img)
         .setColor(EVENT_COLOR);
 
@@ -681,6 +680,28 @@ async function checkMilestoneRoles(userId) {
 // ─────────────────────────────────────────────
 // ZÁLOHOVACÍ SYSTÉM
 // ─────────────────────────────────────────────
+async function createBackup() {
+    try {
+        const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
+        if (backupCh) {
+            const files = [];
+            if (fs.existsSync(USERS_PATH)) files.push(new AttachmentBuilder(USERS_PATH));
+            if (fs.existsSync(SYSTEM_PATH)) files.push(new AttachmentBuilder(SYSTEM_PATH));
+            if (files.length > 0) {
+                await backupCh.send({
+                    content: `💾 Manuální záloha databáze (${new Date().toLocaleString('cs-CZ')})`,
+                    files
+                });
+                return true;
+            }
+        }
+        return false;
+    } catch (e) {
+        console.error('❌ Chyba při vytváření zálohy:', e);
+        return false;
+    }
+}
+
 async function fetchBackupFromDiscord() {
     try {
         const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
@@ -758,6 +779,7 @@ setInterval(() => {
 
     if ((now >= EVENT_START_DATE || isDevMode) && systemDb.currentDay === 0) {
         systemDb.currentDay = 1;
+        systemDb.currentDailyRewardText = "";
         saveSystem();
         announceDailyRoute(1);
         startNewSecretCity();
@@ -765,7 +787,7 @@ setInterval(() => {
         systemDb.currentDay += 1;
         systemDb.communityJobsToday = 0;
         systemDb.hhCountToday = 0;
-        systemDb.currentDailyRewardText = ""; // Reset pro nový den
+        systemDb.currentDailyRewardText = "";
         saveSystem();
         announceDailyRoute(systemDb.currentDay);
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0;
@@ -818,6 +840,7 @@ const commands = [
     new SlashCommandBuilder().setName("dev-reprocess").setDescription("🛠️ (DEV) Zpětně projde zakázky a uzná ty, co chyběly.")
         .addStringOption(o => o.setName("kanal").setDescription("ID kanálu").setRequired(true)),
     new SlashCommandBuilder().setName("dev-fetch-backup").setDescription("🛠️ (DEV) Stáhne a aplikuje poslední zálohu z backup kanálu."),
+    new SlashCommandBuilder().setName("dev-create-backup").setDescription("🛠️ (DEV) Vytvoří manuální zálohu databáze."),
     new SlashCommandBuilder().setName("admin-restore").setDescription("🛠️ ADMIN: Obnoví databázi z nahraných JSON souborů.")
         .addAttachmentOption(o => o.setName("users_db").setDescription("Soubor users_db.json").setRequired(false))
         .addAttachmentOption(o => o.setName("system_db").setDescription("Soubor system_db.json").setRequired(false)),
@@ -1024,6 +1047,20 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `🛠️ Testovací režim (DEV): **${isDevMode ? "ZAPNUTO" : "VYPNUTO"}**.`, ephemeral: true });
     }
 
+    // DEV CREATE BACKUP
+    if (interaction.commandName === "dev-create-backup") {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
+        }
+        await interaction.deferReply({ ephemeral: true });
+        const success = await createBackup();
+        if (success) {
+            return interaction.editReply("✅ **Manuální záloha byla úspěšně vytvořena!**");
+        } else {
+            return interaction.editReply("❌ **Chyba při vytváření zálohy.** Zkontroluj konzoli.");
+        }
+    }
+
     // DEV FETCH BACKUP
     if (interaction.commandName === "dev-fetch-backup") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -1045,7 +1082,6 @@ client.on("interactionCreate", async interaction => {
                 msg += `📦 **users_db.json** - načteno ${Object.keys(usersDb).length} uživatelů\n`;
             }
             if (backup.system) {
-                // Zachovej currentDailyRewardText pokud existuje
                 const oldReward = systemDb.currentDailyRewardText;
                 systemDb = { ...systemDb, ...backup.system };
                 if (oldReward) systemDb.currentDailyRewardText = oldReward;
