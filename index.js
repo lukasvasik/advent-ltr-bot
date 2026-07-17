@@ -1,13 +1,11 @@
 import 'dotenv/config';
 import {
   Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder,
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits,
-  StringSelectMenuBuilder, StringSelectMenuOptionBuilder
+  EmbedBuilder, PermissionFlagsBits, AttachmentBuilder
 } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import axios from 'axios';
 
 // ─────────────────────────────────────────────
 // KONFIGURACE A CESTY
@@ -15,1390 +13,763 @@ import axios from 'axios';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const USERS_PATH = path.join(__dirname, 'users_db.json');
-const CARDS_PATH = path.join(__dirname, 'cards_db.json');
+const SYSTEM_PATH = path.join(__dirname, 'system_db.json');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// ID Kanálů
-const CH_JOBS = '1149900706543833208';
-const CH_MATCHES = '1505183390897279077';
-const CH_BETS = '1505183898349338797';
-const CH_SHOP = '1505184082898714784';
-const CH_MARKET = '1505189708693770300';
-const CH_CMDS = '1505236386163458119';
-const CH_LOG = '1505235716693561535';
+// ID KANÁLŮ
+const CH_JOBS_1 = '1149900706543833208'; 
+const CH_JOBS_2 = '1392644970438983720'; 
+const CH_LOG = '1527691949711298813';
+const CH_CMDS = '1527691324231258132';
+const CH_DAILY_GOAL = '1505658956775686225';
+const CH_SECRET_CITY = '1527692298131865740';
+const CH_ROUTES = '1505189708693770300';
 const CH_BACKUP = '1505571130956578917';
 
-// ID Rolí
-const ROLE_COLLECTOR = '1505237697533444216';
-const ROLE_FAN = '1505237904233070692';
-const ROLE_EXPERT = '1505238178271858788';
+// ID ROLÍ
+const ROLE_KING = '1527690385822978169';
+const ROLE_QUESTMASTER = '1527690306554691775';
+const ROLE_3RD_ANNIVERSARY = '1392649848079257693';
+const ROLE_HUNTER_DNE = '1489757276435648552';
+const ROLE_SECRET_EXPLORER = '1500670331063505066';
 
-const EVENT_COLOR = 0xFF2C57;
-// Přesný časový bod nula: 17. 5. 2026 00:00:00 SELČ (16. 5. 2026 22:00:00 UTC)
-const EVENT_START_TIME = new Date('2026-05-16T22:00:00Z').getTime(); 
+const EVENT_COLOR = 0xFF8C00;
+const EVENT_START_DATE = new Date('2026-07-17T18:00:00+02:00').getTime(); 
+const EVENT_END_DATE = new Date('2026-07-25T19:00:00+02:00').getTime(); 
 
-const SHOP_CATEGORIES = {
-  basic: ['random', 'attack', 'defensive', 'lead', 'goal'],
-  groups: ['group_a', 'group_b'],
-  national: ['cze_col', 'svk_col', 'can_col', 'usa_col', 'swe_col', 'fin_col', 'sui_col', 'lat_col', 'ger_col', 'aut_col', 'hun_col', 'gbr_col', 'den_col', 'nor_col', 'slo_col', 'ita_col']
-};
+// DEV REŽIM
+let isDevMode = false;
 
-const TEAM_ELO = {
-  "Canada": 1800, "Russia": 1780, "Sweden": 1750, "Finland": 1740, 
-  "Czechia": 1730, "Czech Republic": 1730, "USA": 1700, "Switzerland": 1650, 
-  "Germany": 1600, "Slovakia": 1550, "Latvia": 1500, "Denmark": 1450, 
-  "Norway": 1400, "Belarus": 1350, "France": 1350, "Kazakhstan": 1300,
-  "Austria": 1250, "Slovenia": 1200, "Hungary": 1150, "Great Britain": 1100, 
-  "Poland": 1100, "Italy": 1100
-};
+// ─────────────────────────────────────────────
+// DATA EVENTU A QUESTY
+// ─────────────────────────────────────────────
+const PROGRESS_BAR_IMAGES = [
+    "https://i.imgur.com/0ykXCSw.png", "https://i.imgur.com/ztyvGOl.png", "https://i.imgur.com/gRoTYIp.png", 
+    "https://i.imgur.com/07dm9dX.png", "https://i.imgur.com/Y33sOiw.png", "https://i.imgur.com/xsjB4zw.png", 
+    "https://i.imgur.com/hgfThcQ.png", "https://i.imgur.com/ubs1ziZ.png", "https://i.imgur.com/wNvYdM4.png", 
+    "https://i.imgur.com/eI7vsGB.png", "https://i.imgur.com/0JDLAbP.png", "https://i.imgur.com/QEzZmGW.png", 
+    "https://i.imgur.com/Z5LC31T.png", "https://i.imgur.com/0Kt1Ww5.png", "https://i.imgur.com/5ZZfFW5.png", 
+    "https://i.imgur.com/5ZePPlx.png", "https://i.imgur.com/QZYpTcm.png", "https://i.imgur.com/s5TDFs9.png", 
+    "https://i.imgur.com/w1CU9yH.png", "https://i.imgur.com/IS65EZu.png", "https://i.imgur.com/dK4Fm8s.png"
+];
 
-// Mapování typů sázek pro hezčí výpis
-const BET_NAMES = {
-    winner_home: 'Konečný vítěz - Domácí',
-    winner_away: 'Konečný vítěz - Hosté',
-    over_55: 'Padne 6 a více gólů',
-    under_55: 'Padne 5 a méně gólů'
-};
+const ROUTES = [
+    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png" },
+    { day: 2, start: "Hamburk", end: "Brno", cargos: ["Potřeby ke stolování"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png" },
+    { day: 3, start: "Bratislava", end: "Brno", cargos: ["Květiny a stromy"], goal: 150, img: "https://i.imgur.com/lymELya.png" },
+    { day: 4, start: "Štětín", end: "Brno", cargos: ["Hračky"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png" },
+    { day: 5, start: "Linec", end: "Brno", cargos: ["Čokolády"], goal: 250, img: "https://i.imgur.com/oWPrZey.png" },
+    { day: 6, start: "Poznaň", end: "Brno", cargos: ["Limonády"], goal: 250, img: "https://i.imgur.com/J8tVmQU.png" },
+    { day: 7, start: "Linec", end: "Brno", cargos: ["Elektroniku", "Elektronika"], goal: 250, img: "https://i.imgur.com/waiarlZ.png" },
+    { day: 8, start: "Berlín", end: "Brno", cargos: ["Ohňostroje"], goal: 250, img: "https://i.imgur.com/BO0Rgu6.png" }
+];
 
-function generateAdvancedOdds(probH_OT) {
-    let probA_OT = 1 - probH_OT;
-    let odds = {
-        winner_home: parseFloat((0.95 / probH_OT).toFixed(2)),
-        winner_away: parseFloat((0.95 / probA_OT).toFixed(2)),
-        over_55: 1.85,
-        under_55: 1.85
-    };
-    for(let k in odds) odds[k] = Math.max(1.01, Math.min(30.00, odds[k]));
-    return odds;
+const QUESTS = [
+    { id: 0, tier: "common", type: "km", target: 1000, reward: 50, desc: "Zahřívačka: Ujeď celkem 1 000 km" },
+    { id: 1, tier: "common", type: "jobs", targetCount: 2, reward: 100, desc: "Novice: Odvez 2 eventové zakázky" },
+    { id: 2, tier: "common", type: "truck", target: "Iveco", targetCount: 2, reward: 100, desc: "Italský styl: Odvez 2 zakázky s Ivecem" },
+    { id: 3, tier: "common", type: "km", target: 3000, reward: 150, desc: "Cestovatel: Ujeď 3 000 km" },
+    { id: 4, tier: "common", type: "truck", target: "Renault", targetCount: 2, reward: 100, desc: "Francouzský šarm: Odvez 2 zakázky s Renaultem" },
+    { id: 5, tier: "common", type: "city", target: "Brno", targetCount: 3, reward: 250, desc: "Vítej v Brně: Doruč 3 zakázky do Brna" },
+    { id: 6, tier: "common", type: "truck", target: "DAF", targetCount: 3, reward: 150, desc: "Holandská klasika: Odvez 3 zakázky s DAFem" },
+    { id: 7, tier: "rare", type: "jobs", targetCount: 5, reward: 300, desc: "Párty dodávka: Odvez 5 eventových zakázek" },
+    { id: 8, tier: "rare", type: "km", target: 5000, reward: 300, desc: "Vytrvalec: Ujeď celkem 5 000 km" },
+    { id: 9, tier: "rare", type: "truck", target: "MAN", targetCount: 3, reward: 200, desc: "Německá síla: Odvez 3 zakázky s MANem" },
+    { id: 10, tier: "rare", type: "long_jobs", targetKm: 1500, targetCount: 2, reward: 400, desc: "Dálkař: 2 zakázky delší než 1500 km" },
+    { id: 11, tier: "rare", type: "truck", target: "Mercedes", targetCount: 3, reward: 250, desc: "Hvězda na cestách: Odvez 3 zakázky s Mercedesem" },
+    { id: 12, tier: "rare", type: "km", target: 10000, reward: 500, desc: "Maratonec: Ujeď celkem 10 000 km" },
+    { id: 13, tier: "rare", type: "city", target: "Praha", targetCount: 3, reward: 350, desc: "Pražák: Doruč 3 zakázky do Prahy" },
+    { id: 14, tier: "rare", type: "truck", target: "Scania", targetCount: 4, reward: 300, desc: "Věrnost značce: Odvez 4 zakázky se Scanií" },
+    { id: 15, tier: "epic", type: "jobs", targetCount: 10, reward: 500, desc: "Oslavenec: 10 eventových zakázek" },
+    { id: 16, tier: "epic", type: "long_jobs", targetKm: 2000, targetCount: 2, reward: 600, desc: "Evropan: 2 zakázky nad 2000 km" },
+    { id: 17, tier: "epic", type: "truck", target: "Volvo", targetCount: 4, reward: 300, desc: "Švédská ocel: Odvez 4 zakázky s Volvem" },
+    { id: 18, tier: "epic", type: "jobs", targetCount: 15, reward: 800, desc: "Veterán eventu: 15 eventových zakázek" },
+    { id: 19, tier: "epic", type: "long_jobs", targetKm: 2500, targetCount: 2, reward: 800, desc: "Extrém: 2 zakázky nad 2500 km" },
+    { id: 20, tier: "epic", type: "km", target: 20000, reward: 1000, desc: "Těžká váha: Ujeď celkem 20 000 km" },
+    { id: 21, tier: "epic", type: "jobs", targetCount: 25, reward: 1500, desc: "Hrdina výročí: 25 eventových zakázek" }
+];
+
+const SECRET_CITIES_LIST = [
+    "Aberdeen", "Birmingham", "Cambridge", "Cardiff", "Carlisle", "Dover", "Edinburgh", "Felixstowe", 
+    "Glasgow", "Grimsby", "Liverpool", "Londýn", "Manchester", "Newcastle-upon-Tyne", "Plymouth", 
+    "Sheffield", "Southampton", "Swansea", "Berlín", "Brémy", "Dortmund", "Drážďany", "Duisburg", 
+    "Düsseldorf", "Erfurt", "Frankfurt nad Mohanem", "Hamburg", "Hannover", "Kassel", "Kiel", 
+    "Kolín nad Rýnem", "Lipsko", "Magdeburg", "Mannheim", "Mnichov", "Norimberk", "Osnabrück", 
+    "Rostock", "Stuttgart", "Calais", "Dijon", "Lille", "Lyon", "Mety", "Paříž", "Remeš", 
+    "Štrasburk", "Štýrský Hradec", "Innsbruck", "Celovec", "Linec", "Salcburk", "Vídeň", 
+    "Milán", "Turín", "Benátky", "Verona", "Bern", "Ženeva", "Curych", "Amsterdam", "Groningen", 
+    "Rotterdam", "Poznaň", "Štětín", "Vratislav", "Brusel", "Lutych", "Brno", "Praha", 
+    "Bratislava", "Lucemburk"
+];
+
+// ─────────────────────────────────────────────
+// FUNKCE PRO NÁHODNÉ LOSOVÁNÍ
+// ─────────────────────────────────────────────
+function getRandomQuestId() {
+    const roll = Math.random() * 100;
+    let targetTier = "common"; 
+    if (roll > 60 && roll <= 90) targetTier = "rare"; 
+    else if (roll > 90) targetTier = "epic"; 
+
+    const validQuests = QUESTS.filter(q => q.tier === targetTier);
+    if (validQuests.length === 0) return 0; 
+    const randomQ = validQuests[Math.floor(Math.random() * validQuests.length)];
+    return randomQ.id;
+}
+
+function getRandomDailyReward() {
+    const roll = Math.random() * 100;
+    if (roll <= 25) return "🎨 3x Paint Job dle výběru"; 
+    if (roll <= 40) return "🚚 3x Trailer // Tuning Pack dle výběru"; 
+    if (roll <= 45) return "🗺️ 1x Mapové DLC do 8,99 EUR"; 
+    if (roll <= 75) return "🚚 1x Trailer // Tuning Pack dle výběru"; 
+    return "🎨 1x Paint Job dle výběru"; 
 }
 
 // ─────────────────────────────────────────────
 // DATABÁZE A PAMĚŤ
 // ─────────────────────────────────────────────
 let usersDb = fs.existsSync(USERS_PATH) ? JSON.parse(fs.readFileSync(USERS_PATH, 'utf8')) : {};
-const cardsDb = JSON.parse(fs.readFileSync(CARDS_PATH, 'utf8'));
-
-let activeMatches = {};
+let systemDb = fs.existsSync(SYSTEM_PATH) ? JSON.parse(fs.readFileSync(SYSTEM_PATH, 'utf8')) : { 
+    currentDay: 0, communityJobsToday: 0, 
+    hhActiveUntil: 0, hhCountToday: 0, 
+    secretCity: "", secretCityRevealed: [], secretCityFoundBy: null, nextSecretCityResetUnix: 0,
+    hunterDneDay: 0, hunterDneUserId: null, currentDailyRewardText: ""
+};
 
 const saveUsers = () => fs.writeFileSync(USERS_PATH, JSON.stringify(usersDb, null, 2));
+const saveSystem = () => fs.writeFileSync(SYSTEM_PATH, JSON.stringify(systemDb, null, 2));
 
 function getUser(id, tbName = null) {
   if (!usersDb[id]) {
-    usersDb[id] = { id, tbName: tbName || "Neznámý", pucks: 0, inventory: [], bets: [], lockedCards: {}, km: 0, betsTotal: 0, betsWon: 0, finishedEvent: false, processedJobs: [] };
+    usersDb[id] = { 
+        id, tbName: tbName || "Neznámý", xp: 0, km: 0, eventJobs: 0, 
+        processedJobs: [], recentJobHashes: [], completedRoutesDays: [], completedQuests: 0,
+        currentQuestId: getRandomQuestId(), 
+        questProgress: 0, lastQuestSkip: 0 
+    };
   }
-  if (!usersDb[id].lockedCards) usersDb[id].lockedCards = {};
-  if (usersDb[id].km === undefined) usersDb[id].km = 0;
-  if (usersDb[id].pucks === undefined) usersDb[id].pucks = 0;
-  if (usersDb[id].betsTotal === undefined) usersDb[id].betsTotal = usersDb[id].bets?.length || 0;
-  if (usersDb[id].betsWon === undefined) usersDb[id].betsWon = 0;
-  if (usersDb[id].finishedEvent === undefined) usersDb[id].finishedEvent = false;
-  if (!usersDb[id].processedJobs) usersDb[id].processedJobs = [];
+  if (!usersDb[id].recentJobHashes) usersDb[id].recentJobHashes = [];
+  if (!usersDb[id].completedRoutesDays) usersDb[id].completedRoutesDays = [];
+  if (usersDb[id].completedQuests === undefined) usersDb[id].completedQuests = 0;
+  if (usersDb[id].currentQuestId === undefined || usersDb[id].currentQuestId >= QUESTS.length) usersDb[id].currentQuestId = getRandomQuestId();
   return usersDb[id];
 }
 
-// NOVÁ LOGIKA ZAMYKÁNÍ KARET (Počítá kusy, ne pouze ID)
-function getLockedCount(user, cardId) {
-  if (!user.lockedCards || !user.lockedCards[cardId]) return 0;
-  let locks = user.lockedCards[cardId];
-  if (!Array.isArray(locks)) locks = [locks]; // Převod starého formátu
-  
-  const validLocks = locks.filter(expiry => Date.now() < expiry);
-  return validLocks.length;
-}
-
-function isCardLocked(user, cardId) {
-  const totalOwned = user.inventory.filter(id => id === cardId).length;
-  const totalLocked = getLockedCount(user, cardId);
-  return totalLocked >= totalOwned; // Zamčeno je, pokud jsou zamčené úplně všechny kusy dané karty
-}
-
-function lockCard(user, cardId, durationMs) {
-  if (!user.lockedCards) user.lockedCards = {};
-  if (!user.lockedCards[cardId]) user.lockedCards[cardId] = [];
-  else if (!Array.isArray(user.lockedCards[cardId])) user.lockedCards[cardId] = [user.lockedCards[cardId]];
-  
-  user.lockedCards[cardId] = user.lockedCards[cardId].filter(expiry => Date.now() < expiry);
-  user.lockedCards[cardId].push(Date.now() + durationMs);
-}
-
-function unlockCard(user, cardId) {
-  if (!user.lockedCards || !user.lockedCards[cardId]) return;
-  if (!Array.isArray(user.lockedCards[cardId])) {
-      delete user.lockedCards[cardId];
-  } else {
-      user.lockedCards[cardId] = user.lockedCards[cardId].filter(expiry => Date.now() < expiry);
-      if (user.lockedCards[cardId].length > 0) {
-          user.lockedCards[cardId].shift(); // Odstraní jeden (nejstarší) zámek
-      }
-      if (user.lockedCards[cardId].length === 0) {
-          delete user.lockedCards[cardId];
-      }
-  }
-}
+const normalizeStr = (str) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() : "";
 
 // ─────────────────────────────────────────────
 // PŘÍKAZY (SLASH COMMANDS)
 // ─────────────────────────────────────────────
 const commands = [
-  new SlashCommandBuilder().setName("puky").setDescription("Zobrazí tvůj aktuální stav puků."),
-  new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook nickem.")
-    .addStringOption(o => o.setName("nick").setDescription("Tvůj nick na TB").setRequired(true)),
-  
-  new SlashCommandBuilder().setName("profil").setDescription("Zobrazí tvoje statistiky z celého eventu.")
-    .addUserOption(o => o.setName("uzivatel").setDescription("Čí profil chceš vidět (nepovinné)")),
-  new SlashCommandBuilder().setName("leaderboard").setDescription("Zobrazí žebříček nejlepších hráčů.")
-    .addStringOption(o => o.setName("kategorie").setDescription("Podle čeho chceš žebříček seřadit?").setRequired(true).addChoices(
-        { name: '🏒 Počet Puků', value: 'pucks' },
-        { name: '🎴 Počet Karet', value: 'cards' },
+  new SlashCommandBuilder().setName("profil").setDescription("Zobrazí tvůj nebo cizí profil v eventu.")
+    .addUserOption(o => o.setName("hrac").setDescription("Vyber hráče (volitelné)").setRequired(false)),
+  new SlashCommandBuilder().setName("link").setDescription("Propojí tvůj Discord s TrucksBook/Trucky nickem.")
+    .addStringOption(o => o.setName("nick").setDescription("Tvůj nick").setRequired(true)),
+  new SlashCommandBuilder().setName("quest-skip").setDescription("Přeskočí aktuální quest a vylosuje ti jiný (1x denně zdarma)."),
+  new SlashCommandBuilder().setName("odmeny").setDescription("Zobrazí přehled odměn, šance na drop a informace o losování."),
+  new SlashCommandBuilder().setName("leaderboard").setDescription("Zobrazí žebříček eventu.")
+    .addStringOption(o => o.setName("kategorie").setDescription("Podle čeho?").setRequired(true).addChoices(
+        { name: '⭐ Získané XP', value: 'xp' },
         { name: '🚚 Najeté Kilometry', value: 'km' },
-        { name: '💰 Vyhrané Sázky', value: 'bets' }
+        { name: '📦 Doručené Zakázky', value: 'jobs' },
+        { name: '📜 Splněné Questy', value: 'quests' }
     )),
-
-  new SlashCommandBuilder().setName("album").setDescription("Prohlédni si sbírku karet (svou nebo cizí).")
-    .addStringOption(o => o.setName("tym").setDescription("Vyber národní tým").setRequired(true).addChoices(
-        { name: '🇨🇿 Česko (CZE)', value: 'CZE' }, { name: '🇸🇰 Slovensko (SVK)', value: 'SVK' },
-        { name: '🇨🇦 Kanada (CAN)', value: 'CAN' }, { name: '🇺🇸 USA (USA)', value: 'USA' },
-        { name: '🇸🇪 Švédsko (SWE)', value: 'SWE' }, { name: '🇫🇮 Finsko (FIN)', value: 'FIN' },
-        { name: '🇨🇭 Švýcarsko (SUI)', value: 'SUI' }, { name: '🇱🇻 Lotyšsko (LAT)', value: 'LAT' },
-        { name: '🇩🇪 Německo (GER)', value: 'GER' }, { name: '🇦🇹 Rakousko (AUT)', value: 'AUT' },
-        { name: '🇭🇺 Maďarsko (HUN)', value: 'HUN' }, { name: '🇬🇧 Velká Británie (GBR)', value: 'GBR' },
-        { name: '🇩🇰 Dánsko (DEN)', value: 'DEN' }, { name: '🇳🇴 Norsko (NOR)', value: 'NOR' },
-        { name: '🇸🇮 Slovinsko (SLO)', value: 'SLO' }, { name: '🇮🇹 Itálie (ITA)', value: 'ITA' }
-    ))
-    .addUserOption(o => o.setName("uzivatel").setDescription("Čí album chceš vidět (nepovinné)")),
-    
-  new SlashCommandBuilder().setName("duplikaty").setDescription("Zobrazí všechny tvé karty, které máš vícekrát."),
-  
-  new SlashCommandBuilder().setName("prodat").setDescription("Vystaví tvou kartu na globální tržiště.")
-    .addStringOption(o => o.setName("karta_id").setDescription("Vyber kartu k prodeji ze svého inventáře").setRequired(true).setAutocomplete(true))
-    .addIntegerOption(o => o.setName("cena").setDescription("Cena v pucích").setRequired(true)),
-  new SlashCommandBuilder().setName("trade").setDescription("Nabídne přímou výměnu hráči.")
-    .addUserOption(o => o.setName("uzivatel").setDescription("Komu chceš nabídnout trade").setRequired(true))
-    .addStringOption(o => o.setName("nabizim").setDescription("Vyber kartu ze svého inventáře").setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName("chci").setDescription("Vyber kartu od druhého hráče").setRequired(true).setAutocomplete(true)),
-  
-  new SlashCommandBuilder().setName("vsadit").setDescription("Vsadí puky na nadcházející zápas.")
-    .addStringOption(o => o.setName("zapas").setDescription("Vyber zápas z nabídky").setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName("tip").setDescription("Typ sázky a tvůj tip").setRequired(true).addChoices(
-        {name: 'Konečný vítěz zápasu - Domácí', value: 'winner_home'},
-        {name: 'Konečný vítěz zápasu - Hosté', value: 'winner_away'},
-        {name: 'Padne celkem 6 a více gólů (Více než 5.5)', value: 'over_55'},
-        {name: 'Padne celkem 5 a méně gólů (Méně než 5.5)', value: 'under_55'}
-    ))
-    .addIntegerOption(o => o.setName("puky").setDescription("Kolik puků sázíš").setRequired(true)),
-  
-  // ADMIN PŘÍKAZY
-  new SlashCommandBuilder().setName("admin-setup-shop").setDescription("ADMIN: Vykreslí nástěnku do obchodu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-puky").setDescription("ADMIN: Přidá nebo odebere puky.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
-    .addIntegerOption(o => o.setName("pocet").setDescription("Počet puků (+ přidá, - ubere)").setRequired(true)),
-  new SlashCommandBuilder().setName("admin-karta").setDescription("ADMIN: Přidá konkrétní kartu hráči.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addUserOption(o => o.setName("uzivatel").setDescription("Komu").setRequired(true))
-    .addStringOption(o => o.setName("karta_id").setDescription("ID karty (např. CZE_A1)").setRequired(true)),
-  new SlashCommandBuilder().setName("admin-zapasy").setDescription("ADMIN: Ručně otestuje a stáhne zápasy z RapidAPI (Ignoruje limity).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  
-  new SlashCommandBuilder().setName("admin-vyhodnot").setDescription("ADMIN: Nouzové ruční vyhodnocení zápasu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addStringOption(o => o.setName("zapas").setDescription("Který zápas skončil?").setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName("vitez").setDescription("Kdo vyhrál?").setRequired(true).addChoices({name: 'Domácí', value: 'home'}, {name: 'Hosté', value: 'away'}))
-    .addIntegerOption(o => o.setName("goly_celkem").setDescription("Kolik padlo celkem gólů?").setRequired(true)),
-
-  new SlashCommandBuilder().setName("admin-vytvor-zapas").setDescription("ADMIN: Ručně vytvoří zápas (když API stávkuje).").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addStringOption(o => o.setName("domaci").setDescription("Tým domácí").setRequired(true))
-    .addStringOption(o => o.setName("hoste").setDescription("Tým hosté").setRequired(true))
-    .addNumberOption(o => o.setName("kurz_domaci").setDescription("Kurz na domácí vč. prodloužení (např. 1.5)").setRequired(true))
-    .addIntegerOption(o => o.setName("zacatek_za_hodin").setDescription("Za kolik hodin zápas začíná?").setRequired(true)),
-  
-  new SlashCommandBuilder().setName("admin-zaloha-vynut").setDescription("ADMIN: Okamžitě odešle aktuální stav databáze do cloudu.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName("admin-zpetne-zakazky").setDescription("ADMIN: Zpětně zkontroluje a opraví zakázky, i ty poškozené.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  // 🛠️ TESTOVACÍ PŘÍKAZY (NOVÉ)
+  new SlashCommandBuilder().setName("test-cteni").setDescription("🛠️ (DEV) Otestuje, jak bot přečte zkopírovaný text zakázky.")
+    .addStringOption(o => o.setName("text").setDescription("Vlož text zakázky z bota").setRequired(true)),
+  new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim bez ohledu na datum startu eventu.")
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
 
 // ─────────────────────────────────────────────
-// AUTOCOMPLETE (NAŠEPTÁVAČ) 
+// POMOCNÉ FUNKCE PRO TAJNÉ MĚSTO
 // ─────────────────────────────────────────────
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isAutocomplete()) return;
-  const focusedOption = interaction.options.getFocused(true);
-
-  if (interaction.commandName === 'trade' || interaction.commandName === 'prodat') {
-    let choices = [];
-    if (focusedOption.name === 'nabizim' || focusedOption.name === 'karta_id') {
-      const user = getUser(interaction.user.id);
-      choices = [...new Set(user.inventory)].filter(id => !isCardLocked(user, id)).map(id => {
-        const card = cardsDb.cards.find(c => c.id === id);
-        const availCount = user.inventory.filter(i => i === id).length - getLockedCount(user, id);
-        return { name: card ? `${card.team} | ${card.name} (${availCount}x dostupné)` : id, value: id };
-      });
-    } else if (focusedOption.name === 'chci') {
-      const targetUserId = interaction.options.get('uzivatel')?.value;
-      if (targetUserId) {
-        const target = getUser(targetUserId);
-        choices = [...new Set(target.inventory)].map(id => {
-          const card = cardsDb.cards.find(c => c.id === id);
-          return { name: card ? `${card.team} | ${card.name} (${id})` : id, value: id };
-        });
-      } else {
-        choices = cardsDb.cards.map(c => ({ name: `${c.team} | ${c.name} (${c.id})`, value: c.id }));
-      }
-    }
-    const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
-    await interaction.respond(filtered).catch(()=>null);
-  } 
-  
-  else if (interaction.commandName === 'vsadit' || interaction.commandName === 'admin-vyhodnot') {
-    if (focusedOption.name === 'zapas') {
-      let matches = new Set();
-      
-      if (interaction.commandName === 'vsadit') {
-        Object.keys(activeMatches).forEach(m => {
-           if (activeMatches[m].status === 'NS' && Date.now() < activeMatches[m].startTime) matches.add(m);
-        });
-      } else if (interaction.commandName === 'admin-vyhodnot') {
-        Object.keys(activeMatches).forEach(m => matches.add(m));
-        for (const uid in usersDb) {
-            usersDb[uid].bets.forEach(b => {
-                if (!b.resolved) matches.add(b.match);
-            });
-        }
-      }
-      
-      const choices = Array.from(matches).map(m => ({name: m, value: m}));
-      const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25);
-      await interaction.respond(filtered).catch(()=>null);
-    }
-  }
-});
-
-// ─────────────────────────────────────────────
-// SBĚR KILOMETRŮ A MIL (Blbuvzdorné zpracování + Repair Mód)
-// ─────────────────────────────────────────────
-
-const normalizeStr = (str) => {
-    if (!str) return "";
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-};
-
-function extractDistanceAndPucks(text) {
-    const regex = /(?:vzdálenost|distance|\[.*?\])[^\d]*([\d\s.,]+)\s*(km|mi|míle|miles)/gi;
-    let matches = [...text.matchAll(regex)];
+function getNextSecretCityResetUnix() {
+    const now = new Date();
+    const czTimeStr = now.toLocaleString("en-US", {timeZone: "Europe/Prague"});
+    const czTime = new Date(czTimeStr);
     
-    if (matches.length === 0) return null;
-
-    let bestDist = 0;
-    let bestUnit = 'km';
-    let rawMatchStr = '';
-
-    for (const m of matches) {
-        const cleanStr = m[1].replace(/[^\d]/g, '');
-        if (cleanStr.length > 0) {
-            const parsed = parseInt(cleanStr, 10);
-            if (parsed > bestDist) {
-                bestDist = parsed;
-                bestUnit = m[2].toLowerCase();
-                rawMatchStr = m[1];
-            }
-        }
-    }
-
-    if (bestDist <= 0) return null;
-
-    let km = bestDist;
-    if (bestUnit.includes('mi') || bestUnit.includes('mí')) {
-        km = Math.round(bestDist * 1.60934);
+    const nextResetCz = new Date(czTime.getTime());
+    if (czTime.getHours() >= 18) {
+        nextResetCz.setDate(nextResetCz.getDate() + 1);
+        nextResetCz.setHours(6, 0, 0, 0); // Zítra v 6:00
+    } else if (czTime.getHours() >= 6) {
+        nextResetCz.setHours(18, 0, 0, 0); // Dnes v 18:00
+    } else {
+        nextResetCz.setHours(6, 0, 0, 0); // Dnes v 6:00
     }
     
-    return { km, pucks: Math.floor(km / 200), isMiles: bestUnit.includes('mi') || bestUnit.includes('mí'), rawDist: bestDist, rawMatchStr };
+    const msUntilReset = nextResetCz.getTime() - czTime.getTime();
+    return Math.floor((now.getTime() + msUntilReset) / 1000);
 }
 
-async function processJobMessage(m, isBackfill = false) {
-  if (m.createdTimestamp < EVENT_START_TIME) return { status: 'ignored_old' };
-  
-  if (!m.embeds.length) return { status: 'ignored' };
-  const e = m.embeds[0];
-  const driver = e.author?.name;
-  if (!driver) return { status: 'ignored' };
-
-  const allText = [e.title, e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
-  const jobIdMatch = allText.match(/#(\d+)/) || (m.content || "").match(/#(\d+)/);
-  const jobId = jobIdMatch ? jobIdMatch[1] : `msg_${m.id}`;
-
-  const distData = extractDistanceAndPucks(allText);
-  if (!distData) return { status: 'ignored' };
-  const { km, pucks, isMiles, rawDist, rawMatchStr } = distData;
-
-  const driverNorm = normalizeStr(driver);
-
-  let userKey = Object.keys(usersDb).find(k => {
-    if (k.startsWith('UNLINKED_')) return false;
-    const dbNick = normalizeStr(usersDb[k].tbName);
-    return driverNorm.includes(dbNick) || dbNick.includes(driverNorm);
-  });
-
-  if (!userKey && !isBackfill) {
+async function transferRole(guildId, roleId, oldUserId, newUserId) {
     try {
-      const guild = await client.guilds.fetch(GUILD_ID);
-      const members = await guild.members.fetch({ query: driver, limit: 10 }).catch(() => new Map());
-      const matchedMember = members.find(mem => 
-        normalizeStr(mem.user.username).includes(driverNorm) || 
-        normalizeStr(mem.displayName).includes(driverNorm)
-      );
-      if (matchedMember) {
-        userKey = matchedMember.id;
-        getUser(userKey, driver); 
-        const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-        if (logCh) logCh.send(`🔗 Hráč **${driver}** byl systémem automaticky propojen s Discord účtem <@${userKey}>!`);
-      }
-    } catch (err) {}
-  }
+        const guild = await client.guilds.fetch(guildId);
+        if (oldUserId && oldUserId !== newUserId) {
+            const oldMember = await guild.members.fetch(oldUserId).catch(()=>null);
+            if (oldMember) await oldMember.roles.remove(roleId).catch(()=>null);
+        }
+        if (newUserId) {
+            const newMember = await guild.members.fetch(newUserId).catch(()=>null);
+            if (newMember) await newMember.roles.add(roleId).catch(()=>null);
+        }
+    } catch(e) {}
+}
 
-  let isGhost = false;
-  if (!userKey) {
-     userKey = 'UNLINKED_' + driver;
-     isGhost = true;
-  }
+function startNewSecretCity() {
+    const randomCity = SECRET_CITIES_LIST[Math.floor(Math.random() * SECRET_CITIES_LIST.length)];
+    systemDb.secretCity = randomCity;
+    systemDb.secretCityRevealed = new Array(randomCity.length).fill(false);
+    if (randomCity.length > 3) {
+        systemDb.secretCityRevealed[0] = true;
+        systemDb.secretCityRevealed[randomCity.length - 1] = true;
+    }
+    systemDb.secretCityFoundBy = null;
+    systemDb.nextSecretCityResetUnix = getNextSecretCityResetUnix();
+    
+    saveSystem();
+    announceSecretCityWordle();
+}
 
-  const u = getUser(userKey, driver);
-  let unitTxt = isMiles ? `**${rawDist} mil** (*${km} km*)` : `**${km} km**`;
+function revealNextLetter() {
+    if (!systemDb.secretCity || systemDb.secretCityFoundBy) return;
+    const unrevealedIndices = [];
+    systemDb.secretCityRevealed.forEach((isRevealed, idx) => {
+        if (!isRevealed && systemDb.secretCity[idx] !== ' ') unrevealedIndices.push(idx);
+    });
 
-  if (u.processedJobs.includes(jobId)) {
-      if (isBackfill && km >= 1000 && !u.processedJobs.includes('REPAIRED_' + jobId)) {
-          const firstDigitGroup = rawMatchStr.trim().match(/^(\d+)/);
-          const oldKm = firstDigitGroup ? parseInt(firstDigitGroup[1], 10) : 0;
-          
-          const kmDiff = km - oldKm;
-          const oldPucks = Math.floor(oldKm / 200);
-          const pucksDiff = pucks - oldPucks;
-          
-          if (kmDiff > 0) {
-              u.km += kmDiff;
-              u.pucks += pucksDiff;
-              u.processedJobs.push('REPAIRED_' + jobId);
-              return { status: 'repaired', km: kmDiff, pucks: pucksDiff, driver, isGhost, jobId, unitTxt };
-          }
-      }
-      return { status: 'duplicate' };
-  }
+    if (unrevealedIndices.length > 0) {
+        const randomIdx = unrevealedIndices[Math.floor(Math.random() * unrevealedIndices.length)];
+        systemDb.secretCityRevealed[randomIdx] = true;
+        saveSystem();
+        announceSecretCityWordle();
+    }
+}
 
-  u.km += km;
-  if (pucks > 0) u.pucks += pucks;
-  u.processedJobs.push(jobId);
-  return { status: 'added', km, pucks, driver, isGhost, jobId, unitTxt, userKey };
+async function announceSecretCityWordle() {
+    const ch = await client.channels.fetch(CH_SECRET_CITY).catch(()=>null);
+    if (!ch) return;
+
+    const resetUnix = systemDb.nextSecretCityResetUnix || getNextSecretCityResetUnix();
+
+    if (systemDb.secretCityFoundBy) {
+        const embed = new EmbedBuilder()
+            .setTitle("🕵️‍♂️ Tajné Město bylo odhaleno!")
+            .setDescription(`Gratulujeme! <@${systemDb.secretCityFoundBy}> rozluštil záhadu a dovezl náklad do města **${systemDb.secretCity}**! Získává bonus 1000 XP a titul **Secret Explorer**.\n\n⏳ Další město se objeví **<t:${resetUnix}:R>** (<t:${resetUnix}:t>).`)
+            .setColor(0x00FF00);
+        return ch.send({ embeds: [embed] });
+    }
+
+    let displayStr = "";
+    for (let i = 0; i < systemDb.secretCity.length; i++) {
+        if (systemDb.secretCity[i] === ' ') displayStr += "   ";
+        else if (systemDb.secretCityRevealed[i]) displayStr += `**${systemDb.secretCity[i].toUpperCase()}** `;
+        else displayStr += "\\_ ";
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle("🕵️‍♂️ Najdi Tajné Město (Wordle)!")
+        .setDescription(`Doruč libovolný náklad (delší než 500 km) do tohoto města jako první a získej obří bonus **1000 XP** a titul **Secret Explorer**!\n\n⏳ **Čas do změny města:** <t:${resetUnix}:R> (<t:${resetUnix}:t>)\n💡 Nápověda se odkrývá každé 3 hodiny.\n\nMěsto: ${displayStr}`)
+        .setColor(0x8A2BE2);
+    
+    const msgs = await ch.messages.fetch({ limit: 5 });
+    const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
+    if (oldBotMsg) await oldBotMsg.delete().catch(()=>null);
+    ch.send({ embeds: [embed] });
+}
+
+// ─────────────────────────────────────────────
+// PARSOVÁNÍ ZAKÁZEK A ZPRACOVÁNÍ
+// ─────────────────────────────────────────────
+function extractJobData(text, title) {
+    const combinedText = (title + "\n" + text).replace(/\*/g, '');
+    
+    const kmMatch = combinedText.match(/(?:Uznaná vzdálenost:|km\n|^)\s*([\d\s.,]+)\s*(km|mi)/im) || combinedText.match(/([\d\s.,]+)\s*(km|mi)/i);
+    let km = 0;
+    if (kmMatch) {
+        km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10);
+        if (kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
+    }
+
+    let origin = "neznáme", dest = "neznáme";
+    const tbCitiesMatch = combinedText.match(/Odkud\s*Kam\n(?:.*?\s+)?(.*?)\s+(?:.*?\s+)?(.*)\n/i);
+    const truckyCitiesMatch = combinedText.match(/to\s*\n\s*(.*?)\n/i); 
+    
+    if (tbCitiesMatch) {
+        origin = tbCitiesMatch[1].replace(/🚚|🏁|🚩/g, '').trim();
+        dest = tbCitiesMatch[2].replace(/🚚|🏁|🚩/g, '').trim();
+    } else if (truckyCitiesMatch) {
+        dest = truckyCitiesMatch[1].trim(); 
+    } else {
+        const destMatch = combinedText.match(/(?:do|kam|destination):\s*([a-zA-Zá-žÁ-Ž ]+)/i);
+        if (destMatch) dest = destMatch[1];
+    }
+
+    const cargoMatch = combinedText.match(/(?:Náklad|Cargo):\s*([a-zA-Zá-žÁ-Ž0-9 ]+)/i);
+    const truckMatch = combinedText.match(/(?:Tahač|Truck):\s*([a-zA-Z0-9 -]+)/i);
+
+    if (km <= 0) return null;
+
+    return {
+        km, origin: normalizeStr(origin), dest: normalizeStr(dest),
+        cargo: cargoMatch ? normalizeStr(cargoMatch[1].split('(')[0]) : "neznáme",
+        truck: truckMatch ? normalizeStr(truckMatch[1]) : "neznáme"
+    };
+}
+
+async function processJobMessage(m) {
+    // DEV MODE kontrola
+    if (!isDevMode && m.createdTimestamp < EVENT_START_DATE) return { status: 'ignored_old' };
+    if (!isDevMode && Date.now() > EVENT_END_DATE) return { status: 'event_ended' }; 
+    if (!m.embeds.length) return { status: 'ignored' };
+    
+    const e = m.embeds[0];
+    const driver = e.author?.name || "Neznámý";
+    const titleText = e.title || "";
+    const allText = [e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
+    
+    const jobIdMatch = titleText.match(/#(\d+)/) || allText.match(/#(\d+)/);
+    const jobId = jobIdMatch ? jobIdMatch[1] : `msg_${m.id}`;
+    const jobData = extractJobData(allText, titleText);
+    if (!jobData) return { status: 'ignored' };
+
+    const jobHash = `${jobData.km}_${jobData.dest}_${jobData.cargo}`;
+    const driverNorm = normalizeStr(driver);
+    let userKey = Object.keys(usersDb).find(k => {
+        if (k.startsWith('UNLINKED_')) return false;
+        const dbNick = normalizeStr(usersDb[k].tbName);
+        return driverNorm.includes(dbNick) || dbNick.includes(driverNorm);
+    });
+
+    if (!userKey) userKey = 'UNLINKED_' + driver;
+    const u = getUser(userKey, driver);
+
+    if (u.processedJobs.includes(jobId) || u.recentJobHashes.includes(jobHash)) {
+        return { status: 'duplicate' };
+    }
+
+    let isEventRoute = false;
+    let earnedXP = 100; 
+    let isHappyHourJob = false;
+    let secretCityFound = false;
+    let isNewHunterDne = false;
+
+    if (systemDb.secretCity && !systemDb.secretCityFoundBy && jobData.dest === normalizeStr(systemDb.secretCity) && jobData.km >= 500) {
+        secretCityFound = true;
+        earnedXP += 1000;
+        if (!userKey.startsWith('UNLINKED_')) {
+            systemDb.secretCityFoundBy = u.id;
+            saveSystem();
+            announceSecretCityWordle(); 
+        }
+    }
+
+    if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
+        const dailyRoute = ROUTES[systemDb.currentDay - 1];
+        const allowedCargosNorm = dailyRoute.cargos.map(normalizeStr);
+        
+        if (jobData.dest === normalizeStr(dailyRoute.end) && allowedCargosNorm.some(c => jobData.cargo.includes(c))) {
+            isEventRoute = true;
+            u.eventJobs += 1;
+            systemDb.communityJobsToday += 1;
+            if (!u.completedRoutesDays.includes(systemDb.currentDay)) u.completedRoutesDays.push(systemDb.currentDay);
+            
+            if (systemDb.hunterDneDay !== systemDb.currentDay && !userKey.startsWith('UNLINKED_')) {
+                isNewHunterDne = true;
+                systemDb.hunterDneDay = systemDb.currentDay;
+            }
+            saveSystem();
+            updateCommunityProgressBar();
+        }
+    }
+
+    if (Date.now() < systemDb.hhActiveUntil) {
+        isHappyHourJob = true;
+        earnedXP = Math.floor(earnedXP * 1.5);
+    }
+
+    u.xp += earnedXP;
+    u.km += jobData.km;
+    u.processedJobs.push(jobId);
+    u.recentJobHashes.push(jobHash);
+    if (u.recentJobHashes.length > 10) u.recentJobHashes.shift(); 
+
+    // GACHA Quest systém
+    let questCompleted = false;
+    let earnedQuestXP = 0;
+    const q = QUESTS.find(quest => quest.id === u.currentQuestId);
+    
+    if (q) {
+        if (q.type === "km") u.questProgress += jobData.km;
+        if (q.type === "jobs" && isEventRoute) u.questProgress += 1;
+        if (q.type === "city" && jobData.dest === normalizeStr(q.target)) u.questProgress += 1;
+        if (q.type === "truck" && jobData.truck.includes(normalizeStr(q.target))) u.questProgress += 1;
+        if (q.type === "long_jobs" && jobData.km >= q.targetKm) u.questProgress += 1;
+
+        const targetRequired = q.targetCount || q.targetKm || q.target;
+        if (u.questProgress >= targetRequired) {
+            u.xp += q.reward;
+            earnedQuestXP = q.reward;
+            u.completedQuests += 1;
+            u.questProgress = 0;
+            u.currentQuestId = getRandomQuestId(); 
+            questCompleted = true;
+        }
+    }
+
+    saveUsers();
+    if (!userKey.startsWith('UNLINKED_')) checkMilestoneRoles(userKey);
+
+    return { 
+        status: 'added', km: jobData.km, isEventRoute, questCompleted, earnedXP, 
+        earnedQuestXP, driver, userKey, secretCityFound, isHappyHourJob, isNewHunterDne 
+    };
 }
 
 client.on('messageCreate', async (m) => {
-  if (m.channel.id !== CH_JOBS) return;
-  const res = await processJobMessage(m, false);
-  
-  if (res.status === 'added') {
-      saveUsers();
-      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh && !res.isGhost) {
-          logCh.send(`✅ Zakázka \`#${res.jobId}\` schválena: **${res.driver}** získal **${res.pucks} puků** za ujetých ${res.unitTxt}.`);
-      }
-  }
+    if (m.channel.id !== CH_JOBS_1 && m.channel.id !== CH_JOBS_2) return;
+    const res = await processJobMessage(m);
+    
+    if (res.status === 'added' && !res.userKey.startsWith('UNLINKED_')) {
+        if (res.secretCityFound) {
+            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, systemDb.secretExplorerUserId, res.userKey);
+            systemDb.secretExplorerUserId = res.userKey;
+            saveSystem();
+        }
+        if (res.isNewHunterDne) {
+            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, systemDb.hunterDneUserId, res.userKey);
+            systemDb.hunterDneUserId = res.userKey;
+            saveSystem();
+        }
+
+        const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
+        if (logCh) {
+            let msg = `✅ **${res.driver}** dovezl zakázku (${res.km} km).`;
+            if (res.isEventRoute) msg += ` 🎯 Eventová trasa (+ XP).`;
+            if (res.isNewHunterDne) msg += ` 🏹 Získává titul **HUNTER DNE**!`;
+            if (res.isHappyHourJob) msg += ` 🌟 **HAPPY HOUR 1.5x XP!**`;
+            msg += ` Získal **+${res.earnedXP} XP**.`;
+            if (res.questCompleted) msg += ` 🏆 Splnil QUEST a získal **+${res.earnedQuestXP} XP** (Byl mu vylosován nový)!`;
+            if (res.secretCityFound) msg += ` 🕵️‍♂️ **ODHALIL TAJNÉ MĚSTO (+1000 XP) a získal titul SECRET EXPLORER!**`;
+            logCh.send(msg);
+        }
+    }
 });
 
-async function runBackfill(limit = 1500) {
-    const jobsCh = await client.channels.fetch(CH_JOBS).catch(() => null);
-    if (!jobsCh) return { processed: 0, repaired: 0, km: 0, pucks: 0 };
-    
-    let allMsgs = new Map();
-    let lastId;
-    let fetchCount = 0;
+// ─────────────────────────────────────────────
+// MECHANIKA TRAS A PROGRESS BARU
+// ─────────────────────────────────────────────
+async function announceDailyRoute(day) {
+    if (day > 8) return; 
 
-    while (fetchCount < limit) {
-        const options = { limit: 100 };
-        if (lastId) options.before = lastId;
-        
-        const msgs = await jobsCh.messages.fetch(options).catch(() => null);
-        if (!msgs || msgs.size === 0) break;
-        
-        let reachedBeforeEvent = false;
-        
-        msgs.forEach(m => {
-            if (m.createdTimestamp < EVENT_START_TIME) {
-                reachedBeforeEvent = true;
-            } else {
-                allMsgs.set(m.id, m);
+    const route = ROUTES[day - 1];
+    
+    systemDb.currentDailyRewardText = getRandomDailyReward();
+    saveSystem();
+
+    const embed = new EmbedBuilder()
+        .setTitle(`🚚 EVENT DEN ${day}/8: Nová trasa!`)
+        .setDescription(`Dnes svážíme zásoby na oslavu z města **${route.start}** do **${route.end}**!\n\n` +
+                        `📦 **Povolené náklady:**\n${route.cargos.map(c => `- ${c}`).join('\n')}\n\n` +
+                        `🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek!\n` +
+                        `🎁 **Odměna za splnění cíle:** Systém vylosoval **${systemDb.currentDailyRewardText}**!\n` +
+                        `🏹 Kdo doveze trasu dnes jako první, získá roli **HUNTER DNE**!`)
+        .setImage(route.img)
+        .setColor(EVENT_COLOR);
+
+    const annCh = await client.channels.fetch(CH_ROUTES).catch(()=>null);
+    if (annCh) {
+        await annCh.send({ content: "@everyone 🚨 **Nová trasa vyhlášena!** 🚨", embeds: [embed] });
+        updateCommunityProgressBar(true);
+    }
+}
+
+async function updateCommunityProgressBar(forceNew = false) {
+    if (systemDb.currentDay === 0 || systemDb.currentDay > 8) return;
+    
+    const route = ROUTES[systemDb.currentDay - 1];
+    const percent = Math.min(100, Math.floor((systemDb.communityJobsToday / route.goal) * 100));
+    const imageIndex = Math.floor(percent / 5);
+    const imgUrl = PROGRESS_BAR_IMAGES[imageIndex] || PROGRESS_BAR_IMAGES[0];
+
+    const annCh = await client.channels.fetch(CH_DAILY_GOAL).catch(()=>null);
+    if (!annCh) return;
+
+    const embed = new EmbedBuilder()
+        .setTitle(`📊 Komunitní Gól - Den ${systemDb.currentDay}`)
+        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${percent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText}`)
+        .setImage(imgUrl)
+        .setColor(EVENT_COLOR);
+
+    if (systemDb.communityJobsToday === route.goal && !forceNew) {
+        annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme výherce **${systemDb.currentDailyRewardText}**!`);
+    }
+
+    const msgs = await annCh.messages.fetch({ limit: 10 });
+    const botMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Komunitní Gól"));
+
+    if (botMsg && !forceNew) await botMsg.edit({ embeds: [embed] });
+    else await annCh.send({ embeds: [embed] });
+}
+
+// ─────────────────────────────────────────────
+// ČASOVAČ (Zálohy, Event Logika, Happy Hour)
+// ─────────────────────────────────────────────
+setInterval(async () => {
+    try {
+        const backupCh = await client.channels.fetch(CH_BACKUP).catch(()=>null);
+        if (backupCh) {
+            const files = [];
+            if (fs.existsSync(USERS_PATH)) files.push(new AttachmentBuilder(USERS_PATH));
+            if (fs.existsSync(SYSTEM_PATH)) files.push(new AttachmentBuilder(SYSTEM_PATH));
+            if (files.length > 0) await backupCh.send({ content: `💾 Automatická záloha databáze (${new Date().toLocaleString('cs-CZ')})`, files });
+        }
+    } catch(e) {}
+}, 15 * 60 * 1000); 
+
+setInterval(() => {
+    const now = Date.now();
+    const czTime = new Date(new Date(now).toLocaleString("en-US", {timeZone: "Europe/Prague"}));
+    
+    if (now >= EVENT_END_DATE && !isDevMode && !systemDb.eventClosedAnnounced) {
+        systemDb.eventClosedAnnounced = true;
+        saveSystem();
+        client.channels.fetch(CH_ROUTES).then(ch => {
+            ch.send("🏁 **EVENT JE OFICIÁLNĚ U KONCE!** 🏁\n\nDěkujeme všem za účast! Přijímání zakázek bylo právě ukončeno. Nyní zpracováváme data a vyhlášení vítězů proběhne po 20:00!");
+        }).catch(()=>null);
+        return; 
+    }
+
+    if ((now >= EVENT_START_DATE || isDevMode) && systemDb.currentDay === 0) {
+        systemDb.currentDay = 1; saveSystem();
+        announceDailyRoute(1); startNewSecretCity();
+    } 
+    // Přepnutí na další den trasy v 18:00
+    else if (czTime.getHours() === 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
+        systemDb.currentDay += 1;
+        systemDb.communityJobsToday = 0; systemDb.hhCountToday = 0;
+        saveSystem();
+        announceDailyRoute(systemDb.currentDay); 
+        for (const key in usersDb) usersDb[key].lastQuestSkip = 0; saveUsers();
+    }
+
+    // Generování nového Tajného města (vždy 6:00 ráno a 18:00 večer)
+    if ((czTime.getHours() === 6 || czTime.getHours() === 18) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
+        startNewSecretCity();
+    }
+
+    // Odkrývání nápovědy u Tajného města (Každé 3 hodiny, vyjma momentu, kdy se generuje nové)
+    if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 6 && czTime.getHours() !== 18 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
+        revealNextLetter();
+    }
+
+    if (czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
+        if (now >= systemDb.hhActiveUntil && systemDb.hhCountToday < 2) {
+            if (Math.random() < 0.10) { 
+                systemDb.hhActiveUntil = now + (60 * 60 * 1000);
+                systemDb.hhCountToday += 1; saveSystem();
+                client.channels.fetch(CH_ROUTES).then(ch => {
+                    ch.send("🌟 **HAPPY HOUR PRÁVĚ ZAČALA!** Následující 1 hodinu jsou ziskované XP u všech zakázek násobeny 1.5x!");
+                }).catch(()=>null);
             }
-        });
-        
-        if (reachedBeforeEvent) break; 
-        
-        lastId = msgs.last().id;
-        fetchCount += msgs.size;
-    }
-
-    let processedCount = 0;
-    let repairedCount = 0;
-    let addedKm = 0;
-    let addedPucks = 0;
-    
-    for (const [, m] of allMsgs) {
-        const res = await processJobMessage(m, true);
-        if (res.status === 'added') {
-            processedCount++;
-            addedKm += res.km;
-            addedPucks += res.pucks;
-        } else if (res.status === 'repaired') {
-            repairedCount++;
-            addedKm += res.km;
-            addedPucks += res.pucks;
         }
     }
-    
-    if (processedCount > 0 || repairedCount > 0) saveUsers();
-    return { processed: processedCount, repaired: repairedCount, km: addedKm, pucks: addedPucks };
-}
+}, 60 * 1000);
 
 // ─────────────────────────────────────────────
-// POMOCNÉ FUNKCE
+// ROLE SYSTÉM (Milníky)
 // ─────────────────────────────────────────────
-function buildLeaderboardResponse(category, page) {
-  let usersArray = Object.values(usersDb).filter(u => u.tbName !== "Neznámý" && !u.id.startsWith('UNLINKED_'));
-  let title = "";
-  let valueMapper;
+async function checkMilestoneRoles(userId) {
+    try {
+        const u = usersDb[userId];
+        if (!u) return;
+        const guild = await client.guilds.fetch(GUILD_ID);
+        const member = await guild.members.fetch(userId);
+        const logCh = await client.channels.fetch(CH_LOG);
 
-  if (category === 'pucks') {
-    usersArray.sort((a, b) => b.pucks - a.pucks);
-    title = "🏆 Leaderboard: Nejvíce Puků";
-    valueMapper = (u) => `**${u.pucks}** puků`;
-  } else if (category === 'cards') {
-    usersArray.sort((a, b) => b.inventory.length - a.inventory.length);
-    title = "🏆 Leaderboard: Největší sběratelé (Karty)";
-    valueMapper = (u) => `**${u.inventory.length}** karet`;
-  } else if (category === 'km') {
-    usersArray.sort((a, b) => b.km - a.km);
-    title = "🏆 Leaderboard: Nejpilnější řidiči (KM)";
-    valueMapper = (u) => `**${u.km}** km`;
-  } else if (category === 'bets') {
-    usersArray.sort((a, b) => b.betsWon - a.betsWon);
-    title = "🏆 Leaderboard: Nejlepší sázkaři";
-    valueMapper = (u) => `**${u.betsWon}** výher z ${u.betsTotal} sázek`;
-  }
-
-  const itemsPerPage = 10;
-  const maxPage = Math.max(0, Math.ceil(usersArray.length / itemsPerPage) - 1);
-  if (page > maxPage) page = maxPage;
-  if (page < 0) page = 0;
-
-  const startIndex = page * itemsPerPage;
-  const pageItems = usersArray.slice(startIndex, startIndex + itemsPerPage);
-
-  let desc = pageItems.map((u, i) => {
-    const globalIndex = startIndex + i;
-    const medal = globalIndex === 0 ? '🥇' : globalIndex === 1 ? '🥈' : globalIndex === 2 ? '🥉' : `**${globalIndex + 1}.**`;
-    return `${medal} <@${u.id}> (\`${u.tbName}\`) - ${valueMapper(u)}`;
-  }).join('\n\n');
-
-  if (!desc) desc = "Zatím zde není žádný záznam.";
-
-  const embed = new EmbedBuilder()
-    .setTitle(title)
-    .setDescription(desc)
-    .setColor(EVENT_COLOR)
-    .setFooter({ text: `Strana ${page + 1} z ${maxPage + 1}` });
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`lb_prev_${category}_${page - 1}`).setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(page === 0),
-    new ButtonBuilder().setCustomId(`lb_next_${category}_${page + 1}`).setLabel('Další ▶').setStyle(ButtonStyle.Primary).setDisabled(page === maxPage)
-  );
-
-  return { embeds: [embed], components: [row] };
-}
-
-async function openShopCatalog(interaction, category, index) {
-  const packKeys = SHOP_CATEGORIES[category];
-  const packKey = packKeys[index];
-  const pack = cardsDb.packages[packKey];
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`browse_shop_${category}_${index - 1}`).setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(index === 0),
-    new ButtonBuilder().setCustomId(`buy_pack_${packKey}`).setLabel(`Koupit za ${pack.price} puků`).setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`browse_shop_${category}_${index + 1}`).setLabel('Další ▶').setStyle(ButtonStyle.Primary).setDisabled(index === packKeys.length - 1)
-  );
-
-  const embed = new EmbedBuilder()
-    .setTitle(`📦 ${pack.name}`)
-    .setDescription(`Cena: **${pack.price} puků**\n*Balíček ${index + 1} z ${packKeys.length}*`)
-    .setImage(pack.image)
-    .setColor(EVENT_COLOR);
-
-  if (interaction.replied || interaction.deferred) {
-    await interaction.update({ embeds: [embed], components: [row] });
-  } else {
-    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
-  }
-}
-
-// Zjednodušená zápasová nástěnka pro live kurzy
-async function renderMatchesDashboard() {
-  const matchCh = await client.channels.fetch(CH_MATCHES).catch(()=>null);
-  if (!matchCh) return "Kanál pro zápasy nebyl nalezen.";
-
-  const embed = new EmbedBuilder()
-    .setTitle(`🔥 Aktuální zápasy a kurzy MS`)
-    .setDescription("Sázej jednoduše pomocí příkazu `/vsadit` v místnosti <#1505183898349338797>!\n\n**Vysvětlivky k sázkám:**\n🏆 **Vítěz zápasu:** Kdo vyhraje (včetně případného prodloužení nebo nájezdů).\n🥅 **Počet gólů 5.5:** Tipuješ, jestli v celém zápase padne dohromady *Méně (0 až 5 gólů)*, nebo *Více (6 a více gólů)*.")
-    .setColor(EVENT_COLOR);
-    
-  const matchKeys = Object.keys(activeMatches);
-
-  if (matchKeys.length === 0) {
-    embed.addFields({ name: '\u200b', value: "Žádné aktivní zápasy nebyly nalezeny. Použij `/admin-vytvor-zapas`." });
-  } else {
-    matchKeys.forEach(k => {
-      const m = activeMatches[k];
-      const s = m.status === 'NS' ? '⏳ Nezačalo' : (['FT', 'AET', 'AWT', 'PEN', 'FINISHED'].includes(m.status) ? `🏁 Konec (${m.scoreHome || 0}:${m.scoreAway || 0})` : `🔴 LIVE (${m.scoreHome || 0}:${m.scoreAway || 0})`);
-      
-      if (!m.odds) m.odds = generateAdvancedOdds(m.oddsHome ? (0.95 / m.oddsHome) : 0.5);
-      
-      const o = m.odds;
-      const oddsTxt = o.winner_home ? 
-          `🏆 **Vítěz zápasu:** 🏠 Domácí: **${o.winner_home}** | ✈️ Hosté: **${o.winner_away}**\n` +
-          `🥅 **Gólů v zápase (5.5):** ⬇️ Méně (0-5): **${o.under_55}** | ⬆️ Více (6+): **${o.over_55}**` : "Kurzy nevypsány.";
-      
-      embed.addFields({
-        name: `🏒 ${m.home}  vs  ${m.away}`,
-        value: `📅 **Start:** <t:${Math.floor(m.startTime/1000)}:f>  (<t:${Math.floor(m.startTime/1000)}:R>)\n📊 **Stav:** ${s}\n💰 **Kurzy:**\n${oddsTxt}\n\u200b`,
-        inline: false
-      });
-    });
-  }
-
-  const msgs = await matchCh.messages.fetch({ limit: 50 }).catch(() => null);
-  if (msgs) {
-    const botMsg = msgs.find(m => m.author.id === client.user.id);
-    if (botMsg) {
-      await botMsg.edit({ embeds: [embed] }).catch(console.error); 
-    } else {
-      await matchCh.send({ embeds: [embed] }).catch(console.error); 
-    }
-  }
-}
-
-// Cloud zálohy
-async function sendBackup() {
-  try {
-    const ch = await client.channels.fetch(CH_BACKUP);
-    if (fs.existsSync(USERS_PATH)) {
-      await ch.send({
-        content: `📦 **Automatická záloha databáze (users_db.json)**\n🕒 Čas zálohy: <t:${Math.floor(Date.now() / 1000)}:F>`,
-        files: [USERS_PATH]
-      });
-      return true;
-    }
-    return false;
-  } catch (e) { return false; }
-}
-
-async function loadBackupOnStartup() {
-  try {
-    const ch = await client.channels.fetch(CH_BACKUP);
-    const messages = await ch.messages.fetch({ limit: 1 });
-    if (messages.size > 0) {
-      const lastMsg = messages.first();
-      const attachment = lastMsg.attachments.first();
-      if (attachment && attachment.name.endsWith('.json')) {
-        const response = await axios.get(attachment.url);
-        if (response.data && typeof response.data === 'object') {
-          fs.writeFileSync(USERS_PATH, JSON.stringify(response.data, null, 2));
-          usersDb = response.data;
-          console.log(`[ZÁLOHA] ÚSPĚCH! Databáze obnovena.`);
-          return true;
+        if (u.xp >= 10000 && !member.roles.cache.has(ROLE_KING)) {
+            await member.roles.add(ROLE_KING);
+            logCh.send(`👑 <@${userId}> dosáhl 10 000 XP a získává roli **Výroční Král**!`);
         }
-      }
-    }
-    return false;
-  } catch (e) { return false; }
+        if (u.completedQuests >= 10 && !member.roles.cache.has(ROLE_QUESTMASTER)) {
+            await member.roles.add(ROLE_QUESTMASTER);
+            logCh.send(`📜 <@${userId}> splnil 10 úkolů a stává se z něj **Quest Master**!`);
+        }
+        if (u.completedRoutesDays.length >= 4 && !member.roles.cache.has(ROLE_3RD_ANNIVERSARY)) {
+            await member.roles.add(ROLE_3RD_ANNIVERSARY);
+            logCh.send(`🎉 <@${userId}> absolvoval polovinu eventu a získává roli **3rd Anniversary**!`);
+        }
+    } catch(e) {}
 }
 
 // ─────────────────────────────────────────────
-// HLAVNÍ LOGIKA INTERAKCÍ (Tlačítka a Příkazy)
+// SLASH INTERAKCE
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
-  if (interaction.isAutocomplete()) return;
+  if (!interaction.isChatInputCommand()) return;
 
-  // Zrušení nabídky na trhu prodejcem
-  if (interaction.isButton() && (interaction.customId.startsWith('marketcancel-') || interaction.customId.startsWith('marketcancel_'))) {
-    let sellerId, cardId;
-    if (interaction.customId.startsWith('marketcancel-')) {
-        [, sellerId, cardId] = interaction.customId.split('-');
-    } else {
-        const parts = interaction.customId.split('_');
-        sellerId = parts[1];
-        cardId = parts.slice(2).join('_'); // Oprava pro záchranu starých tlačítek s podtržítkem
-    }
+  // TESTOVACÍ ČTENÍ
+  if (interaction.commandName === "test-cteni") {
+      const text = interaction.options.getString("text");
+      const jobData = extractJobData(text, "TEST ZAKÁZKA");
+      
+      if (!jobData) return interaction.reply({ content: "❌ Bot v textu nenašel platná data zakázky (chybí km, města nebo náklad). Zkus zkopírovat celý text zprávy.", ephemeral: true });
 
-    if (interaction.user.id !== sellerId) {
-        return interaction.reply({ content: "❌ Tuto nabídku může stáhnout z trhu pouze ten, kdo ji vystavil.", ephemeral: true });
-    }
-    
-    const seller = getUser(sellerId);
-    unlockCard(seller, cardId);
-    saveUsers();
+      const dayIndex = systemDb.currentDay > 0 ? systemDb.currentDay - 1 : 0;
+      const route = ROUTES[dayIndex];
+      const allowedCargos = route.cargos.map(normalizeStr);
+      const isEventCargo = allowedCargos.some(c => jobData.cargo.includes(c));
+      const isEventDest = jobData.dest === normalizeStr(route.end);
 
-    await interaction.message.delete().catch(()=>null);
-    return interaction.reply({ content: `✅ Tvá nabídka byla úspěšně stažena z tržiště.`, ephemeral: true });
+      const embed = new EmbedBuilder()
+          .setTitle("🛠️ (DEV) Výsledek testu čtení")
+          .setDescription("Zde je přesný výpis toho, jak bot pochopil tvůj text.")
+          .addFields(
+              { name: "🚚 Tahač", value: jobData.truck, inline: true },
+              { name: "📦 Náklad", value: jobData.cargo, inline: true },
+              { name: "📏 Vzdálenost", value: `${jobData.km} km`, inline: true },
+              { name: "🏁 Trasa", value: `${jobData.origin} -> ${jobData.dest}`, inline: false },
+              { name: "🎯 Eventová trasa (Dnešní cíl)?", value: (isEventDest && isEventCargo) ? "✅ **ANO** (Započítalo by se do eventu a přidalo XP)" : "❌ **NE** (Dostal bys pouze běžné XP za dojetí)", inline: false }
+          )
+          .setColor(0x00FF00);
+          
+      return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 
-  // Stránkování Leaderboardu
-  if (interaction.isButton() && interaction.customId.startsWith('lb_')) {
-    const parts = interaction.customId.split('_');
-    const category = parts[2];
-    const page = parseInt(parts[3], 10);
-    const response = buildLeaderboardResponse(category, page);
-    await interaction.update(response).catch(()=>null);
+  // DEV OVERRIDE
+  if (interaction.commandName === "dev-override") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš oprávnění na tento příkaz.", ephemeral: true });
+      
+      isDevMode = !isDevMode;
+      return interaction.reply({ content: `🛠️ **DEV REŽIM:** ${isDevMode ? "✅ ZAPNUTO (Datum eventu se ignoruje, bot přijímá zakázky z kanálů)" : "❌ VYPNUTO (Bot čeká na 17. 7. 2026)"}`, ephemeral: true });
   }
 
-  if (interaction.isStringSelectMenu() && interaction.customId === 'shop_category_select') {
-    const selected = interaction.values[0];
-    if (selected === 'reset') {
-      return interaction.reply({ content: '🔄 Výběr uvolněn! Nyní můžeš znovu otevřít jakoukoliv kategorii z menu.', ephemeral: true });
-    }
-    await openShopCatalog(interaction, selected, 0);
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('browse_shop_')) {
-    const parts = interaction.customId.split('_');
-    await openShopCatalog(interaction, parts[2], parseInt(parts[3], 10));
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('buy_pack_')) {
-    const packKey = interaction.customId.replace('buy_pack_', '');
-    const pack = cardsDb.packages[packKey];
-    const user = getUser(interaction.user.id);
-    if (user.pucks < pack.price) return interaction.reply({ content: `❌ Nemáš dostatek puků!`, ephemeral: true });
-
-    user.pucks -= pack.price;
-    saveUsers();
-
-    let possibleCards = cardsDb.cards;
-    if (pack.type === "role") {
-        const t = Array.isArray(pack.target) ? pack.target : [pack.target];
-        possibleCards = possibleCards.filter(c => t.includes(c.role));
-    } else if (pack.type === "group") possibleCards = possibleCards.filter(c => c.group === pack.target);
-    else if (pack.type === "team") possibleCards = possibleCards.filter(c => c.team === pack.target);
-
-    const selectedCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
-
-    await interaction.update({ content: "⏳ Otevírám balíček...", embeds: [{ image: { url: cardsDb.animations[0] }, color: EVENT_COLOR }], components: [] });
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[1] }, color: EVENT_COLOR }] }), 2500);
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[2] }, color: EVENT_COLOR }] }), 5000);
-    setTimeout(() => interaction.editReply({ embeds: [{ image: { url: cardsDb.animations[0] }, color: EVENT_COLOR }] }), 7500);
-    
-    setTimeout(async () => {
-      user.inventory.push(selectedCard.id);
-      saveUsers();
-      const flipBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`flip_${selectedCard.id}_back`).setLabel('🔄 Otočit kartu').setStyle(ButtonStyle.Secondary));
-      await interaction.editReply({
-        content: `🎉 Získal jsi novou kartu!`,
-        embeds: [{ title: `${selectedCard.team} | ${selectedCard.name}`, description: `Pozice: **${selectedCard.role}**\nID: \`${selectedCard.id}\``, image: { url: selectedCard.front }, color: EVENT_COLOR }],
-        components: [flipBtn]
-      });
-      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh) logCh.send(`👀 Hráč <@${user.id}> právě rozbalil **${pack.name}** a získal nového hokejistu!`);
-      checkMilestones(interaction.user.id);
-    }, 10000);
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('view_album_')) {
-    const parts = interaction.customId.split('_');
-    const team = parts[2];
-    const targetIndex = parseInt(parts[3], 10);
-    const user = getUser(interaction.user.id);
-    const ownedTeamCards = cardsDb.cards.filter(c => c.team === team && user.inventory.includes(c.id));
-    if (ownedTeamCards.length === 0) return interaction.reply({ content: "❌ Zatím z tohoto týmu nic nemáš.", ephemeral: true });
-    const card = ownedTeamCards[targetIndex];
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`view_album_${team}_${targetIndex - 1}`).setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(targetIndex === 0),
-      new ButtonBuilder().setCustomId(`flip_${card.id}_back`).setLabel('🔄 Otočit kartu').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`view_album_${team}_${targetIndex + 1}`).setLabel('Další ▶').setStyle(ButtonStyle.Primary).setDisabled(targetIndex === ownedTeamCards.length - 1)
-    );
-    const embed = new EmbedBuilder().setTitle(`${card.team} | ${card.name}`).setDescription(`Pozice: **${card.role}**\nID: \`${card.id}\`\n*Karta ${targetIndex + 1} z ${ownedTeamCards.length}*`).setImage(card.front).setColor(EVENT_COLOR);
-    await (interaction.replied || interaction.deferred ? interaction.update({ embeds: [embed], components: [row] }) : interaction.reply({ embeds: [embed], components: [row], ephemeral: true }));
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('flip_')) {
-    const parts = interaction.customId.split('_');
-    const targetFace = parts[parts.length - 1]; 
-    const cardId = parts.slice(1, parts.length - 1).join('_');
-    
-    const card = cardsDb.cards.find(c => c.id === cardId);
-    if(!card) return;
-    const newFace = targetFace === 'back' ? 'front' : 'back';
-    const oldRow = interaction.message.components[0];
-    const newRow = new ActionRowBuilder();
-    if (oldRow) {
-      oldRow.components.forEach(comp => {
-        if (comp.customId.startsWith('flip_')) {
-          newRow.addComponents(new ButtonBuilder().setCustomId(`flip_${cardId}_${newFace}`).setLabel(newFace === 'back' ? '🔄 Otočit kartu' : '🔄 Otočit zpět').setStyle(ButtonStyle.Secondary));
-        } else newRow.addComponents(ButtonBuilder.from(comp));
-      });
-    }
-    await interaction.update({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setImage(targetFace === 'back' ? card.back : card.front).setColor(EVENT_COLOR)], components: [newRow] });
-  }
-
-  if (interaction.isButton() && (interaction.customId.startsWith('marketbuy-') || interaction.customId.startsWith('marketbuy_'))) {
-    let sellerId, cardId, price;
-    if (interaction.customId.startsWith('marketbuy-')) {
-        [, sellerId, cardId, price] = interaction.customId.split('-');
-        price = parseInt(price, 10);
-    } else {
-        const parts = interaction.customId.split('_');
-        sellerId = parts[1];
-        price = parseInt(parts[parts.length - 1], 10);
-        cardId = parts.slice(2, parts.length - 1).join('_');
-    }
-
-    const buyer = getUser(interaction.user.id);
-    const seller = getUser(sellerId);
-    if (buyer.id === sellerId) return interaction.reply({ content: "❌ Vlastní karta.", ephemeral: true });
-    if (buyer.pucks < price) return interaction.reply({ content: "❌ Málo puků.", ephemeral: true });
-    if (!seller || !seller.inventory.includes(cardId)) {
-      await interaction.message.delete().catch(()=>null);
-      return interaction.reply({ content: "❌ Už není k dispozici.", ephemeral: true });
-    }
-    buyer.pucks -= price; seller.pucks += price;
-    seller.inventory.splice(seller.inventory.indexOf(cardId), 1); buyer.inventory.push(cardId);
-    
-    unlockCard(seller, cardId);
-    
-    saveUsers();
-    await interaction.message.delete().catch(()=>null);
-    interaction.reply({ content: `✅ Úspěšně koupeno!`, ephemeral: true });
-    checkMilestones(buyer.id);
-    const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-    if (logCh) logCh.send(`🤝 <@${buyer.id}> koupil kartu od <@${seller.id}> za **${price} puků** na tržišti!`);
-  }
-
-  // OVLÁDÁNÍ TRADU
-  if (interaction.isButton() && interaction.customId.match(/^trade(accept|decline|cancel)[_-]/)) {
-    const isDash = interaction.customId.includes('-');
-    let type, iniId, tarId, myC, theirC, timestamp;
-    
-    if (isDash) {
-        const parts = interaction.customId.split('-');
-        type = parts[0]; iniId = parts[1]; tarId = parts[2]; myC = parts[3]; theirC = parts[4]; timestamp = parseInt(parts[5], 10);
-    } else {
-        const parts = interaction.customId.split('_');
-        type = parts[0]; iniId = parts[1]; tarId = parts[2];
-        myC = `${parts[3]}_${parts[4]}`;
-        theirC = `${parts[5]}_${parts[6]}`;
-        timestamp = parseInt(parts[7], 10);
-    }
-
-    const ini = getUser(iniId);
-    const tar = getUser(tarId);
-
-    if (Date.now() - timestamp > 24 * 60 * 60 * 1000) {
-      unlockCard(ini, myC);
-      saveUsers();
-      await interaction.message.delete().catch(()=>null);
-      return interaction.reply({ content: "⏳ Tento návrh na Trade již vypršel (24h) a byl smazán z tržiště.", ephemeral: true });
-    }
-
-    if (type === 'tradecancel') {
-      if (interaction.user.id !== iniId) return interaction.reply({ content: "❌ Pouze navrhovatel může tento trade zrušit.", ephemeral: true });
-      unlockCard(ini, myC);
-      saveUsers();
-      await interaction.message.delete().catch(()=>null);
-      return interaction.reply({ content: "❌ Trade byl zrušen navrhovatelem a smazán z tržiště.", ephemeral: true });
-    }
-
-    if (interaction.user.id !== tarId) return interaction.reply({ content: "❌ Toto není pro tebe.", ephemeral: true });
-
-    if (type === 'tradeaccept') {
-      if (!ini.inventory.includes(myC) || !tar.inventory.includes(theirC)) {
-        unlockCard(ini, myC); saveUsers();
-        await interaction.message.delete().catch(()=>null);
-        return interaction.reply({ content: "❌ Nelze dokončit. Někdo z vás už svou kartu nemá.", ephemeral: true });
+  if (interaction.commandName === "profil") {
+      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Příkazy fungují pouze v kanále <#${CH_CMDS}>.`, ephemeral: true });
+      
+      const targetUser = interaction.options.getUser("hrac") || interaction.user;
+      const u = getUser(targetUser.id);
+      
+      let questText = "Žádný aktivní úkol. (Bug?)";
+      const q = QUESTS.find(quest => quest.id === u.currentQuestId);
+      if (q) {
+          const target = q.targetCount || q.targetKm || q.target;
+          questText = `**${q.desc}**\nPostup: ${u.questProgress} / ${target}\nOdměna: ${q.reward} XP`;
       }
-      ini.inventory.splice(ini.inventory.indexOf(myC), 1); ini.inventory.push(theirC);
-      tar.inventory.splice(tar.inventory.indexOf(theirC), 1); tar.inventory.push(myC);
-      unlockCard(ini, myC);
-      saveUsers();
+
+      const embed = new EmbedBuilder()
+          .setTitle(`👤 Řidičák: ${targetUser.username}`)
+          .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+          .setColor(EVENT_COLOR)
+          .addFields(
+              { name: '⭐ Získané XP', value: `**${u.xp}**`, inline: true },
+              { name: '📦 Eventové zakázky', value: `**${u.eventJobs}**`, inline: true },
+              { name: '🚚 Celkem najeto', value: `**${u.km}** km`, inline: true },
+              { name: '🗺️ Unikátních tras', value: `**${u.completedRoutesDays.length}/8**`, inline: true },
+              { name: '📜 Splněno questů', value: `**${u.completedQuests}**`, inline: true },
+              { name: '🎯 Aktuální vylosovaný Quest', value: questText, inline: false }
+          );
       
-      await interaction.message.delete().catch(()=>null);
-      interaction.reply({ content: "✅ Trade proběhl úspěšně!", ephemeral: true });
-      
-      checkMilestones(iniId); checkMilestones(tarId);
-      
-      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh) logCh.send(`🔄 **Trade dokončen!** Hráči <@${iniId}> a <@${tarId}> si úspěšně vyměnili karty (\`${myC}\` za \`${theirC}\`)!`);
-      
-    } else if (type === 'tradedecline') {
-      unlockCard(ini, myC);
-      saveUsers();
-      await interaction.message.delete().catch(()=>null);
-      interaction.reply({ content: "❌ Trade byl zamítnut a smazán z tržiště.", ephemeral: true });
-    }
+      interaction.reply({ embeds: [embed] }); 
   }
 
-  // ─────────────────────────────────────────────
-  // OSTATNÍ SLASH PŘÍKAZY
-  // ─────────────────────────────────────────────
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === "puky") interaction.reply({ content: `🏒 Máš **${getUser(interaction.user.id).pucks} puků**.`, ephemeral: true });
-    
-    if (interaction.commandName === "link") {
+  if (interaction.commandName === "quest-skip") {
+      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Mimo command kanál.`, ephemeral: true });
+      
+      const u = getUser(interaction.user.id);
+      const todayDate = new Date().toLocaleDateString("cs-CZ", {timeZone: "Europe/Prague"});
+      if (u.lastQuestSkip === todayDate) return interaction.reply({ content: "❌ Dnes už jsi quest přeskočil. Další losování zdarma máš zítra po půlnoci.", ephemeral: true });
+
+      u.lastQuestSkip = todayDate;
+      u.currentQuestId = getRandomQuestId(); 
+      u.questProgress = 0;
+      saveUsers();
+      interaction.reply({ content: `✅ Quest přeskočen! Systém ti vylosoval nový úkol z gacha poolu. Zkontroluj si ho přes \`/profil\`.`, ephemeral: true }); 
+  }
+
+  if (interaction.commandName === "odmeny") {
+      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Mimo command kanál.`, ephemeral: true });
+      
+      const embed = new EmbedBuilder()
+          .setTitle("🎁 Odměny a Pravidla Losování")
+          .setDescription("Zde je přehled toho, co můžeš v rámci narozeninového eventu vyhrát a jaké jsou šance na drop!\n\n" +
+                          "**🏆 HLAVNÍ CENY (Losování po skončení eventu)**\n" +
+                          "Pro zařazení do slosování musíš ujet alespoň 4 z 8 tras. Čím více máš XP, tím máš větší šanci u losování.\n" +
+                          "• 1x Mapové DLC (do 8,99 EUR)\n" +
+                          "• 3x Trailer // Tuning Pack\n" +
+                          "• 9x Window Flags DLC\n" +
+                          "• 5x 10th Anniversary Paint Job Set\n\n" +
+                          "**🎯 KOMUNITNÍ ODMIĚNY (Za denní góly)**\n" +
+                          "Každý den se na začátku vyhlášení trasy losuje, o co se pojede. Odměna padne pouze, pokud komunita splní společný počet zakázek (Goal).\n\n" +
+                          "**Šance při losování 3 ks výhry:**\n" +
+                          "• 25 % šance: 3x Paint Job\n" +
+                          "• 15 % šance: 3x Trailer // Tuning Pack\n\n" +
+                          "**Šance při losování 1 ks výhry:**\n" +
+                          "• 30 % šance: 1x Trailer // Tuning Pack\n" +
+                          "• 25 % šance: 1x Paint Job\n" +
+                          "• 5 % šance: 1x Mapové DLC (do 8,99 EUR)")
+          .setColor(EVENT_COLOR);
+      
+      interaction.reply({ embeds: [embed], files: ["NAROZKYODMĚNY.jpg"] });
+  }
+
+  if (interaction.commandName === "link") {
       const nick = interaction.options.getString("nick");
       const user = getUser(interaction.user.id, nick);
       user.tbName = nick;
 
       const ghostKeys = Object.keys(usersDb).filter(k => k.startsWith('UNLINKED_'));
       let addedKm = 0; 
-      let addedPucks = 0;
-      
       const nickNormalized = normalizeStr(nick);
 
       for (const gk of ghostKeys) {
           const ghostTbName = normalizeStr(usersDb[gk].tbName);
           if (ghostTbName.includes(nickNormalized) || nickNormalized.includes(ghostTbName)) {
               addedKm += usersDb[gk].km;
-              addedPucks += usersDb[gk].pucks;
               user.km += usersDb[gk].km;
-              user.pucks += usersDb[gk].pucks;
+              user.eventJobs += usersDb[gk].eventJobs || 0;
+              user.xp += usersDb[gk].xp || 0;
               user.processedJobs = [...new Set([...user.processedJobs, ...usersDb[gk].processedJobs])]; 
               delete usersDb[gk];
           }
       }
       saveUsers(); 
-      
-      let msg = `✅ Propojeno s TB nickem **${user.tbName}**.`;
-      if (addedKm > 0) {
-          msg += `\n\n🎉 **A máme tu překvapení!** Zjistil jsem, že jsi už v eventu dříve jezdil. Z dočasné paměti ti bylo zpětně připsáno **${addedKm} km** a **${addedPucks} puků**!`;
-      }
-      interaction.reply({ content: msg, ephemeral: true });
-    }
-    
-    if (interaction.commandName === "profil") {
-      const targetUser = interaction.options.getUser("uzivatel") || interaction.user;
-      const u = getUser(targetUser.id);
-      
-      const totalCards = cardsDb.cards.length;
-      const uniqueCards = new Set(u.inventory).size;
-      const completion = Math.round((uniqueCards / totalCards) * 100) || 0;
-      
-      const embed = new EmbedBuilder()
-        .setTitle(`👤 Hokejový Profil: ${targetUser.username}`)
-        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-        .setColor(EVENT_COLOR)
-        .addFields(
-          { name: '🚛 TrucksBook Nick', value: `\`${u.tbName}\``, inline: true },
-          { name: '🚚 Najeto v eventu', value: `**${u.km}** km`, inline: true },
-          { name: '🏒 Aktuální puky', value: `**${u.pucks}**`, inline: true },
-          { name: '🎴 Sbírka karet', value: `**${u.inventory.length}** ks (${uniqueCards}/${totalCards} - ${completion}%)`, inline: false },
-          { name: '📈 Úspěšnost sázek', value: `**${u.betsWon}** výher z **${u.betsTotal}** sázek`, inline: false }
-        )
-        .setFooter({ text: 'LTR Hockey Event' });
-        
-      interaction.reply({ embeds: [embed] });
-    }
+      let msg = `✅ Propojeno s nickem **${user.tbName}**.`;
+      if (addedKm > 0) msg += `\n🎉 Bylo nalezeno tvé ježdění před propojením! Tvé statistiky byly sloučeny.`;
+      interaction.reply({ content: msg, ephemeral: true }); 
+      checkMilestoneRoles(user.id);
+  }
 
-    if (interaction.commandName === "leaderboard") {
+  if (interaction.commandName === "leaderboard") {
+      if (interaction.channelId !== CH_CMDS) return interaction.reply({ content: `❌ Mimo command kanál.`, ephemeral: true });
+
       const category = interaction.options.getString("kategorie");
-      const response = buildLeaderboardResponse(category, 0); 
-      interaction.reply(response);
-    }
-    
-    // PŘÍKAZ PRO ZOBRAZENÍ DUPLIKÁTŮ KARET
-    if (interaction.commandName === "duplikaty") {
-      const user = getUser(interaction.user.id);
-      const counts = {};
-      user.inventory.forEach(id => counts[id] = (counts[id] || 0) + 1);
+      let usersArray = Object.values(usersDb).filter(u => u.tbName !== "Neznámý" && !u.id.startsWith('UNLINKED_'));
       
-      const duplicates = Object.keys(counts).filter(id => counts[id] > 1);
-      if (duplicates.length === 0) {
-          return interaction.reply({ content: "❌ Nemáš žádné duplikáty karet.", ephemeral: true });
-      }
+      let title = ""; let valFunc;
+      if (category === "xp") { usersArray.sort((a,b) => b.xp - a.xp); title = "🏆 Top XP v Eventu"; valFunc = u => `**${u.xp}** XP`; }
+      if (category === "km") { usersArray.sort((a,b) => b.km - a.km); title = "🏆 Nejvíce najeto"; valFunc = u => `**${u.km}** km`; }
+      if (category === "jobs") { usersArray.sort((a,b) => b.eventJobs - a.eventJobs); title = "🏆 Nejvíc Event Zakázek"; valFunc = u => `**${u.eventJobs}** zakázek`; }
+      if (category === "quests") { usersArray.sort((a,b) => b.completedQuests - a.completedQuests); title = "🏆 Nejvíce splněných questů"; valFunc = u => `**${u.completedQuests}** questů`; }
 
-      let desc = "";
-      duplicates.forEach(id => {
-          const card = cardsDb.cards.find(c => c.id === id);
-          if (card) {
-              desc += `🃏 **${card.team} | ${card.name}** \`[${id}]\` - Máš celkem: **${counts[id]}x**\n`;
-          }
-      });
+      const top10 = usersArray.slice(0, 10);
+      let desc = top10.map((u, i) => `**${i+1}.** <@${u.id}> (\`${u.tbName}\`) - ${valFunc(u)}`).join('\n\n') || "Zatím žádná data.";
 
-      const embed = new EmbedBuilder()
-          .setTitle(`🔁 Tvoje duplikáty karet`)
-          .setDescription(desc)
-          .setColor(EVENT_COLOR);
-      interaction.reply({ embeds: [embed], ephemeral: true });
-    }
-
-    if (interaction.commandName === "album") {
-      const team = interaction.options.getString("tym").toUpperCase();
-      const targetUser = interaction.options.getUser("uzivatel") || interaction.user;
-      const userObj = getUser(targetUser.id);
-      const teamCards = cardsDb.cards.filter(c => c.team === team);
-      if (teamCards.length === 0) return interaction.reply({ content: "❌ Neexistující tým.", ephemeral: true });
-      
-      let desc = ""; let ownedCount = 0;
-      teamCards.forEach(c => {
-        const count = userObj.inventory.filter(id => id === c.id).length;
-        if (count > 0) { 
-            desc += `✅ **${c.role}** - ${c.name} \`[${c.id}]\` *(Máš: ${count}x)*\n\n`; 
-            ownedCount++; 
-        } else {
-            desc += `❌ **${c.role}** - *???*\n\n`;
-        }
-      });
-      
-      const embed = new EmbedBuilder().setTitle(`📖 Album: ${team} (${targetUser.username})`).setDescription(desc).setFooter({ text: `Zkompletováno: ${ownedCount}/${teamCards.length}` }).setColor(EVENT_COLOR);
-      const comps = (targetUser.id === interaction.user.id && ownedCount > 0) ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`view_album_${team}_0`).setLabel('🖼️ Prohlédnout mé karty').setStyle(ButtonStyle.Success))] : [];
-      interaction.reply({ embeds: [embed], components: comps });
-    }
-    
-    if (interaction.commandName === "prodat") {
-      const cardId = interaction.options.getString("karta_id").toUpperCase();
-      const price = interaction.options.getInteger("cena");
-      const user = getUser(interaction.user.id);
-      if (!user.inventory.includes(cardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
-      if (isCardLocked(user, cardId)) return interaction.reply({ content: "❌ Všechny tvé kopie této karty jsou již uzamčené (na trhu nebo v tradu).", ephemeral: true });
-
-      const card = cardsDb.cards.find(c => c.id === cardId);
-      const marketCh = await client.channels.fetch(CH_MARKET);
-      
-      lockCard(user, cardId, 365 * 24 * 60 * 60 * 1000); 
-      saveUsers();
-      
-      const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`marketbuy-${user.id}-${cardId}-${price}`).setLabel(`Koupit za ${price} puků`).setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`marketcancel-${user.id}-${cardId}`).setLabel(`Zrušit prodej`).setStyle(ButtonStyle.Danger)
-      );
-      
-      await marketCh.send({ content: `@everyone 🛒 **Nová nabídka na trhu!**\nProdejce: <@${user.id}>`, embeds: [{ title: `${card.team} | ${card.name}`, image: { url: card.front }, color: EVENT_COLOR }], components: [btnRow] });
-      interaction.reply({ content: `✅ Vystaveno na trh.`, ephemeral: true });
-    }
-    
-    if (interaction.commandName === "trade") {
-      const targetUser = interaction.options.getUser("uzivatel");
-      const myCardId = interaction.options.getString("nabizim").toUpperCase();
-      const theirCardId = interaction.options.getString("chci").toUpperCase();
-      const user = getUser(interaction.user.id);
-      const target = getUser(targetUser.id);
-      
-      if (!user.inventory.includes(myCardId)) return interaction.reply({ content: "❌ Tuto kartu nevlastníš.", ephemeral: true });
-      if (!target.inventory.includes(theirCardId)) return interaction.reply({ content: "❌ Druhý hráč tuto kartu nemá.", ephemeral: true });
-      if (isCardLocked(user, myCardId)) return interaction.reply({ content: "❌ Všechny tvé kopie této karty jsou již uzamčené (na trhu nebo v tradu).", ephemeral: true });
-
-      const myCard = cardsDb.cards.find(c => c.id === myCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
-      const theirCard = cardsDb.cards.find(c => c.id === theirCardId) || { name: 'Neznámá karta', team: '?', role: '?', front: null };
-
-      const timestamp = Date.now();
-      lockCard(user, myCardId, 24 * 60 * 60 * 1000);
-      saveUsers();
-
-      const marketCh = await client.channels.fetch(CH_MARKET);
-      const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`tradeaccept-${interaction.user.id}-${targetUser.id}-${myCardId}-${theirCardId}-${timestamp}`).setLabel('Souhlasím').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`tradedecline-${interaction.user.id}-${targetUser.id}-${myCardId}-${theirCardId}-${timestamp}`).setLabel('Odmítnout').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId(`tradecancel-${interaction.user.id}-${targetUser.id}-${myCardId}-${theirCardId}-${timestamp}`).setLabel('Zrušit návrh').setStyle(ButtonStyle.Secondary)
-      );
-      
-      const embed = new EmbedBuilder()
-        .setTitle('🤝 Nový návrh na výměnu karet!')
-        .setDescription(`<@${targetUser.id}>, máš tu návrh na obchod od <@${interaction.user.id}>!\n\n` +
-                        `**NABÍZÍ TI:**\n🏒 **${myCard.name}** (${myCard.team} - ${myCard.role})\n🆔 \`${myCard.id}\`\n\n` +
-                        `**CHCE OD TEBE:**\n🏒 **${theirCard.name}** (${theirCard.team} - ${theirCard.role})\n🆔 \`${theirCard.id}\`\n\n` +
-                        `⏳ *Platnost návrhu vyprší <t:${Math.floor((timestamp + 24*60*60*1000)/1000)}:R>*`)
-        .setImage(myCard.front)
-        .setThumbnail(theirCard.front)
-        .setColor(EVENT_COLOR);
-
-      await marketCh.send({ content: `<@${targetUser.id}>, máš tu návrh na výměnu od <@${interaction.user.id}>!`, embeds: [embed], components: [btnRow] });
-      interaction.reply({ content: `✅ Návrh odeslán do chatu na tržiště. Tvoje karta byla dočasně uzamčena.`, ephemeral: true });
-    }
-    
-    if (interaction.commandName === "vsadit") {
-      const matchName = interaction.options.getString("zapas");
-      const tip = interaction.options.getString("tip");
-      const puky = interaction.options.getInteger("puky");
-      const user = getUser(interaction.user.id);
-
-      if (!activeMatches[matchName]) return interaction.reply({ content: "❌ Zápas nenalezen nebo už skončil.", ephemeral: true });
-      const mData = activeMatches[matchName];
-
-      if (mData.status !== 'NS' || Date.now() >= mData.startTime) {
-         return interaction.reply({ content: "❌ Na tento zápas už nelze vsadit. Už se hraje nebo začal!", ephemeral: true });
-      }
-
-      if (!mData.odds) mData.odds = generateAdvancedOdds(mData.oddsHome ? (0.95 / mData.oddsHome) : 0.5);
-
-      const odd = mData.odds[tip];
-
-      if (!odd || odd <= 1.0) return interaction.reply({ content: "❌ K tomuto typu sázky ještě nejsou dostupné kurzy.", ephemeral: true });
-      if (user.pucks < puky) return interaction.reply({ content: `❌ Nemáš dost puků! Máš ${user.pucks}.`, ephemeral: true });
-      if (puky <= 0) return interaction.reply({ content: "❌ Musíš vsadit alespoň 1 puk.", ephemeral: true });
-
-      const potWin = Math.floor(puky * odd);
-      user.pucks -= puky; 
-      user.betsTotal += 1; 
-      user.bets.push({ match: matchName, tip, amount: puky, odd, potentialWin: potWin, resolved: false });
-      saveUsers(); 
-      
-      interaction.reply({ content: `✅ Úspěšně vsazeno. Sleduj kanál <#1505183898349338797>!`, ephemeral: true });
-
-      const betsCh = await client.channels.fetch(CH_BETS).catch(()=>null);
-      if (betsCh) {
-          betsCh.send(`💸 <@${interaction.user.id}> právě vsadil **${puky} puků** na zápas **${matchName}**! *(Tip: ${BET_NAMES[tip] || tip}, Kurz: ${odd})*`);
-      }
-    }
-
-    if (interaction.commandName === "admin-vytvor-zapas") {
-      const home = interaction.options.getString("domaci");
-      const away = interaction.options.getString("hoste");
-      const oddsHome = interaction.options.getNumber("kurz_domaci");
-      const hours = interaction.options.getInteger("zacatek_za_hodin");
-
-      const matchKey = `${home} - ${away}`;
-      const startTime = Date.now() + (hours * 3600 * 1000);
-      
-      const probH = 0.95 / oddsHome;
-      const odds = generateAdvancedOdds(probH);
-      odds.winner_home = oddsHome; 
-      
-      activeMatches[matchKey] = {
-          id: `manual_${Date.now()}`,
-          home, away, odds,
-          status: 'NS', startTime: startTime,
-          scoreHome: null, scoreAway: null, manual: true
-      };
-
-      await renderMatchesDashboard();
-      interaction.reply({ content: `✅ Ruční zápas **${matchKey}** úspěšně vytvořen a kurzy dopočítány!`, ephemeral: true });
-    }
-
-    if (interaction.commandName === "admin-vyhodnot") {
-      const matchName = interaction.options.getString("zapas");
-      const winner = interaction.options.getString("vitez");
-      const totalGoals = interaction.options.getInteger("goly_celkem");
-      
-      let totalPayout = 0;
-      let winnersCount = 0;
-
-      for (const userId in usersDb) {
-        const user = usersDb[userId];
-        user.bets.forEach(bet => {
-          if (!bet.resolved && bet.match === matchName) {
-            let isWinner = false;
-            
-            if (bet.tip === 'winner_home' && winner === 'home') isWinner = true;
-            if (bet.tip === 'winner_away' && winner === 'away') isWinner = true;
-            if (bet.tip === 'over_55' && totalGoals > 5.5) isWinner = true;
-            if (bet.tip === 'under_55' && totalGoals < 5.5) isWinner = true;
-            
-            if ((bet.tip === 'winner_home_inc_ot' || bet.tip === 'home') && winner === 'home') isWinner = true;
-            if ((bet.tip === 'winner_away_inc_ot' || bet.tip === 'away') && winner === 'away') isWinner = true;
-
-            if (isWinner) {
-              user.pucks += bet.potentialWin;
-              user.betsWon += 1; 
-              totalPayout += bet.potentialWin;
-              winnersCount++;
-              giveExpertRole(userId);
-            }
-            bet.resolved = true;
-          }
-        });
-      }
-      saveUsers();
-      
-      if (activeMatches[matchName]) {
-         activeMatches[matchName].status = 'FT';
-         activeMatches[matchName].scoreHome = winner === 'home' ? 1 : 0;
-         activeMatches[matchName].scoreAway = winner === 'away' ? 1 : 0;
-         await renderMatchesDashboard();
-      }
-
-      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh && winnersCount > 0) logCh.send(`💸 Sázky na zápas **${matchName}** byly ručně vyhodnoceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**!`);
-
-      interaction.reply({ content: `✅ Ručně vyhodnoceno. Vyplaceno ${totalPayout} puků celkem ${winnersCount} lidem pro všechny možné typy sázek.`, ephemeral: true });
-    }
-    
-    if (interaction.commandName === "admin-setup-shop") {
-      const select = new StringSelectMenuBuilder().setCustomId('shop_category_select').setPlaceholder('Vyberte kategorii balíčků...')
-        .addOptions(
-          { label: 'Základní a Poziční balíčky', value: 'basic', emoji: '📦' },
-          { label: 'Skupinové balíčky', value: 'groups', emoji: '🏆' },
-          { label: 'Národní balíčky', value: 'national', emoji: '🌍' },
-          { label: 'Zrušit výběr (Reset)', value: 'reset', emoji: '🔄', description: 'Klikni sem, pokud ti nejde vybrat stejná kategorie.' }
-        );
-        
-      const shopDesc = `Vítej v oficiálním **LTR Hokejovém Obchodě**! 🛒\n\n` +
-                       `> Zde můžeš utratit své těžce vyježděné puky za balíčky hokejových karet do svého alba. Z každého balíčku ti padne vždy jeden náhodný hráč podle kategorie, kterou si vybereš.\n\n` +
-                       `**📦 DOSTUPNÉ KATEGORIE BALÍČKŮ:**\n\n` +
-                       `🔹 **Základní a Poziční**\n` +
-                       `Chceš zkusit štěstí? Padají zde náhodní útočníci, obránci, brankáři nebo úplný random ze všech týmů.\n\n` +
-                       `🔹 **Skupinové**\n` +
-                       `Sbíráš konkrétní polovinu pavouka? Tyto balíčky obsahují hráče čistě ze Skupiny A nebo Skupiny B.\n\n` +
-                       `🔹 **Národní**\n` +
-                       `Jdeš na jistotu? Za vyšší cenu zde pořídíš garantovaného hráče z konkrétního národního týmu.\n\n` +
-                       `---\n` +
-                       `*💡 Puky získáš ježděním na TrucksBooku (200 km = 1 Puk).*`;
-
-      await (await client.channels.fetch(CH_SHOP)).send({ embeds: [{ title: "🛒 Hokejový Obchod LTR", description: shopDesc, color: EVENT_COLOR }], components: [new ActionRowBuilder().addComponents(select)] });
-      interaction.reply({ content: "✅ Obchod úspěšně překreslen s novým designem.", ephemeral: true });
-    }
-    
-    if (interaction.commandName === "admin-puky") {
-        const u = getUser(interaction.options.getUser("uzivatel").id);
-        u.pucks += interaction.options.getInteger("pocet"); saveUsers();
-        interaction.reply({ content: `✅ Přidáno/odebráno.`, ephemeral: true });
-    }
-    
-    if (interaction.commandName === "admin-karta") {
-        const u = getUser(interaction.options.getUser("uzivatel").id);
-        u.inventory.push(interaction.options.getString("karta_id").toUpperCase()); saveUsers();
-        interaction.reply({ content: `✅ Karta přidána.`, ephemeral: true });
-    }
-    
-    if (interaction.commandName === "admin-zapasy") {
-      await interaction.deferReply({ ephemeral: true });
-      const res = await fetchMatches(true); 
-      await interaction.editReply(res === true ? "✅ Operace dokončena. API a statistický model zpracovaly data." : `❌ DEBUG REPORT:\n\n${res}`).catch(console.error);
-    }
-
-    if (interaction.commandName === "admin-zaloha-vynut") {
-       await interaction.deferReply({ ephemeral: true });
-       const status = await sendBackup();
-       interaction.editReply(status === true ? "✅ Ruční záloha byla úspěšně odeslána do kanálu!" : `❌ Selhalo: ${status}`);
-    }
-
-    if (interaction.commandName === "admin-zpetne-zakazky") {
-      await interaction.deferReply({ ephemeral: true });
-      const bf = await runBackfill(1500);
-      interaction.editReply(`✅ Zpětná kontrola dokončena!\nNalezeno nových: **${bf.processed}**\nOpraveno poškozených (>1000km): **${bf.repaired}**\n🚚 Připsáno celkem: **${bf.km} km** a **${bf.pucks} puků** (včetně Ghost účtů).`).catch(console.error);
-    }
+      const embed = new EmbedBuilder().setTitle(title).setDescription(desc).setColor(EVENT_COLOR);
+      interaction.reply({ embeds: [embed] }); 
   }
 });
 
-// ─────────────────────────────────────────────
-// MECHANIKA MILNÍKŮ A ODBORNÍKA
-// ─────────────────────────────────────────────
-async function checkMilestones(userId) {
-  const user = usersDb[userId]; if (!user) return;
-  const teams = [...new Set(cardsDb.cards.map(c => c.team))];
-  
-  let completedTeams = 0;
-  for (const t of teams) {
-    if (cardsDb.cards.filter(c => c.team === t).every(c => user.inventory.includes(c.id))) completedTeams++;
-  }
-
-  const uniqueCardsCount = new Set(user.inventory).size;
-  const totalCardsCount = cardsDb.cards.length;
-
-  try {
-    const guild = await client.guilds.fetch(GUILD_ID); const member = await guild.members.fetch(userId); const logCh = await client.channels.fetch(CH_LOG);
-    
-    if (completedTeams >= 1 && !member.roles.cache.has(ROLE_FAN)) { await member.roles.add(ROLE_FAN); logCh.send(`🏆 <@${userId}> je **HOKEJOVÝ FANOUŠEK**!`); }
-    if (completedTeams >= 8 && !member.roles.cache.has(ROLE_COLLECTOR)) { await member.roles.add(ROLE_COLLECTOR); logCh.send(`👑 <@${userId}> je **SBĚRATELEM**!`); }
-    
-    if (uniqueCardsCount >= totalCardsCount && !user.finishedEvent) {
-       user.finishedEvent = true;
-       saveUsers();
-       logCh.send(`🎉 🚨 **ABSOLUTNÍ VÍTĚZ!** <@${userId}> právě zkompletoval ÚPLNĚ CELÉ ALBUM (všech ${totalCardsCount} karet) a dohrál event! 🏆🚨`);
-    }
-
-  } catch(e) {}
-}
-
-async function giveExpertRole(userId) {
-  try {
-    const guild = await client.guilds.fetch(GUILD_ID); const member = await guild.members.fetch(userId); const logCh = await client.channels.fetch(CH_LOG);
-    if (!member.roles.cache.has(ROLE_EXPERT)) { await member.roles.add(ROLE_EXPERT); logCh.send(`🏆 <@${userId}> vyhrál sázku a stává se **EXPERTEM HOKEJE**!`); }
-  } catch(e) {}
-}
-
-// ─────────────────────────────────────────────
-// AUTOMATICKÉ VYHODNOCENÍ SÁZEK
-// ─────────────────────────────────────────────
-async function evaluateBetsAutomatically() {
-  let totalPayout = 0;
-  let winnersCount = 0;
-  let evaluatedMatches = [];
-
-  for (const matchKey in activeMatches) {
-    const m = activeMatches[matchKey];
-    if (['FT', 'AET', 'AWT', 'PEN', 'FINISHED'].includes(m.status)) {
-      if (m.scoreHome === null || m.scoreAway === null || m.scoreHome === m.scoreAway) continue; 
-      
-      let matchHadBets = false;
-
-      for (const userId in usersDb) {
-        const user = usersDb[userId];
-        user.bets.forEach(bet => {
-          if (!bet.resolved && bet.match === matchKey) {
-            let isWinner = false;
-            let canAutoResolve = true; 
-
-            if (bet.tip === 'winner_home' || bet.tip === 'winner_home_inc_ot' || bet.tip === 'home') { isWinner = m.scoreHome > m.scoreAway; }
-            if (bet.tip === 'winner_away' || bet.tip === 'winner_away_inc_ot' || bet.tip === 'away') { isWinner = m.scoreAway > m.scoreHome; }
-            if (bet.tip === 'over_55') { isWinner = (m.scoreHome + m.scoreAway) > 5.5; }
-            if (bet.tip === 'under_55') { isWinner = (m.scoreHome + m.scoreAway) < 5.5; }
-
-            if (canAutoResolve) {
-                matchHadBets = true;
-                if (isWinner) {
-                  user.pucks += bet.potentialWin;
-                  user.betsWon += 1; 
-                  totalPayout += bet.potentialWin;
-                  winnersCount++;
-                  giveExpertRole(userId);
-                }
-                bet.resolved = true;
-            }
-          }
-        });
-      }
-      if (matchHadBets) evaluatedMatches.push(matchKey);
-    }
-  }
-
-  if (evaluatedMatches.length > 0) {
-    saveUsers();
-    
-    const betsCh = await client.channels.fetch(CH_BETS).catch(()=>null);
-    if (betsCh) {
-       betsCh.send(`🎉 **Automatické vyhodnocení:** Zápasy \`${evaluatedMatches.join(', ')}\` skončily a všechny sázky byly úspěšně vyplaceny! Celkem si **${winnersCount} výherců** rozdělilo **${totalPayout} puků**! Zkontrolujte si puky!`);
-    }
-  }
-}
-
-// ─────────────────────────────────────────────
-// RAPIDAPI + ELO ZÁCHRANNÝ SYSTÉM
-// ─────────────────────────────────────────────
-async function fetchMatches(isManual = false) {
-  const currentHour = new Date().getHours();
-  if (!isManual && (currentHour < 9 || currentHour > 23)) {
-    return true; 
-  }
-
-  const apiKey = process.env.RAPIDAPI_KEY;
-  const apiHost = process.env.RAPIDAPI_HOST || 'betsapi2.p.rapidapi.com';
-  if (!apiKey) return "Chybí RAPIDAPI_KEY v proměnných Railway.";
-
-  try {
-    const headers = { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': apiHost };
-
-    const manualMatches = Object.values(activeMatches).filter(m => m.manual);
-    activeMatches = {};
-    manualMatches.forEach(m => { activeMatches[`${m.home} - ${m.away}`] = m; });
-
-    const upcomingRes = await axios.get(`https://${apiHost}/v1/bet365/upcoming`, { 
-        headers, params: { sport_id: 17 } 
-    });
-    
-    let allGames = upcomingRes.data?.results || [];
-
-    let relevantGames = allGames.filter(g => {
-        const lName = (g.league?.name || "").toLowerCase();
-        return (lName.includes('world championship') || lName.includes('iihf')) &&
-               !lName.includes('u20') && !lName.includes('women') && !lName.includes('div');
-    });
-
-    if (relevantGames.length === 0) {
-        await renderMatchesDashboard().catch(() => null);
-        return `Nenalezeny MS zápasy pro dnešek přes API.`;
-    }
-
-    relevantGames = relevantGames.slice(0, 2);
-
-    for (const g of relevantGames) {
-        const fId = g.id;
-        const home = g.home?.name || "Domácí";
-        const away = g.away?.name || "Hosté";
-        const matchKey = `${home} - ${away}`;
-
-        let probH = 1 / (1 + Math.pow(10, ((TEAM_ELO[away] || 1400) - (TEAM_ELO[home] || 1400)) / 400));
-        let odds = generateAdvancedOdds(probH);
-
-        try {
-            const oddsRes = await axios.get(`https://${apiHost}/v3/bet365/prematch`, { 
-                headers, params: { FI: fId } 
-            });
-            
-            const data = oddsRes.data?.results?.[0];
-            if (data) {
-                const sp = data.main?.sp || data.sp;
-                const market = sp?.full_time_result || sp?.match_odds || sp?.['3_way'] || sp?.to_win;
-                
-                if (market && market.odds) {
-                    const hObj = market.odds.find(o => o.header === '1' || o.name === 'Home');
-                    const aObj = market.odds.find(o => o.header === '2' || o.name === 'Away');
-                    if (hObj) {
-                        probH = 0.95 / parseFloat(hObj.odds);
-                        odds = generateAdvancedOdds(probH); 
-                        odds.winner_home = parseFloat(hObj.odds);
-                    }
-                    if (aObj) odds.winner_away = parseFloat(aObj.odds);
-                } else {
-                    const str = JSON.stringify(data);
-                    const hMatch = str.match(/"header":"1","odds":"([\d.]+)"/);
-                    const aMatch = str.match(/"header":"2","odds":"([\d.]+)"/);
-                    if (hMatch) {
-                        probH = 0.95 / parseFloat(hMatch[1]);
-                        odds = generateAdvancedOdds(probH);
-                        odds.winner_home = parseFloat(hMatch[1]);
-                    }
-                    if (aMatch) odds.winner_away = parseFloat(aMatch[1]);
-                }
-            }
-        } catch (e) {}
-
-        activeMatches[matchKey] = {
-            id: fId, home, away, odds,
-            status: g.time_status === '0' ? 'NS' : 'LIVE',
-            startTime: g.time ? parseInt(g.time) * 1000 : Date.now() + 3600000,
-            scoreHome: null, scoreAway: null, manual: false
-        };
-    }
-
-    await evaluateBetsAutomatically();
-    await renderMatchesDashboard().catch(() => null);
-    return true;
-
-  } catch (err) {
-    await renderMatchesDashboard().catch(() => null); 
-    let errMsg = err.message;
-    if (err.response && err.response.data) {
-       errMsg += `\nAPI: ${JSON.stringify(err.response.data).substring(0,200)}`;
-    }
-    return errMsg;
-  }
-}
-
-// ─────────────────────────────────────────────
-// START BOTU A SMYČKY
-// ─────────────────────────────────────────────
-client.once("ready", async () => {
-  console.log(`Bot LTR Hockey nahozen!`);
+client.once("ready", () => {
+  console.log(`Narozeninový TruckBot je online!`);
   new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-  
-  await loadBackupOnStartup();
-  
-  console.log("[STARTUP] Spouštím automatickou zpětnou kontrolu zakázek...");
-  const bf = await runBackfill(500);
-  if (bf.processed > 0 || bf.repaired > 0) {
-      console.log(`[STARTUP] Dopsáno ${bf.processed} nových, opraveno ${bf.repaired} starých.`);
-      const logCh = await client.channels.fetch(CH_LOG).catch(()=>null);
-      if (logCh) logCh.send(`🔄 **Bot se restartoval a stáhl zálohu.** Během offline doby zachytil a zpětně zpracoval **${bf.processed} nových** a **${bf.repaired} opravených** zakázek!`);
-  }
-  
-  fetchMatches(false); 
-  setInterval(() => fetchMatches(false), 3 * 60 * 60 * 1000); 
-  setInterval(sendBackup, 30 * 60 * 1000);
 });
 
-// Ochrana proti pádu (Záchranná brzda Node.js)
-process.on('unhandledRejection', error => {
-    console.error('🚨 NEOŠETŘENÁ CHYBA (Pád odvrácen):', error);
-});
-
+process.on('unhandledRejection', error => console.error('🚨 CHYBA:', error));
 client.login(TOKEN);
