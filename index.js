@@ -44,7 +44,7 @@ const EVENT_END_DATE = new Date('2026-07-25T19:00:00+02:00').getTime();
 let isDevMode = false;
 
 // ─────────────────────────────────────────────
-// DATA EVENTU A QUESTY (včetně příběhů)
+// DATA EVENTU A QUESTY
 // ─────────────────────────────────────────────
 const PROGRESS_BAR_IMAGES = [
     "https://i.imgur.com/0ykXCSw.png", "https://i.imgur.com/ztyvGOl.png", "https://i.imgur.com/gRoTYIp.png", 
@@ -57,14 +57,14 @@ const PROGRESS_BAR_IMAGES = [
 ];
 
 const ROUTES = [
-    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", story: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
-    { day: 2, start: "Hamburk", end: "Brno", cargos: ["Potřeby ke stolování"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png", story: "Po zajištění občerstvení je potřeba připravit zázemí pro hosty. V Hamburku byly naloženy potřeby ke stolování, které budou využity při slavnostním občerstvení během oslav narozenin." },
-    { day: 3, start: "Bratislava", end: "Brno", cargos: ["Květiny a stromy"], goal: 150, img: "https://i.imgur.com/lymELya.png", story: "Chceme, aby byla letošní oslava opravdu výjimečná. Ve spolupráci s floristy byla připravena rozsáhlá květinová výzdoba, kterou je nyní potřeba bezpečně dopravit z Bratislavy." },
-    { day: 4, start: "Štětín", end: "Brno", cargos: ["Hračky"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png", story: "Na oslavu byli pozváni také rodinní příslušníci a nejmladší návštěvníci. Proto bylo rozhodnuto připravit speciální zábavnou zónu. Vaším úkolem je přepravit vybavení a dárky určené pro dětské návštěvníky." },
-    { day: 5, start: "Linec", end: "Brno", cargos: ["Čokolády"], goal: 250, img: "https://i.imgur.com/oWPrZey.png", story: "Každá pořádná narozeninová oslava potřebuje dostatek sladkostí. Počet potvrzených hostů překonal všechna očekávání, a proto byla objednána mimořádná zásilka čokoládových výrobků." },
-    { day: 6, start: "Poznaň", end: "Brno", cargos: ["Limonády"], goal: 250, img: "https://i.imgur.com/J8tVmQU.png", story: "Po aktualizaci seznamu hostů bylo zjištěno, že původní zásoby nebudou dostačovat. Organizátoři proto zajistili dodatečnou zásilku limonád, která musí být doručena včas před zahájením oslav." },
-    { day: 7, start: "Linec", end: "Brno", cargos: ["Elektroniku", "Elektronika"], goal: 250, img: "https://i.imgur.com/waiarlZ.png", story: "Blíží se vyvrcholení příprav. Do Brna je potřeba dopravit profesionální ozvučovací a světelnou techniku, která zajistí hudební doprovod a atmosféru celé narozeninové oslavy." },
-    { day: 8, start: "Berlín", end: "Brno", cargos: ["Ohňostroje"], goal: 250, img: "https://i.imgur.com/BO0Rgu6.png", story: "Nastal čas na poslední a nejdůležitější úkol celé expedice. V Berlíně je připravena hlavní zásilka zábavní pyrotechniky určené pro slavnostní zakončení oslav. Vaším úkolem je bezpečně dopravit tento cenný náklad do Brna, kde po jeho doručení mohou být zahájeny oslavy." }
+    { day: 1, start: "Praha", end: "Brno", cargos: ["Nápoje", "Nápoje"], goal: 50, img: "https://i.imgur.com/5XTW3FA.png", desc: "Přípravy na narozeninovou oslavu byly oficiálně zahájeny. Organizátoři zajistili první zásobu občerstvení. Vaším úkolem je bezpečně dopravit nápoje z Prahy na místo oslav v Brně." },
+    { day: 2, start: "Hamburk", end: "Brno", cargos: ["Potřeby ke stolování"], goal: 100, img: "https://i.imgur.com/7wR8bW6.png", desc: "Po zajištění občerstvení je potřeba připravit zázemí pro hosty. V Hamburku byly naloženy potřeby ke stolování, které budou využity při slavnostním občerstvení během oslav narozenin." },
+    { day: 3, start: "Bratislava", end: "Brno", cargos: ["Květiny a stromy", "Řezané květiny"], goal: 150, img: "https://i.imgur.com/lymELya.png", desc: "Chceme, aby byla letošní oslava opravdu výjimečná. Ve spolupráci s floristy byla připravena rozsáhlá květinová výzdoba, kterou je nyní potřeba bezpečně dopravit z Bratislavy." },
+    { day: 4, start: "Štětín", end: "Brno", cargos: ["Hračky"], goal: 200, img: "https://i.imgur.com/t6fcP9x.png", desc: "Na oslavu byli pozváni také rodinní příslušníci a nejmladší návštěvníci. Proto bylo rozhodnuto připravit speciální zábavnou zónu. Vaším úkolem je přepravit vybavení a dárky určené pro dětské návštěvníky." },
+    { day: 5, start: "Linec", end: "Brno", cargos: ["Čokolády", "Čokoláda"], goal: 250, img: "https://i.imgur.com/oWPrZey.png", desc: "Každá pořádná narozeninová oslava potřebuje dostatek sladkostí. Počet potvrzených hostů překonal všechna očekávání, a proto byla objednána mimořádná zásilka čokoládových výrobků." },
+    { day: 6, start: "Poznaň", end: "Brno", cargos: ["Limonády", "Limonáda"], goal: 250, img: "https://i.imgur.com/J8tVmQU.png", desc: "Po aktualizaci seznamu hostů bylo zjištěno, že původní zásoby nebudou dostačovat. Organizátoři proto zajistili dodatečnou zásilku limonád, která musí být doručena včas před zahájením oslav." },
+    { day: 7, start: "Linec", end: "Brno", cargos: ["Elektroniku", "Elektronika"], goal: 250, img: "https://i.imgur.com/waiarlZ.png", desc: "Blíží se vyvrcholení příprav. Do Brna je potřeba dopravit profesionální ozvučovací a světelnou techniku, která zajistí hudební doprovod a atmosféru celé narozeninové oslavy." },
+    { day: 8, start: "Berlín", end: "Brno", cargos: ["Ohňostroje", "Zábavní pyrotechnika"], goal: 250, img: "https://i.imgur.com/BO0Rgu6.png", desc: "Nastal čas na poslední a nejdůležitější úkol celé expedice. V Berlíně je připravena hlavní zásilka zábavní pyrotechniky určené pro slavnostní zakončení oslav. Vaším úkolem je bezpečně dopravit tento cenný náklad do Brna, kde po jeho doručení mohou být zahájeny oslavy." }
 ];
 
 const QUESTS = [
@@ -180,7 +180,9 @@ const commands = [
     )),
   new SlashCommandBuilder().setName("test-cteni").setDescription("🛠️ (DEV) Otestuje, jak bot přečte zkopírovaný text zakázky.")
     .addStringOption(o => o.setName("text").setDescription("Vlož text zakázky z bota").setRequired(true)),
-  new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim bez ohledu na datum startu eventu.")
+  new SlashCommandBuilder().setName("dev-override").setDescription("🛠️ (DEV) ADMIN: Zapne testovací režim bez ohledu na datum startu eventu."),
+  new SlashCommandBuilder().setName("dev-reprocess").setDescription("🛠️ (DEV) Zpětně projde zakázky a uzná ty, co chyběly.")
+    .addStringOption(o => o.setName("kanal").setDescription("ID kanálu").setRequired(true))
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]});
@@ -218,17 +220,26 @@ async function transferRole(guildId, roleId, oldUserId, newUserId) {
             const newMember = await guild.members.fetch(newUserId).catch(()=>null);
             if (newMember) await newMember.roles.add(roleId).catch(()=>null);
         }
-    } catch(e) {}
+    } catch(e) {
+        console.error("Chyba při transferu role:", e);
+    }
 }
 
 function startNewSecretCity() {
     const randomCity = SECRET_CITIES_LIST[Math.floor(Math.random() * SECRET_CITIES_LIST.length)];
     systemDb.secretCity = randomCity;
     systemDb.secretCityRevealed = new Array(randomCity.length).fill(false);
-    if (randomCity.length > 3) {
-        systemDb.secretCityRevealed[0] = true;
-        systemDb.secretCityRevealed[randomCity.length - 1] = true;
+    
+    // Odhalí pouze jedno náhodné písmeno (které není mezera)
+    const validIndices = [];
+    for (let i = 0; i < randomCity.length; i++) {
+        if (randomCity[i] !== ' ') validIndices.push(i);
     }
+    if (validIndices.length > 0) {
+        const startIdx = validIndices[Math.floor(Math.random() * validIndices.length)];
+        systemDb.secretCityRevealed[startIdx] = true;
+    }
+
     systemDb.secretCityFoundBy = null;
     systemDb.nextSecretCityResetUnix = getNextSecretCityResetUnix();
     
@@ -296,29 +307,37 @@ function extractJobData(text, title) {
         if (kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
     }
 
-    let origin = "neznáme", dest = "neznáme";
-    const tbCitiesMatch = combinedText.match(/Odkud\s*Kam\n(?:.*?\s+)?(.*?)\s+(?:.*?\s+)?(.*)\n/i);
-    const truckyCitiesMatch = combinedText.match(/to\s*\n\s*(.*?)\n/i); 
+    let origin = "neznáme";
+    let dest = "neznáme";
     
-    if (tbCitiesMatch) {
+    // Zkouška na formát "KAM: Město" nebo "Destination: Město"
+    const kamMatch = combinedText.match(/(?:KAM|Destination|do):\s*([a-zA-Zá-žÁ-Ž ]+)/i);
+    if (kamMatch) dest = kamMatch[1].trim();
+
+    // Zkouška na TrucksBook tabulku
+    const tbCitiesMatch = combinedText.match(/Odkud\s*Kam\n(?:.*?\s+)?(.*?)\s+(?:.*?\s+)?(.*)\n/i);
+    if (tbCitiesMatch && dest === "neznáme") {
         origin = tbCitiesMatch[1].replace(/🚚|🏁|🚩/g, '').trim();
         dest = tbCitiesMatch[2].replace(/🚚|🏁|🚩/g, '').trim();
-    } else if (truckyCitiesMatch) {
-        dest = truckyCitiesMatch[1].trim(); 
     } else {
-        const destMatch = combinedText.match(/(?:do|kam|destination):\s*([a-zA-Zá-žÁ-Ž ]+)/i);
-        if (destMatch) dest = destMatch[1];
+        const truckyCitiesMatch = combinedText.match(/to\s*\n\s*(.*?)\n/i); 
+        if (truckyCitiesMatch && dest === "neznáme") dest = truckyCitiesMatch[1].trim(); 
     }
 
-    const cargoMatch = combinedText.match(/(?:Náklad|Cargo):\s*([a-zA-Zá-žÁ-Ž0-9 ]+)/i);
-    const truckMatch = combinedText.match(/(?:Tahač|Truck):\s*([a-zA-Z0-9 -]+)/i);
+    let cargo = "neznáme";
+    const cargoMatch = combinedText.match(/(?:Náklad|Cargo):\s*([a-zA-Zá-žÁ-Ž0-9 \-]+)/i);
+    if (cargoMatch) cargo = cargoMatch[1].split('(')[0].trim();
 
-    if (km <= 0) return null;
+    let truck = "neznáme";
+    const truckMatch = combinedText.match(/(?:Tahač|Truck):\s*([a-zA-Z0-9 -]+)/i);
+    if (truckMatch) truck = truckMatch[1].trim();
+
+    // Teleport prevence: méně než 50 km se ignoruje
+    if (km < 50) return null;
 
     return {
         km, origin: normalizeStr(origin), dest: normalizeStr(dest),
-        cargo: cargoMatch ? normalizeStr(cargoMatch[1].split('(')[0]) : "neznáme",
-        truck: truckMatch ? normalizeStr(truckMatch[1]) : "neznáme"
+        cargo: normalizeStr(cargo), truck: normalizeStr(truck)
     };
 }
 
@@ -339,11 +358,25 @@ async function processJobMessage(m) {
 
     const jobHash = `${jobData.km}_${jobData.dest}_${jobData.cargo}`;
     const driverNorm = normalizeStr(driver);
+
     let userKey = Object.keys(usersDb).find(k => {
         if (k.startsWith('UNLINKED_')) return false;
         const dbNick = normalizeStr(usersDb[k].tbName);
         return driverNorm.includes(dbNick) || dbNick.includes(driverNorm);
     });
+
+    // AUTOLINK logic (Prohledání Discord Members, pokud nenajde spojení v databázi)
+    if (!userKey && m.guild) {
+        try {
+            const cachedMembers = m.guild.members.cache;
+            const foundMember = cachedMembers.find(member => 
+                normalizeStr(member.displayName).includes(driverNorm) || 
+                normalizeStr(member.user.username).includes(driverNorm) ||
+                driverNorm.includes(normalizeStr(member.displayName))
+            );
+            if (foundMember) userKey = foundMember.id;
+        } catch(e) {}
+    }
 
     if (!userKey) userKey = 'UNLINKED_' + driver;
     const u = getUser(userKey, driver);
@@ -353,12 +386,13 @@ async function processJobMessage(m) {
     }
 
     let isEventRoute = false;
-    let earnedXP = 100; 
+    let earnedXP = 50; // Základní XP pro obyčejnou zakázku mimo event trasu
     let isHappyHourJob = false;
     let secretCityFound = false;
     let isNewHunterDne = false;
 
-    if (systemDb.secretCity && !systemDb.secretCityFoundBy && jobData.dest === normalizeStr(systemDb.secretCity) && jobData.km >= 500) {
+    // Kontrola Tajného Města
+    if (systemDb.secretCity && !systemDb.secretCityFoundBy && jobData.dest.includes(normalizeStr(systemDb.secretCity)) && jobData.km >= 500) {
         secretCityFound = true;
         earnedXP += 1000;
         if (!userKey.startsWith('UNLINKED_')) {
@@ -368,12 +402,15 @@ async function processJobMessage(m) {
         }
     }
 
+    // Kontrola Denní Trasy
     if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
         const dailyRoute = ROUTES[systemDb.currentDay - 1];
         const allowedCargosNorm = dailyRoute.cargos.map(normalizeStr);
         
-        if (jobData.dest === normalizeStr(dailyRoute.end) && allowedCargosNorm.some(c => jobData.cargo.includes(c))) {
+        // Cíl a náklad se shodují (km nezajímá, pokud je > 50 coz resi extractJobData)
+        if (jobData.dest.includes(normalizeStr(dailyRoute.end)) && allowedCargosNorm.some(c => jobData.cargo.includes(c))) {
             isEventRoute = true;
+            earnedXP = 100; // Eventová zakázka má základ 100 XP
             u.eventJobs += 1;
             systemDb.communityJobsToday += 1;
             if (!u.completedRoutesDays.includes(systemDb.currentDay)) u.completedRoutesDays.push(systemDb.currentDay);
@@ -387,7 +424,8 @@ async function processJobMessage(m) {
         }
     }
 
-    if (Date.now() < systemDb.hhActiveUntil) {
+    // Happy Hour se vztahuje POUZE na eventové zakázky
+    if (isEventRoute && Date.now() < systemDb.hhActiveUntil) {
         isHappyHourJob = true;
         earnedXP = Math.floor(earnedXP * 1.5);
     }
@@ -406,7 +444,7 @@ async function processJobMessage(m) {
     if (q) {
         if (q.type === "km") u.questProgress += jobData.km;
         if (q.type === "jobs" && isEventRoute) u.questProgress += 1;
-        if (q.type === "city" && jobData.dest === normalizeStr(q.target)) u.questProgress += 1;
+        if (q.type === "city" && jobData.dest.includes(normalizeStr(q.target))) u.questProgress += 1;
         if (q.type === "truck" && jobData.truck.includes(normalizeStr(q.target))) u.questProgress += 1;
         if (q.type === "long_jobs" && jobData.km >= q.targetKm) u.questProgress += 1;
 
@@ -422,7 +460,7 @@ async function processJobMessage(m) {
     }
 
     saveUsers();
-    if (!userKey.startsWith('UNLINKED_')) checkMilestoneRoles(userKey);
+    if (!userKey.startsWith('UNLINKED_')) await checkMilestoneRoles(userKey);
 
     return { 
         status: 'added', km: jobData.km, isEventRoute, questCompleted, earnedXP, 
@@ -431,6 +469,7 @@ async function processJobMessage(m) {
 }
 
 client.on('messageCreate', async (m) => {
+    // Pro live poslech z obou kanálů
     if (m.channel.id !== CH_JOBS_1 && m.channel.id !== CH_JOBS_2) return;
     const res = await processJobMessage(m);
     
@@ -450,6 +489,7 @@ client.on('messageCreate', async (m) => {
         if (logCh) {
             let msg = `✅ **${res.driver}** dovezl zakázku (${res.km} km).`;
             if (res.isEventRoute) msg += ` 🎯 Eventová trasa (+ XP).`;
+            else msg += ` 🚚 Normální trasa (Snížené XP).`;
             if (res.isNewHunterDne) msg += ` 🏹 Získává titul **HUNTER DNE**!`;
             if (res.isHappyHourJob) msg += ` 🌟 **HAPPY HOUR 1.5x XP!**`;
             msg += ` Získal **+${res.earnedXP} XP**.`;
@@ -472,20 +512,20 @@ async function announceDailyRoute(day) {
     saveSystem();
 
     const embed = new EmbedBuilder()
-        .setTitle(`🚚 EVENT DEN ${day}/8: Nová trasa!`)
-        // ZDE JE ZABUDOVÁN PŘÍBĚH Z POLE ROUTES:
-        .setDescription(`📖 **Příběh etapy:**\n*${route.story}*\n\n` +
-                        `Dnes svážíme zásoby na oslavu z města **${route.start}** do **${route.end}**!\n\n` +
-                        `📦 **Povolené náklady:**\n${route.cargos.map(c => `- ${c}`).join('\n')}\n\n` +
+        .setTitle(`🚚 EVENT DEN ${day}/8: Nová trasa vyhlášena!`)
+        .setDescription(`**${route.desc}**\n\n` +
+                        `📍 **Odkud:** ${route.start}\n` +
+                        `🏁 **Kam:** ${route.end}\n` +
+                        `📦 **Povolené náklady:**\n${route.cargos.map(c => `• ${c}`).join('\n')}\n\n` +
                         `🎯 **Komunitní cíl:** Doručit **${route.goal}** zakázek!\n` +
-                        `🎁 **Odměna kom.cíle:** Systém vylosoval **${systemDb.currentDailyRewardText}**!\n` +
-                        `🏹 První, získá roli **HUNTER DNE**!`)
+                        `🎁 **Odměna kom. cíle:** Systém vylosoval **${systemDb.currentDailyRewardText}**!\n` +
+                        `🏹 První, kdo doručí, získá roli **HUNTER DNE**!`)
         .setImage(route.img)
         .setColor(EVENT_COLOR);
 
     const annCh = await client.channels.fetch(CH_ROUTES).catch(()=>null);
     if (annCh) {
-        await annCh.send({ content: "@everyone 🚨 **Nová trasa vyhlášena!** 🚨", embeds: [embed] });
+        await annCh.send({ content: "@everyone 🚨 **Nová eventová trasa vyhlášena!** 🚨", embeds: [embed] });
         updateCommunityProgressBar(true);
     }
 }
@@ -572,7 +612,7 @@ setInterval(() => {
                 systemDb.hhActiveUntil = now + (60 * 60 * 1000);
                 systemDb.hhCountToday += 1; saveSystem();
                 client.channels.fetch(CH_ROUTES).then(ch => {
-                    ch.send("🌟 **HAPPY HOUR PRÁVĚ ZAČALA!** Následující 1 hodinu jsou ziskované XP u všech zakázek násobeny 1.5x!");
+                    ch.send("🌟 **HAPPY HOUR PRÁVĚ ZAČALA!** Následující 1 hodinu jsou ziskované XP u všech EVENTOVÝCH zakázek násobeny 1.5x!");
                 }).catch(()=>null);
             }
         }
@@ -587,7 +627,8 @@ async function checkMilestoneRoles(userId) {
         const u = usersDb[userId];
         if (!u) return;
         const guild = await client.guilds.fetch(GUILD_ID);
-        const member = await guild.members.fetch(userId);
+        // Force fetch pro zajištění správného vyhodnocení stavu rolí
+        const member = await guild.members.fetch({ user: userId, force: true });
         const logCh = await client.channels.fetch(CH_LOG);
 
         if (u.xp >= 10000 && !member.roles.cache.has(ROLE_KING)) {
@@ -705,13 +746,13 @@ client.on("interactionCreate", async interaction => {
       const text = interaction.options.getString("text");
       const jobData = extractJobData(text, "TEST ZAKÁZKA");
       
-      if (!jobData) return interaction.reply({ content: "❌ Bot v textu nenašel platná data zakázky (chybí km, města nebo náklad). Zkus zkopírovat celý text zprávy.", ephemeral: true });
+      if (!jobData) return interaction.reply({ content: "❌ Bot v textu nenašel platná data zakázky (nebo je menší než 50 km).", ephemeral: true });
 
       const dayIndex = systemDb.currentDay > 0 ? systemDb.currentDay - 1 : 0;
       const route = ROUTES[dayIndex];
       const allowedCargos = route.cargos.map(normalizeStr);
       const isEventCargo = allowedCargos.some(c => jobData.cargo.includes(c));
-      const isEventDest = jobData.dest === normalizeStr(route.end);
+      const isEventDest = jobData.dest.includes(normalizeStr(route.end));
 
       const embed = new EmbedBuilder()
           .setTitle("🛠️ (DEV) Výsledek testu čtení")
@@ -721,7 +762,7 @@ client.on("interactionCreate", async interaction => {
               { name: "📦 Náklad", value: jobData.cargo, inline: true },
               { name: "📏 Vzdálenost", value: `${jobData.km} km`, inline: true },
               { name: "🏁 Trasa", value: `${jobData.origin} -> ${jobData.dest}`, inline: false },
-              { name: "🎯 Eventová trasa (Dnešní cíl)?", value: (isEventDest && isEventCargo) ? "✅ **ANO** (Započítalo by se do eventu a přidalo XP)" : "❌ **NE** (Dostal bys pouze běžné XP za dojetí)", inline: false }
+              { name: "🎯 Eventová trasa (Dnešní cíl)?", value: (isEventDest && isEventCargo) ? "✅ **ANO** (Eventová za 100 XP)" : "❌ **NE** (Dostal bys běžných 50 XP)", inline: false }
           )
           .setColor(0x00FF00);
           
@@ -736,55 +777,59 @@ client.on("interactionCreate", async interaction => {
       isDevMode = !isDevMode;
       return interaction.reply({ content: `🛠️ Testovací režim (DEV) byl přepnut na: **${isDevMode ? "ZAPNUTO" : "VYPNUTO"}**.`, ephemeral: true });
   }
+
+  // DEV REPROCESS
+  if (interaction.commandName === "dev-reprocess") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      const channelId = interaction.options.getString("kanal");
+      const targetChannel = await client.channels.fetch(channelId).catch(() => null);
+      
+      if (!targetChannel) {
+          return interaction.editReply("❌ Kanál nebyl nalezen. Zkontroluj ID.");
+      }
+
+      let processedCount = 0;
+      let validCount = 0;
+      
+      try {
+          // Stáhne posledních 100 zpráv
+          const messages = await targetChannel.messages.fetch({ limit: 100 });
+          // Zpracuje od nejstarší po nejnovější pro správný flow (Role/Goals)
+          const msgArray = Array.from(messages.values()).reverse();
+
+          for (const msg of msgArray) {
+              if (msg.embeds.length > 0) {
+                  const result = await processJobMessage(msg);
+                  processedCount++;
+                  if (result.status === 'added') validCount++;
+              }
+          }
+          return interaction.editReply(`✅ Zpětná analýza dokončena. Zkontrolováno zpráv: **${processedCount}**. Nově zpracovaných a uznaných zakázek: **${validCount}**.`);
+      } catch (error) {
+          console.error(error);
+          return interaction.editReply("❌ Došlo k chybě při načítání historie zpráv.");
+      }
+  }
 });
 
-// REGISTRACE PŘÍKAZŮ PŘI SPUŠTĚNÍ A OBNOVA ZÁLOHY
+// REGISTRACE PŘÍKAZŮ PŘI SPUŠTĚNÍ
 client.on("ready", async () => {
     console.log(`Bot úspěšně běží jako ${client.user.tag}`);
-
-    // --- AUTOMATICKÉ NAČTENÍ ZÁLOHY Z DISCORD ROOMKY ---
-    try {
-        const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
-        if (backupCh) {
-            const messages = await backupCh.messages.fetch({ limit: 10 });
-            const latestBackup = messages.find(m => m.attachments.size > 0 && m.author.id === client.user.id);
-            
-            if (latestBackup) {
-                console.log("Hledám poslední zálohu na Discordu... Nalezena, stahuji...");
-                for (const [id, attachment] of latestBackup.attachments) {
-                    try {
-                        const response = await fetch(attachment.url);
-                        const data = await response.text();
-                        
-                        if (attachment.name === 'users_db.json') {
-                            usersDb = JSON.parse(data);
-                            saveUsers();
-                            console.log("✅ Úspěšně stažena a načtena záloha: users_db.json");
-                        } else if (attachment.name === 'system_db.json') {
-                            systemDb = JSON.parse(data);
-                            saveSystem();
-                            console.log("✅ Úspěšně stažena a načtena záloha: system_db.json");
-                        }
-                    } catch (err) {
-                        console.error(`❌ Chyba při stahování zálohy ${attachment.name}:`, err);
-                    }
-                }
-            } else {
-                console.log("Žádná záloha ke stažení nebyla nalezena (začínám s čistými daty nebo existujícím souborem).");
-            }
-        }
-    } catch (err) {
-        console.error("Chyba při přístupu k zálohovací místnosti. Nelze stáhnout zálohu.", err);
-    }
-
-    // Registrace příkazů
     try {
         const rest = new REST({ version: '10' }).setToken(TOKEN);
         await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
         console.log("Slash příkazy byly úspěšně zaregistrovány na Discordu.");
+        
+        // Cache načtení členů do paměti po startu pro Autolink
+        const guild = client.guilds.cache.get(GUILD_ID);
+        if (guild) await guild.members.fetch();
     } catch (error) {
         console.error(error);
     }
 });
 
-client.login(TOKEN); 
+client.login(TOKEN);
