@@ -201,11 +201,11 @@ const normalizeStr = (str) => {
 const CITY_SYNONYMS = {
     'praha': ['prague', 'prag', 'praha'],
     'hamburk': ['hamburg', 'hamburk'],
-    'viden': ['wien', 'vienna', 'viden', 'vide'], 
-    'stetin': ['szczecin', 'stettin', 'stetin', 'steti'], 
+    'viden': ['wien', 'vienna', 'viden', 'vide'],
+    'stetin': ['szczecin', 'stettin', 'stetin', 'steti'],
     'linec': ['linz', 'linec'],
-    'berlin': ['berlin', 'berlin'],
-    'poznan': ['poznan', 'poznan'],
+    'berlin': ['berlin'],
+    'poznan': ['poznan'],
     'brno': ['brno'],
     'bratislava': ['bratislava']
 };
@@ -396,8 +396,7 @@ async function processJobMessage(m) {
             if (systemDb.hunterDneDay !== systemDb.currentDay && !userKey.startsWith('UNLINKED_')) {
                 isNewHunterDne = true; systemDb.hunterDneDay = systemDb.currentDay; systemDb.hunterDneUserId = userKey;
             }
-            saveSystem(); 
-            // Odstraněno volání updateCommunityProgressBar, nyní se updatuje přes setInterval každých 5 minut
+            saveSystem();
         }
     }
 
@@ -468,7 +467,6 @@ async function updateCommunityProgressBar(forceNew = false) {
     const percent = Math.min(100, Math.floor((systemDb.communityJobsToday / route.goal) * 100));
     const imageIndex = Math.floor(percent / 5);
     
-    // Ochrana proti zablokování obrázku na Discordu
     const imgUrl = (PROGRESS_BAR_IMAGES[imageIndex] || PROGRESS_BAR_IMAGES[20]) + "?v=" + Date.now();
 
     const annCh = await client.channels.fetch(CH_DAILY_GOAL).catch(() => null);
@@ -635,7 +633,7 @@ async function checkMilestoneRoles(userId) {
 }
 
 // ─────────────────────────────────────────────
-// ZÁLOHOVACÍ SYSTÉM (Stahování a Vytváření)
+// ZÁLOHOVACÍ SYSTÉM
 // ─────────────────────────────────────────────
 async function createBackup() {
     try {
@@ -705,14 +703,13 @@ async function fetchBackupFromDiscord() {
 // ČASOVAČE
 // ─────────────────────────────────────────────
 setInterval(async () => {
-    createBackup(); // Každých 15 minut pushne zálohu
+    createBackup();
 }, 15 * 60 * 1000);
 
 setInterval(() => {
     const now = Date.now();
     const czTime = new Date(new Date(now).toLocaleString("en-US", {timeZone: "Europe/Prague"}));
 
-    // Uzavření eventu
     if (now >= EVENT_END_DATE && !isDevMode && !systemDb.eventClosedAnnounced) {
         systemDb.eventClosedAnnounced = true;
         saveSystem();
@@ -722,7 +719,6 @@ setInterval(() => {
         return;
     }
 
-    // Automatický start dne a přechod dnů
     if ((now >= EVENT_START_DATE || isDevMode) && systemDb.currentDay === 0) {
         systemDb.currentDay = 1;
         systemDb.currentDailyRewardText = "";
@@ -740,22 +736,18 @@ setInterval(() => {
         saveUsers();
     }
 
-    // Rotace tajného města
     if ((czTime.getHours() === 8 || czTime.getHours() === 19) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
         startNewSecretCity();
     }
 
-    // Odhalení písmene tajného města
     if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         revealNextLetter();
     }
 
-    // Aktualizace Progress Baru každých 5 minut
     if (czTime.getMinutes() % 5 === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         updateCommunityProgressBar();
     }
 
-    // Konec Happy Hour - Smazání zprávy
     if (systemDb.hhActiveUntil > 0 && now >= systemDb.hhActiveUntil) {
         if (systemDb.hhMessageId) {
             client.channels.fetch(CH_ROUTES).then(async ch => {
@@ -772,7 +764,6 @@ setInterval(() => {
         }
     }
 
-    // Start Happy Hour (šance každou hodinu, max 2x denně)
     if (czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         if (now >= systemDb.hhActiveUntil && systemDb.hhCountToday < 2) {
             if (Math.random() < 0.10) {
@@ -815,6 +806,8 @@ const commands = [
         .addStringOption(o => o.setName("kanal").setDescription("ID kanálu").setRequired(true)),
     new SlashCommandBuilder().setName("dev-fetch-backup").setDescription("🛠️ (DEV) Stáhne a aplikuje poslední zálohu z backup kanálu."),
     new SlashCommandBuilder().setName("dev-create-backup").setDescription("🛠️ (DEV) Vytvoří manuální zálohu databáze."),
+    new SlashCommandBuilder().setName("fullanalyze").setDescription("🛠️ (ADMIN) Smaže statistiky a přepočítá zakázky od začátku (zachová nicky).")
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName("admin-restore").setDescription("🛠️ ADMIN: Obnoví databázi z nahraných JSON souborů.")
         .addAttachmentOption(o => o.setName("users_db").setDescription("Soubor users_db.json").setRequired(false))
         .addAttachmentOption(o => o.setName("system_db").setDescription("Soubor system_db.json").setRequired(false)),
@@ -946,7 +939,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ embeds: [embed] });
     }
 
-    // Žebříček (Leaderboard) se stránkováním
     if (interaction.commandName === "leaderboard") {
         const kategorie = interaction.options.getString("kategorie");
         const sorted = Object.values(usersDb)
@@ -1150,6 +1142,148 @@ client.on("interactionCreate", async interaction => {
         } catch (error) { return interaction.editReply(`❌ Chyba: ${error.message}`); }
     }
 
+    // ─────────────────────────────────────────────
+    // FULLANALYZE - Kompletní přepočet se zachováním nicků
+    // ─────────────────────────────────────────────
+    if (interaction.commandName === "fullanalyze") {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        
+        try {
+            // 1. Vytvoř zálohu před resetem
+            await interaction.editReply("💾 Vytvářím zálohu před resetem...");
+            await createBackup();
+            
+            // 2. Ulož si nastavení eventu před úpravou
+            const savedSettings = {
+                currentDay: systemDb.currentDay,
+                currentDailyRewardText: systemDb.currentDailyRewardText,
+                secretCity: systemDb.secretCity,
+                secretCityRevealed: systemDb.secretCityRevealed,
+                secretCityFoundBy: systemDb.secretCityFoundBy,
+                nextSecretCityResetUnix: systemDb.nextSecretCityResetUnix,
+                secretExplorerUserId: systemDb.secretExplorerUserId
+            };
+            
+            // 3. VYNUJLUJ STATISTIKY všem uživatelům (ale ZACHOVEJ propojení!)
+            await interaction.editReply("🗑️ Nuluji statistiky (propojení nicků zůstává)...");
+            
+            for (const userId in usersDb) {
+                const u = usersDb[userId];
+                u.xp = 0;
+                u.km = 0;
+                u.eventJobs = 0;
+                u.processedJobs = [];
+                u.recentJobHashes = [];
+                u.completedRoutesDays = [];
+                u.completedQuests = 0;
+                u.questProgress = 0;
+                u.lastQuestSkip = 0;
+            }
+            
+            // 4. Resetuj systémové proměnné (kromě nastavení eventu)
+            systemDb.communityJobsToday = 0;
+            systemDb.hhActiveUntil = 0;
+            systemDb.hhCountToday = 0;
+            systemDb.hhMessageId = null;
+            systemDb.hunterDneDay = 0;
+            systemDb.hunterDneUserId = null;
+            systemDb.globalProcessedJobs = [];
+            systemDb.globalJobHashes = [];
+            systemDb.eventClosedAnnounced = false;
+            
+            // Zachovej nastavení eventu
+            systemDb.currentDay = savedSettings.currentDay || systemDb.currentDay || 1;
+            systemDb.currentDailyRewardText = savedSettings.currentDailyRewardText || systemDb.currentDailyRewardText || "";
+            systemDb.secretCity = savedSettings.secretCity || systemDb.secretCity || "";
+            systemDb.secretCityRevealed = savedSettings.secretCityRevealed || systemDb.secretCityRevealed || [];
+            systemDb.secretCityFoundBy = savedSettings.secretCityFoundBy || systemDb.secretCityFoundBy || null;
+            systemDb.nextSecretCityResetUnix = savedSettings.nextSecretCityResetUnix || systemDb.nextSecretCityResetUnix || 0;
+            systemDb.secretExplorerUserId = savedSettings.secretExplorerUserId || systemDb.secretExplorerUserId || null;
+            
+            saveUsers();
+            saveSystem();
+            
+            // 5. Projdi oba kanály a přepočítej zakázky
+            let totalProcessed = 0;
+            let totalValid = 0;
+            let totalDuplicates = 0;
+            
+            for (const channelId of [CH_JOBS_1, CH_JOBS_2]) {
+                await interaction.editReply(`📥 Stahuji zprávy z kanálu ${channelId}...`);
+                const targetChannel = await client.channels.fetch(channelId).catch(() => null);
+                if (!targetChannel) continue;
+                
+                let allMessages = [];
+                let lastId;
+                
+                for (let i = 0; i < 20; i++) {
+                    const options = { limit: 100 };
+                    if (lastId) options.before = lastId;
+                    const fetched = await targetChannel.messages.fetch(options);
+                    if (fetched.size === 0) break;
+                    allMessages.push(...fetched.values());
+                    lastId = fetched.last().id;
+                }
+                
+                allMessages = allMessages.filter(msg => 
+                    msg.createdTimestamp >= EVENT_START_DATE && 
+                    msg.createdTimestamp <= Date.now()
+                );
+                allMessages.reverse();
+                
+                await interaction.editReply(`⚙️ Zpracovávám ${allMessages.length} zpráv z kanálu ${channelId}...`);
+                
+                for (const msg of allMessages) {
+                    if (msg.embeds.length > 0) {
+                        const result = await processJobMessage(msg);
+                        totalProcessed++;
+                        if (result.status === 'added') totalValid++;
+                        if (result.status.startsWith('duplicate')) totalDuplicates++;
+                    }
+                }
+            }
+            
+            // 6. Obnov progress bar a tajné město
+            if (systemDb.currentDay > 0) {
+                await updateCommunityProgressBar(true);
+            }
+            if (systemDb.secretCity && !systemDb.secretCityFoundBy) {
+                await announceSecretCityWordle();
+            }
+            
+            // 7. Statistika
+            const linkedUsers = Object.values(usersDb).filter(u => !u.id?.startsWith?.('UNLINKED_'));
+            const totalXP = linkedUsers.reduce((sum, u) => sum + (u.xp || 0), 0);
+            const totalKm = linkedUsers.reduce((sum, u) => sum + (u.km || 0), 0);
+            const totalJobs = linkedUsers.reduce((sum, u) => sum + (u.eventJobs || 0), 0);
+            
+            return interaction.editReply(
+                `✅ **Kompletní přepočet dokončen!**\n\n` +
+                `📊 **Celkové statistiky:**\n` +
+                `📝 Zkontrolováno zpráv: **${totalProcessed}**\n` +
+                `✅ Uznaných zakázek: **${totalValid}**\n` +
+                `🔄 Duplicitních: **${totalDuplicates}**\n\n` +
+                `👥 **Hráči:**\n` +
+                `🔗 Propojených účtů: **${linkedUsers.length}** (zachováno)\n` +
+                `⭐ Celkem XP: **${totalXP}**\n` +
+                `🚚 Celkem km: **${totalKm}**\n` +
+                `📦 Celkem zakázek: **${totalJobs}**\n\n` +
+                `📅 Aktuální den: **${systemDb.currentDay}**\n` +
+                `🎯 Komunitní cíl: **${systemDb.communityJobsToday}** / **${ROUTES[systemDb.currentDay-1]?.goal || '?'}** zakázek\n` +
+                `🎁 Dnešní odměna: **${systemDb.currentDailyRewardText || '?'}**\n\n` +
+                `💾 Původní data zálohována. **Propojení nicků zachováno!**`
+            );
+            
+        } catch (error) {
+            console.error('❌ Chyba při fullanalyze:', error);
+            return interaction.editReply(`❌ **Chyba:** ${error.message}\n\nZkuste obnovit data ze zálohy pomocí \`/dev-fetch-backup\`.`);
+        }
+    }
+
     if (interaction.commandName === "admin-restore") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         await interaction.deferReply({ ephemeral: true });
@@ -1240,7 +1374,7 @@ client.on("ready", async () => {
         }
 
         if (systemDb.currentDay > 0) {
-            await updateCommunityProgressBar(); 
+            await updateCommunityProgressBar(true);
         }
 
         console.log("🎉 Bot je připraven!");
