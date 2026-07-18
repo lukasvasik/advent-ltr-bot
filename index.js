@@ -832,7 +832,7 @@ const commands = [
     new SlashCommandBuilder().setName("admin-unlink").setDescription("🛠️ ADMIN: Smaže uživatele z databáze.")
         .addUserOption(o => o.setName("hrac").setDescription("Hráč k odpojení").setRequired(true)),
     new SlashCommandBuilder().setName("admin-link").setDescription("🛠️ ADMIN: Ručně propojí hráče s TB nickem.")
-        .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true))
+        .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true)),
     new SlashCommandBuilder().setName("admin-addxp").setDescription("🛠️ ADMIN: Přidá nebo odebere hráči XP.")
         .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true))
         .addIntegerOption(o => o.setName("xp").setDescription("Počet XP (kladné pro přidání, záporné pro odečtení)").setRequired(true))
