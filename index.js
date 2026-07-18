@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import {
-  Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder,
-  EmbedBuilder, PermissionFlagsBits, AttachmentBuilder
+    Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder,
+    EmbedBuilder, PermissionFlagsBits, AttachmentBuilder,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType
 } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
@@ -145,7 +146,7 @@ function getRandomDailyGoal() {
 let usersDb = {};
 let systemDb = {
     currentDay: 0, communityJobsToday: 0,
-    hhActiveUntil: 0, hhCountToday: 0, hhMessageId: null, // <-- Přidáno ID zprávy
+    hhActiveUntil: 0, hhCountToday: 0, hhMessageId: null,
     secretCity: "", secretCityRevealed: [], secretCityFoundBy: null, nextSecretCityResetUnix: 0,
     hunterDneDay: 0, hunterDneUserId: null, secretExplorerUserId: null, currentDailyRewardText: "",
     eventClosedAnnounced: false, globalProcessedJobs: [], globalJobHashes: []
@@ -395,7 +396,8 @@ async function processJobMessage(m) {
             if (systemDb.hunterDneDay !== systemDb.currentDay && !userKey.startsWith('UNLINKED_')) {
                 isNewHunterDne = true; systemDb.hunterDneDay = systemDb.currentDay; systemDb.hunterDneUserId = userKey;
             }
-            saveSystem(); updateCommunityProgressBar();
+            saveSystem(); 
+            // Odstraněno volání updateCommunityProgressBar, nyní se updatuje přes setInterval každých 5 minut
         }
     }
 
@@ -465,14 +467,16 @@ async function updateCommunityProgressBar(forceNew = false) {
     const route = ROUTES[systemDb.currentDay - 1];
     const percent = Math.min(100, Math.floor((systemDb.communityJobsToday / route.goal) * 100));
     const imageIndex = Math.floor(percent / 5);
-    const imgUrl = PROGRESS_BAR_IMAGES[imageIndex] || PROGRESS_BAR_IMAGES[20];
+    
+    // Ochrana proti zablokování obrázku na Discordu
+    const imgUrl = (PROGRESS_BAR_IMAGES[imageIndex] || PROGRESS_BAR_IMAGES[20]) + "?v=" + Date.now();
 
     const annCh = await client.channels.fetch(CH_DAILY_GOAL).catch(() => null);
     if (!annCh) return;
 
     const embed = new EmbedBuilder()
         .setTitle(`📊 Komunitní Gól - Den ${systemDb.currentDay}`)
-        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${percent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText || "Zatím neurčeno"}\n\n*(Aktualizuje se ihned po každé uznané zakázce)*`)
+        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${percent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText || "Zatím neurčeno"}\n\n*(Aktualizuje se každých 5 minut)*`)
         .setImage(imgUrl)
         .setColor(EVENT_COLOR);
 
@@ -746,6 +750,11 @@ setInterval(() => {
         revealNextLetter();
     }
 
+    // Aktualizace Progress Baru každých 5 minut
+    if (czTime.getMinutes() % 5 === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
+        updateCommunityProgressBar();
+    }
+
     // Konec Happy Hour - Smazání zprávy
     if (systemDb.hhActiveUntil > 0 && now >= systemDb.hhActiveUntil) {
         if (systemDb.hhMessageId) {
@@ -773,7 +782,7 @@ setInterval(() => {
                 saveSystem();
                 client.channels.fetch(CH_ROUTES).then(async ch => {
                     const msg = await ch.send(`🌟 **HAPPY HOUR PRÁVĚ ZAČALA!** Následující 1 hodinu jsou ziskované XP u všech EVENTOVÝCH zakázek násobeny 1.5x!\n⏳ **Konec:** <t:${hhEndUnix}:R>`);
-                    systemDb.hhMessageId = msg.id; // Zapsání ID zprávy pro následné smazání
+                    systemDb.hhMessageId = msg.id;
                     saveSystem();
                 }).catch(() => {});
             }
@@ -867,7 +876,6 @@ client.on('messageCreate', async (m) => {
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // ... Zbytek Slash interakcí ponechán totožný jako minule ...
     if (interaction.commandName === "profil") {
         const targetUser = interaction.options.getUser("hrac") || interaction.user;
         const u = usersDb[targetUser.id];
@@ -938,6 +946,7 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ embeds: [embed] });
     }
 
+    // Žebříček (Leaderboard) se stránkováním
     if (interaction.commandName === "leaderboard") {
         const kategorie = interaction.options.getString("kategorie");
         const sorted = Object.values(usersDb)
@@ -948,25 +957,83 @@ client.on("interactionCreate", async interaction => {
                 if (kategorie === "jobs") return (b.eventJobs || 0) - (a.eventJobs || 0);
                 if (kategorie === "quests") return (b.completedQuests || 0) - (a.completedQuests || 0);
                 return 0;
-            }).slice(0, 10);
+            });
 
         if (sorted.length === 0) return interaction.reply({ content: "Žebříček je zatím prázdný.", ephemeral: true });
 
-        let desc = "";
-        sorted.forEach((u, index) => {
-            let val = "";
-            if (kategorie === "xp") val = `${u.xp || 0} XP`;
-            if (kategorie === "km") val = `${u.km || 0} km`;
-            if (kategorie === "jobs") val = `${u.eventJobs || 0} zakázek`;
-            if (kategorie === "quests") val = `${u.completedQuests || 0} questů`;
-            desc += `${index + 1}. **${u.tbName}** - ${val}\n`;
+        const ITEMS_PER_PAGE = 10;
+        const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
+        let currentPage = 0;
+
+        const generateEmbed = (page) => {
+            const start = page * ITEMS_PER_PAGE;
+            const end = start + ITEMS_PER_PAGE;
+            const currentItems = sorted.slice(start, end);
+
+            let desc = "";
+            currentItems.forEach((u, index) => {
+                let val = "";
+                if (kategorie === "xp") val = `${u.xp || 0} XP`;
+                if (kategorie === "km") val = `${u.km || 0} km`;
+                if (kategorie === "jobs") val = `${u.eventJobs || 0} zakázek`;
+                if (kategorie === "quests") val = `${u.completedQuests || 0} questů`;
+                desc += `${start + index + 1}. **${u.tbName}** - ${val}\n`;
+            });
+
+            return new EmbedBuilder()
+                .setTitle(`🏆 Žebříček - ${kategorie.toUpperCase()}`)
+                .setDescription(desc)
+                .setColor(EVENT_COLOR)
+                .setFooter({ text: `Strana ${page + 1} z ${totalPages} | Celkem hráčů: ${sorted.length}` });
+        };
+
+        const generateButtons = (page) => {
+            return new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('lb_prev')
+                    .setLabel('◀ Předchozí')
+                    .setStyle(ButtonStyle.Primary)
+                    .setDisabled(page === 0),
+                new ButtonBuilder()
+                    .setCustomId('lb_next')
+                    .setLabel('Další ▶')
+                    .setStyle(ButtonStyle.Primary)
+                    .setDisabled(page === totalPages - 1)
+            );
+        };
+
+        const response = await interaction.reply({
+            embeds: [generateEmbed(currentPage)],
+            components: totalPages > 1 ? [generateButtons(currentPage)] : [],
+            fetchReply: true
         });
 
-        const embed = new EmbedBuilder()
-            .setTitle(`🏆 TOP 10 Žebříček - ${kategorie.toUpperCase()}`)
-            .setDescription(desc)
-            .setColor(EVENT_COLOR);
-        return interaction.reply({ embeds: [embed] });
+        if (totalPages > 1) {
+            const collector = response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+
+            collector.on('collect', async i => {
+                if (i.user.id !== interaction.user.id) {
+                    return i.reply({ content: "❌ Toto stránkování patří jinému uživateli. Použij příkaz /leaderboard sám za sebe.", ephemeral: true });
+                }
+
+                if (i.customId === 'lb_prev') currentPage--;
+                else if (i.customId === 'lb_next') currentPage++;
+
+                await i.update({
+                    embeds: [generateEmbed(currentPage)],
+                    components: [generateButtons(currentPage)]
+                });
+            });
+
+            collector.on('end', () => {
+                const disabledRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('lb_prev').setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(true),
+                    new ButtonBuilder().setCustomId('lb_next').setLabel('Další ▶').setStyle(ButtonStyle.Primary).setDisabled(true)
+                );
+                interaction.editReply({ components: [disabledRow] }).catch(() => {});
+            });
+        }
+        return;
     }
 
     if (interaction.commandName === "test-cteni") {
@@ -1147,7 +1214,6 @@ client.on("ready", async () => {
         if (backup.system) {
             const oldReward = systemDb.currentDailyRewardText;
             systemDb = { ...systemDb, ...backup.system };
-            // Ponechání eventových rewardů, pokud nebyly uloženy v záloze (prevence přepsání defaultním stringem)
             if (oldReward && (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "")) {
                 systemDb.currentDailyRewardText = oldReward;
             }
@@ -1170,12 +1236,10 @@ client.on("ready", async () => {
 
         const scCh = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
         if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) {
-            // Tohle stáhne max 10 zpráv a pouze upraví, nezahlcuje
             await announceSecretCityWordle();
         }
 
         if (systemDb.currentDay > 0) {
-            // Stejně tak toto hledá starou zprávu a pouze nahrazuje její obsah
             await updateCommunityProgressBar(); 
         }
 
