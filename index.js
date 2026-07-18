@@ -145,7 +145,7 @@ function getRandomDailyGoal() {
 let usersDb = {};
 let systemDb = {
     currentDay: 0, communityJobsToday: 0,
-    hhActiveUntil: 0, hhCountToday: 0,
+    hhActiveUntil: 0, hhCountToday: 0, hhMessageId: null, // <-- Přidáno ID zprávy
     secretCity: "", secretCityRevealed: [], secretCityFoundBy: null, nextSecretCityResetUnix: 0,
     hunterDneDay: 0, hunterDneUserId: null, secretExplorerUserId: null, currentDailyRewardText: "",
     eventClosedAnnounced: false, globalProcessedJobs: [], globalJobHashes: []
@@ -155,15 +155,15 @@ function loadDatabases() {
     try {
         if (fs.existsSync(USERS_PATH)) {
             usersDb = JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
-            console.log(`✅ Načteno ${Object.keys(usersDb).length} uživatelů`);
+            console.log(`✅ Načteno ${Object.keys(usersDb).length} uživatelů lokálně.`);
         }
         if (fs.existsSync(SYSTEM_PATH)) {
             const loadedSystem = JSON.parse(fs.readFileSync(SYSTEM_PATH, 'utf8'));
             systemDb = { ...systemDb, ...loadedSystem };
-            console.log(`✅ Načten systémový stav (den ${systemDb.currentDay})`);
+            console.log(`✅ Načten lokální systémový stav (den ${systemDb.currentDay})`);
         }
     } catch (error) {
-        console.error('❌ Chyba při načítání databází:', error);
+        console.error('❌ Chyba při načítání lokálních databází:', error);
     }
 }
 
@@ -184,7 +184,7 @@ const saveSystem = () => {
 };
 
 // ─────────────────────────────────────────────
-// NORMALIZACE TEXTU
+// NORMALIZACE TEXTU A SYNONYMA MĚST
 // ─────────────────────────────────────────────
 const normalizeStr = (str) => {
     if (!str) return "";
@@ -196,6 +196,26 @@ const normalizeStr = (str) => {
         .trim()
         .replace(/\s+/g, " ");
 };
+
+const CITY_SYNONYMS = {
+    'praha': ['prague', 'prag', 'praha'],
+    'hamburk': ['hamburg', 'hamburk'],
+    'viden': ['wien', 'vienna', 'viden', 'vide'], 
+    'stetin': ['szczecin', 'stettin', 'stetin', 'steti'], 
+    'linec': ['linz', 'linec'],
+    'berlin': ['berlin', 'berlin'],
+    'poznan': ['poznan', 'poznan'],
+    'brno': ['brno'],
+    'bratislava': ['bratislava']
+};
+
+function getCityBase(cityRaw) {
+    let n = normalizeStr(cityRaw);
+    for (const [base, syns] of Object.entries(CITY_SYNONYMS)) {
+        if (syns.some(s => n.includes(normalizeStr(s)))) return base;
+    }
+    return n;
+}
 
 // ─────────────────────────────────────────────
 // ZÍSKÁNÍ UŽIVATELE
@@ -233,60 +253,58 @@ function getUser(userId, tbName = null) {
 }
 
 // ─────────────────────────────────────────────
-// EXTRAKCE DAT ZAKÁZKY - OPRAVENO!
+// EXTRAKCE DAT ZAKÁZKY
 // ─────────────────────────────────────────────
 function extractJobDataFromEmbed(e) {
-    // Řidič - z author.name
     const driver = e.author?.name || "Neznámý";
     
-    // Města - hledáme v fields podle názvu (stejně jako ve starém funkčním kódu)
     const fromField = e.fields?.find(f => f.name?.toLowerCase()?.includes('odkud'));
     const toField = e.fields?.find(f => f.name?.toLowerCase()?.includes('kam'));
     
-    const fromRaw = fromField?.value || "";
-    const toRaw = toField?.value || "";
+    let origin = fromField?.value || "";
+    let dest = toField?.value || "";
     
-    // Pokud nemáme fields, zkusíme alternativní parsování z textu
-    let origin = fromRaw;
-    let dest = toRaw;
+    const allText = [
+        e.description,
+        ...(e.fields?.map(f => f.name + '\n' + f.value) || [])
+    ].filter(Boolean).join('\n');
     
-    if (!origin || !dest) {
-        // Fallback: parsování z description
-        const allText = [e.description, ...(e.fields?.map(f => f.name + ' ' + f.value) || [])].join('\n');
-        const odkudMatch = allText.match(/Odkud\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
-        const kamMatch = allText.match(/Kam\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\n|$)/u);
-        if (odkudMatch && !origin) origin = odkudMatch[1].trim();
-        if (kamMatch && !dest) dest = kamMatch[1].trim();
-    }
-    
-    // Kilometry
     let km = 0;
-    const allText = [e.description, ...(e.fields?.map(f => f.name + ' ' + f.value) || [])].join(' ');
     const kmMatch = allText.match(/(?:Uznaná vzdálenost|Distance):\s*([\d\s.,]+)\s*(km|mi)/im) ||
-                   allText.match(/([\d\s.,]{1,6})\s*(km|mi)/i);
+                    allText.match(/([\d\s.,]{1,6})\s*(km|mi)/i);
     if (kmMatch) {
         km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10);
         if (kmMatch[2] && kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
     }
     
-    // Náklad
+    let cargo = "";
     const cargoField = e.fields?.find(f => f.name?.toLowerCase()?.includes('náklad') || f.name?.toLowerCase()?.includes('cargo'));
-    let cargo = cargoField?.value?.split(/[\(\[\{]/)[0].trim() || "";
-    if (!cargo) {
-        const cargoMatch = allText.match(/(?:Náklad|Cargo):\s*(.+?)(?:\n|Uznaná|Zisk|Tahač|$)/i);
+    if (cargoField) {
+        cargo = cargoField.value.split(/[\(\[\{]/)[0].trim();
+    } else {
+        const cargoMatch = allText.match(/(?:Náklad|Cargo):\s*(.+?)(?:\r?\n|$)/i);
         if (cargoMatch) cargo = cargoMatch[1].split(/[\(\[\{]/)[0].trim();
     }
     
-    // Tahač
+    let truck = "";
     const truckField = e.fields?.find(f => f.name?.toLowerCase()?.includes('tahač') || f.name?.toLowerCase()?.includes('truck'));
-    let truck = truckField?.value?.trim() || "";
-    if (!truck) {
-        const truckMatch = allText.match(/(?:Tahač|Truck):\s*(.+?)(?:\n|Statistika|Pořadí|Obrázek|$)/i);
+    if (truckField) {
+        truck = truckField.value.trim();
+    } else {
+        const truckMatch = allText.match(/(?:Tahač|Truck):\s*(.+?)(?:\r?\n|$)/i);
         if (truckMatch) truck = truckMatch[1].trim();
     }
     
+    if (!origin) {
+        const odkudMatch = allText.match(/Odkud\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/u);
+        if (odkudMatch) origin = odkudMatch[1].trim();
+    }
+    if (!dest) {
+        const kamMatch = allText.match(/Kam\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/u);
+        if (kamMatch) dest = kamMatch[1].trim();
+    }
+    
     if (km < 50 || !origin || !dest) {
-        console.log(`❌ Extrakce selhala: km=${km}, from=${origin}, to=${dest}`);
         return null;
     }
     
@@ -317,32 +335,23 @@ async function processJobMessage(m) {
     const e = m.embeds[0];
     const jobData = extractJobDataFromEmbed(e);
     
-    if (!jobData) {
-        console.log('❌ Nepodařilo se extrahovat data z embedu');
-        return { status: 'ignored_no_data' };
-    }
-    
-    console.log(`📩 Zakázka: ${jobData.driver} | ${jobData.rawOrigin} → ${jobData.rawDest} | ${jobData.rawCargo} | ${jobData.km}km | ${jobData.rawTruck}`);
+    if (!jobData) return { status: 'ignored_no_data' };
     
     const driver = jobData.driver;
+    const driverNorm = normalizeStr(driver);
     const titleText = e.title || "";
-    const allText = [e.description, ...(e.fields?.map(f => f.name + ' ' + f.value) || [])].join(' ');
+    const allText = [e.description, ...(e.fields?.map(f => f.name + '\n' + f.value) || [])].join('\n');
     
     const jobIdMatch = titleText.match(/#(\d+)/) || allText.match(/#(\d+)/);
     const jobId = jobIdMatch ? `job_${jobIdMatch[1]}` : `msg_${m.id}`;
     
-    const jobHash = `${jobData.cargo}_${jobData.dest}_${jobData.origin}_${jobData.km}`;
-    const driverNorm = normalizeStr(driver);
+    const jobHash = jobIdMatch ? `hash_${jobIdMatch[1]}` : `${driverNorm}_${jobData.cargo}_${jobData.dest}_${jobData.origin}_${jobData.km}`;
 
     if (!systemDb.globalProcessedJobs) systemDb.globalProcessedJobs = [];
     if (!systemDb.globalJobHashes) systemDb.globalJobHashes = [];
 
-    if (systemDb.globalProcessedJobs.includes(jobId)) {
-        return { status: 'duplicate_global_job_id' };
-    }
-    if (systemDb.globalJobHashes.includes(jobHash)) {
-        return { status: 'duplicate_global_job_hash' };
-    }
+    if (systemDb.globalProcessedJobs.includes(jobId)) return { status: 'duplicate_global_job_id' };
+    if (systemDb.globalJobHashes.includes(jobHash)) return { status: 'duplicate_global_job_hash' };
 
     let userKey = null;
     for (const [key, user] of Object.entries(usersDb)) {
@@ -364,31 +373,23 @@ async function processJobMessage(m) {
     if (!userKey) userKey = 'UNLINKED_' + driverNorm.replace(/\s+/g, '_');
     const u = getUser(userKey, driver);
 
-    if (u.processedJobs && u.processedJobs.includes(jobId)) {
-        return { status: 'duplicate_local_job_id' };
-    }
-    if (u.recentJobHashes && u.recentJobHashes.includes(jobHash)) {
-        return { status: 'duplicate_local_job_hash' };
-    }
+    if (u.processedJobs && u.processedJobs.includes(jobId)) return { status: 'duplicate_local_job_id' };
+    if (u.recentJobHashes && u.recentJobHashes.includes(jobHash)) return { status: 'duplicate_local_job_hash' };
 
     let isEventRoute = false, earnedXP = 50, isHappyHourJob = false, secretCityFound = false, isNewHunterDne = false, questCompleted = false, earnedQuestXP = 0;
 
-    // TAJNÉ MĚSTO
-    if (systemDb.secretCity && !systemDb.secretCityFoundBy && jobData.dest === normalizeStr(systemDb.secretCity) && jobData.km >= 500) {
+    if (systemDb.secretCity && !systemDb.secretCityFoundBy && getCityBase(jobData.rawDest) === getCityBase(systemDb.secretCity) && jobData.km >= 500) {
         secretCityFound = true; earnedXP += 1000;
         if (!userKey.startsWith('UNLINKED_')) { systemDb.secretCityFoundBy = userKey; saveSystem(); announceSecretCityWordle(); }
     }
 
-    // EVENTOVÁ TRASA
     if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
         const dailyRoute = ROUTES[systemDb.currentDay - 1];
-        const endCityNorm = normalizeStr(dailyRoute.end);
-        const isDest = jobData.dest.includes(endCityNorm) || endCityNorm.includes(jobData.dest);
+        const isStart = getCityBase(jobData.rawOrigin) === getCityBase(dailyRoute.start);
+        const isDest = getCityBase(jobData.rawDest) === getCityBase(dailyRoute.end);
         const isCargo = dailyRoute.cargos.map(normalizeStr).some(c => jobData.cargo.includes(c) || c.includes(jobData.cargo));
         
-        console.log(`🎯 Event check: dest=${isDest} (${jobData.rawDest} vs ${dailyRoute.end}), cargo=${isCargo} (${jobData.rawCargo})`);
-        
-        if (isDest && isCargo) {
+        if (isStart && isDest && isCargo) {
             isEventRoute = true; earnedXP = 100; u.eventJobs++; systemDb.communityJobsToday++;
             if (!u.completedRoutesDays.includes(systemDb.currentDay)) u.completedRoutesDays.push(systemDb.currentDay);
             if (systemDb.hunterDneDay !== systemDb.currentDay && !userKey.startsWith('UNLINKED_')) {
@@ -408,14 +409,13 @@ async function processJobMessage(m) {
     if (systemDb.globalProcessedJobs.length > 10000) systemDb.globalProcessedJobs = systemDb.globalProcessedJobs.slice(-8000);
     if (systemDb.globalJobHashes.length > 10000) systemDb.globalJobHashes = systemDb.globalJobHashes.slice(-8000);
 
-    // QUESTY
     const q = QUESTS.find(quest => quest.id === u.currentQuestId);
     if (q) {
         let prog = 0;
         switch (q.type) {
             case "km": prog = jobData.km; break;
             case "jobs": if (isEventRoute) prog = 1; break;
-            case "city": if (jobData.dest.includes(normalizeStr(q.target))) prog = 1; break;
+            case "city": if (getCityBase(jobData.rawDest) === getCityBase(q.target)) prog = 1; break;
             case "truck": if (jobData.truck.includes(normalizeStr(q.target))) prog = 1; break;
             case "long_jobs": if (jobData.km >= q.targetKm) prog = 1; break;
         }
@@ -631,7 +631,7 @@ async function checkMilestoneRoles(userId) {
 }
 
 // ─────────────────────────────────────────────
-// ZÁLOHOVACÍ SYSTÉM
+// ZÁLOHOVACÍ SYSTÉM (Stahování a Vytváření)
 // ─────────────────────────────────────────────
 async function createBackup() {
     try {
@@ -642,7 +642,7 @@ async function createBackup() {
             if (fs.existsSync(SYSTEM_PATH)) files.push(new AttachmentBuilder(SYSTEM_PATH));
             if (files.length > 0) {
                 await backupCh.send({
-                    content: `💾 Manuální záloha databáze (${new Date().toLocaleString('cs-CZ')})`,
+                    content: `💾 Automatická záloha databáze (${new Date().toLocaleString('cs-CZ')})`,
                     files
                 });
                 return true;
@@ -663,7 +663,7 @@ async function fetchBackupFromDiscord() {
             return null;
         }
 
-        console.log('📥 Stahuji zálohy z Discordu...');
+        console.log('📥 Stahuji poslední zálohy z Discordu...');
         const messages = await backupCh.messages.fetch({ limit: 50 });
 
         let latestUsersData = null;
@@ -692,7 +692,7 @@ async function fetchBackupFromDiscord() {
 
         return { users: latestUsersData, system: latestSystemData, timestamp: latestTimestamp };
     } catch (error) {
-        console.error('❌ Chyba při stahování záloh:', error);
+        console.error('❌ Chyba při stahování záloh z Discordu:', error);
         return null;
     }
 }
@@ -701,26 +701,14 @@ async function fetchBackupFromDiscord() {
 // ČASOVAČE
 // ─────────────────────────────────────────────
 setInterval(async () => {
-    try {
-        const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
-        if (backupCh) {
-            const files = [];
-            if (fs.existsSync(USERS_PATH)) files.push(new AttachmentBuilder(USERS_PATH));
-            if (fs.existsSync(SYSTEM_PATH)) files.push(new AttachmentBuilder(SYSTEM_PATH));
-            if (files.length > 0) {
-                await backupCh.send({
-                    content: `💾 Automatická záloha databáze (${new Date().toLocaleString('cs-CZ')})`,
-                    files
-                });
-            }
-        }
-    } catch (e) {}
+    createBackup(); // Každých 15 minut pushne zálohu
 }, 15 * 60 * 1000);
 
 setInterval(() => {
     const now = Date.now();
     const czTime = new Date(new Date(now).toLocaleString("en-US", {timeZone: "Europe/Prague"}));
 
+    // Uzavření eventu
     if (now >= EVENT_END_DATE && !isDevMode && !systemDb.eventClosedAnnounced) {
         systemDb.eventClosedAnnounced = true;
         saveSystem();
@@ -730,6 +718,7 @@ setInterval(() => {
         return;
     }
 
+    // Automatický start dne a přechod dnů
     if ((now >= EVENT_START_DATE || isDevMode) && systemDb.currentDay === 0) {
         systemDb.currentDay = 1;
         systemDb.currentDailyRewardText = "";
@@ -747,22 +736,45 @@ setInterval(() => {
         saveUsers();
     }
 
+    // Rotace tajného města
     if ((czTime.getHours() === 8 || czTime.getHours() === 19) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
         startNewSecretCity();
     }
 
+    // Odhalení písmene tajného města
     if (czTime.getHours() % 3 === 0 && czTime.getHours() !== 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         revealNextLetter();
     }
 
+    // Konec Happy Hour - Smazání zprávy
+    if (systemDb.hhActiveUntil > 0 && now >= systemDb.hhActiveUntil) {
+        if (systemDb.hhMessageId) {
+            client.channels.fetch(CH_ROUTES).then(async ch => {
+                try {
+                    const msg = await ch.messages.fetch(systemDb.hhMessageId);
+                    if (msg) await msg.delete();
+                } catch (e) {
+                    console.log("Zpráva Happy Hour už zřejmě neexistuje.");
+                }
+            }).catch(() => {});
+            systemDb.hhMessageId = null;
+            systemDb.hhActiveUntil = 0;
+            saveSystem();
+        }
+    }
+
+    // Start Happy Hour (šance každou hodinu, max 2x denně)
     if (czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
         if (now >= systemDb.hhActiveUntil && systemDb.hhCountToday < 2) {
             if (Math.random() < 0.10) {
                 systemDb.hhActiveUntil = now + (60 * 60 * 1000);
                 systemDb.hhCountToday += 1;
+                const hhEndUnix = Math.floor(systemDb.hhActiveUntil / 1000);
                 saveSystem();
-                client.channels.fetch(CH_ROUTES).then(ch => {
-                    ch.send("🌟 **HAPPY HOUR PRÁVĚ ZAČALA!** Následující 1 hodinu jsou ziskované XP u všech EVENTOVÝCH zakázek násobeny 1.5x!");
+                client.channels.fetch(CH_ROUTES).then(async ch => {
+                    const msg = await ch.send(`🌟 **HAPPY HOUR PRÁVĚ ZAČALA!** Následující 1 hodinu jsou ziskované XP u všech EVENTOVÝCH zakázek násobeny 1.5x!\n⏳ **Konec:** <t:${hhEndUnix}:R>`);
+                    systemDb.hhMessageId = msg.id; // Zapsání ID zprávy pro následné smazání
+                    saveSystem();
                 }).catch(() => {});
             }
         }
@@ -855,7 +867,7 @@ client.on('messageCreate', async (m) => {
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // PROFIL
+    // ... Zbytek Slash interakcí ponechán totožný jako minule ...
     if (interaction.commandName === "profil") {
         const targetUser = interaction.options.getUser("hrac") || interaction.user;
         const u = usersDb[targetUser.id];
@@ -875,7 +887,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ embeds: [embed] });
     }
 
-    // QUEST
     if (interaction.commandName === "quest") {
         const u = getUser(interaction.user.id, interaction.user.username);
         const q = QUESTS.find(quest => quest.id === u.currentQuestId);
@@ -898,7 +909,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ embeds: [embed] });
     }
 
-    // LINK
     if (interaction.commandName === "link") {
         const nick = interaction.options.getString("nick");
         const u = getUser(interaction.user.id, nick);
@@ -907,7 +917,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `✅ Tvůj Discord byl úspěšně propojen s nickem **${nick}**.`, ephemeral: true });
     }
 
-    // QUEST SKIP
     if (interaction.commandName === "quest-skip") {
         const u = getUser(interaction.user.id, interaction.user.username);
         if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil/a. Další skip bude možný až po 19:00.", ephemeral: true });
@@ -921,7 +930,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `✅ Quest byl přeskočen! Tvůj nový úkol:\n**${q ? q.desc : "Neznámý"}**`, ephemeral: true });
     }
 
-    // ODMENY
     if (interaction.commandName === "odmeny") {
         const embed = new EmbedBuilder()
             .setTitle("🎁 Přehled denních odměn & šancí")
@@ -930,7 +938,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ embeds: [embed] });
     }
 
-    // LEADERBOARD
     if (interaction.commandName === "leaderboard") {
         const kategorie = interaction.options.getString("kategorie");
         const sorted = Object.values(usersDb)
@@ -962,10 +969,8 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ embeds: [embed] });
     }
 
-    // TEST CTENI
     if (interaction.commandName === "test-cteni") {
         const text = interaction.options.getString("text");
-        // Vytvoříme falešný embed pro testování
         const fakeEmbed = {
             author: { name: "Test" },
             description: text,
@@ -979,8 +984,9 @@ client.on("interactionCreate", async interaction => {
             const route = ROUTES[systemDb.currentDay - 1];
             const allowedCargos = route.cargos.map(normalizeStr);
             const isEventCargo = allowedCargos.some(c => jobData.cargo.includes(c) || c.includes(jobData.cargo));
-            const isEventDest = jobData.dest.includes(normalizeStr(route.end));
-            isEventRoute = isEventCargo && isEventDest;
+            const isStart = getCityBase(jobData.rawOrigin) === getCityBase(route.start);
+            const isDest = getCityBase(jobData.rawDest) === getCityBase(route.end);
+            isEventRoute = isEventCargo && isStart && isDest;
         }
 
         const embed = new EmbedBuilder()
@@ -997,7 +1003,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // DEV OVERRIDE
     if (interaction.commandName === "dev-override") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
@@ -1006,7 +1011,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `🛠️ Testovací režim (DEV): **${isDevMode ? "ZAPNUTO" : "VYPNUTO"}**.`, ephemeral: true });
     }
 
-    // DEV CREATE BACKUP
     if (interaction.commandName === "dev-create-backup") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
@@ -1020,70 +1024,42 @@ client.on("interactionCreate", async interaction => {
         }
     }
 
-    // DEV FETCH BACKUP
     if (interaction.commandName === "dev-fetch-backup") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         }
-
         await interaction.deferReply({ ephemeral: true });
-
         try {
             const backup = await fetchBackupFromDiscord();
             if (!backup || (!backup.users && !backup.system)) {
                 return interaction.editReply("❌ Nepodařilo se najít žádnou platnou zálohu v backup kanálu.");
             }
-
             let msg = "✅ **Záloha úspěšně načtena z Discordu!**\n\n";
-            if (backup.users) {
-                usersDb = backup.users;
-                saveUsers();
-                msg += `📦 **users_db.json** - načteno ${Object.keys(usersDb).length} uživatelů\n`;
-            }
+            if (backup.users) { usersDb = backup.users; saveUsers(); msg += `📦 **users_db.json** - načteno ${Object.keys(usersDb).length} uživatelů\n`; }
             if (backup.system) {
                 const oldReward = systemDb.currentDailyRewardText;
                 systemDb = { ...systemDb, ...backup.system };
-                if (oldReward) systemDb.currentDailyRewardText = oldReward;
+                if (oldReward && !systemDb.currentDailyRewardText) systemDb.currentDailyRewardText = oldReward;
                 saveSystem();
                 msg += `⚙️ **system_db.json** - načten stav (den ${systemDb.currentDay})\n`;
             }
-
             msg += `\n🕐 Čas zálohy: ${new Date(backup.timestamp).toLocaleString('cs-CZ')}`;
-            msg += `\n\n💡 Pro zpětné doplnění zakázek použij **/dev-reprocess** s ID kanálu.`;
-
-            if (systemDb.currentDay > 0) {
-                await updateCommunityProgressBar(true);
-                await announceSecretCityWordle();
-            }
-
+            if (systemDb.currentDay > 0) { await updateCommunityProgressBar(true); await announceSecretCityWordle(); }
             return interaction.editReply(msg);
         } catch (error) {
             return interaction.editReply(`❌ Chyba: ${error.message}`);
         }
     }
 
-    // DEV REPROCESS
     if (interaction.commandName === "dev-reprocess") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
-        }
-
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         await interaction.deferReply({ ephemeral: true });
         const channelId = interaction.options.getString("kanal");
         const targetChannel = await client.channels.fetch(channelId).catch(() => null);
+        if (!targetChannel) return interaction.editReply("❌ Kanál nebyl nalezen.");
 
-        if (!targetChannel) {
-            return interaction.editReply("❌ Kanál nebyl nalezen.");
-        }
-
-        let processedCount = 0;
-        let validCount = 0;
-        let duplicateCount = 0;
-        let lastId;
-        let allMessages = [];
-
+        let processedCount = 0, validCount = 0, duplicateCount = 0, lastId, allMessages = [];
         await interaction.editReply("⏳ Stahuji zprávy z kanálu...");
-
         try {
             for (let i = 0; i < 10; i++) {
                 const options = { limit: 100 };
@@ -1093,10 +1069,8 @@ client.on("interactionCreate", async interaction => {
                 allMessages.push(...fetched.values());
                 lastId = fetched.last().id;
             }
-
             allMessages.reverse();
             await interaction.editReply(`⏳ Zpracovávám ${allMessages.length} zpráv...`);
-
             for (const msg of allMessages) {
                 if (msg.embeds.length > 0) {
                     const result = await processJobMessage(msg);
@@ -1105,105 +1079,86 @@ client.on("interactionCreate", async interaction => {
                     if (result.status.startsWith('duplicate')) duplicateCount++;
                 }
             }
-
-            return interaction.editReply(
-                `✅ Zpětná analýza dokončena!\n\n📊 **Statistiky:**\n📝 Zkontrolováno: **${processedCount}**\n✅ Nově uznaných: **${validCount}**\n🔄 Duplicitních: **${duplicateCount}**\n💾 Data uložena.`
-            );
-        } catch (error) {
-            return interaction.editReply(`❌ Chyba: ${error.message}`);
-        }
+            return interaction.editReply(`✅ Zpětná analýza dokončena!\n\n📊 **Statistiky:**\n📝 Zkontrolováno: **${processedCount}**\n✅ Nově uznaných: **${validCount}**\n🔄 Duplicitních: **${duplicateCount}**\n💾 Data uložena.`);
+        } catch (error) { return interaction.editReply(`❌ Chyba: ${error.message}`); }
     }
 
-    // ADMIN RESTORE
     if (interaction.commandName === "admin-restore") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
-        }
-
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         await interaction.deferReply({ ephemeral: true });
         const usersFile = interaction.options.getAttachment("users_db");
         const systemFile = interaction.options.getAttachment("system_db");
-
-        if (!usersFile && !systemFile) {
-            return interaction.editReply("❌ Nebyl nahrán žádný soubor k obnově.");
-        }
-
+        if (!usersFile && !systemFile) return interaction.editReply("❌ Nebyl nahrán žádný soubor k obnově.");
         let msg = "";
         try {
             if (usersFile) {
-                const res = await fetch(usersFile.url);
-                const data = await res.json();
-                usersDb = data;
-                saveUsers();
-                msg += "✅ `users_db.json` obnovena.\n";
+                const res = await fetch(usersFile.url); const data = await res.json();
+                usersDb = data; saveUsers(); msg += "✅ `users_db.json` obnovena.\n";
             }
             if (systemFile) {
-                const res = await fetch(systemFile.url);
-                const data = await res.json();
+                const res = await fetch(systemFile.url); const data = await res.json();
                 const oldReward = systemDb.currentDailyRewardText;
                 systemDb = data;
-                if (oldReward) systemDb.currentDailyRewardText = oldReward;
-                saveSystem();
-                msg += "✅ `system_db.json` obnovena.\n";
-                await updateCommunityProgressBar(true);
-                await announceSecretCityWordle();
+                if (oldReward && !systemDb.currentDailyRewardText) systemDb.currentDailyRewardText = oldReward;
+                saveSystem(); msg += "✅ `system_db.json` obnovena.\n";
+                await updateCommunityProgressBar(true); await announceSecretCityWordle();
             }
             msg += "\n💡 Pro zpětné doplnění zakázek použij `/dev-reprocess`.";
             return interaction.editReply(msg);
-        } catch (error) {
-            return interaction.editReply(`❌ Chyba: ${error.message}`);
-        }
+        } catch (error) { return interaction.editReply(`❌ Chyba: ${error.message}`); }
     }
 
-    // ADMIN UNLINK
     if (interaction.commandName === "admin-unlink") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
         const targetUser = interaction.options.getUser("hrac");
-        if (usersDb[targetUser.id]) {
-            delete usersDb[targetUser.id];
-            saveUsers();
-            return interaction.reply({ content: `✅ Záznam hráče **${targetUser.username}** byl vymazán.`, ephemeral: true });
-        }
+        if (usersDb[targetUser.id]) { delete usersDb[targetUser.id]; saveUsers(); return interaction.reply({ content: `✅ Záznam hráče **${targetUser.username}** byl vymazán.`, ephemeral: true }); }
         return interaction.reply({ content: `❌ Uživatel **${targetUser.username}** nemá profil.`, ephemeral: true });
     }
 
-    // ADMIN LINK
     if (interaction.commandName === "admin-link") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
         const targetUser = interaction.options.getUser("hrac");
         const nick = interaction.options.getString("nick");
-        const u = getUser(targetUser.id, nick);
-        u.tbName = nick;
-        saveUsers();
+        const u = getUser(targetUser.id, nick); u.tbName = nick; saveUsers();
         return interaction.reply({ content: `✅ Hráč **${targetUser.username}** propojen s nickem **${nick}**.`, ephemeral: true });
     }
 
-    // ADMIN ADDXP
     if (interaction.commandName === "admin-addxp") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
         const targetUser = interaction.options.getUser("hrac");
         const xpToAdd = interaction.options.getInteger("xp");
-        const u = getUser(targetUser.id, targetUser.username);
-        u.xp += xpToAdd;
-        saveUsers();
+        const u = getUser(targetUser.id, targetUser.username); u.xp += xpToAdd; saveUsers();
         await checkMilestoneRoles(targetUser.id);
         return interaction.reply({ content: `✅ Hráči **${u.tbName}** upraveno XP o **${xpToAdd}**. Nyní: **${u.xp} XP**.`, ephemeral: true });
     }
 });
 
 // ─────────────────────────────────────────────
-// READY EVENT
+// READY EVENT (AUTOMATICKÁ OBNOVA ZE ZÁLOHY PŘI STARTU)
 // ─────────────────────────────────────────────
 client.on("ready", async () => {
     console.log(`✅ Bot úspěšně běží jako ${client.user.tag}`);
 
-    loadDatabases();
+    console.log("📥 Zkouším načíst data z Discord zálohy (redeploy recovery)...");
+    const backup = await fetchBackupFromDiscord();
+    
+    if (backup && (backup.users || backup.system)) {
+        if (backup.users) usersDb = backup.users;
+        if (backup.system) {
+            const oldReward = systemDb.currentDailyRewardText;
+            systemDb = { ...systemDb, ...backup.system };
+            // Ponechání eventových rewardů, pokud nebyly uloženy v záloze (prevence přepsání defaultním stringem)
+            if (oldReward && (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "")) {
+                systemDb.currentDailyRewardText = oldReward;
+            }
+        }
+        saveUsers();
+        saveSystem();
+        console.log("✅ Data úspěšně obnovena ze zálohy na Discordu.");
+    } else {
+        console.log("⚠️ Záloha na Discordu nenalezena, načítám lokální soubory.");
+        loadDatabases();
+    }
 
     try {
         const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -1215,13 +1170,14 @@ client.on("ready", async () => {
 
         const scCh = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
         if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) {
-            const msgs = await scCh.messages.fetch({ limit: 10 });
-            const oldMsg = msgs.find(m => m.author.id === client.user.id &&
-                m.embeds[0]?.title?.includes("Najdi Tajné Město"));
-            if (!oldMsg) announceSecretCityWordle();
+            // Tohle stáhne max 10 zpráv a pouze upraví, nezahlcuje
+            await announceSecretCityWordle();
         }
 
-        if (systemDb.currentDay > 0) updateCommunityProgressBar(true);
+        if (systemDb.currentDay > 0) {
+            // Stejně tak toto hledá starou zprávu a pouze nahrazuje její obsah
+            await updateCommunityProgressBar(); 
+        }
 
         console.log("🎉 Bot je připraven!");
     } catch (error) {
