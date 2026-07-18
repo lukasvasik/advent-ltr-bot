@@ -235,7 +235,7 @@ function getCityBase(cityRaw) {
 }
 
 // ─────────────────────────────────────────────
-// ZÍSKÁNÍ UŽIVATELE
+// ZÍSKÁNÍ UŽIVATELE A HISTORIE ZPRÁV BEZ LIMITU
 // ─────────────────────────────────────────────
 function getUser(userId, tbName = null) {
     if (!usersDb[userId]) {
@@ -269,8 +269,33 @@ function getUser(userId, tbName = null) {
     return u;
 }
 
+async function fetchAllEventMessages(targetChannel) {
+    let allMessages = [];
+    let lastId;
+    let keepFetching = true;
+
+    while (keepFetching) {
+        const options = { limit: 100 };
+        if (lastId) options.before = lastId;
+        
+        const fetched = await targetChannel.messages.fetch(options).catch(() => new Map());
+        if (fetched.size === 0) break;
+
+        for (const [id, msg] of fetched) {
+            // Kontrola, zda už jsme nepřejeli před začátek eventu
+            if (msg.createdTimestamp < EVENT_START_DATE) {
+                keepFetching = false;
+            } else {
+                allMessages.push(msg);
+            }
+        }
+        lastId = fetched.last().id;
+    }
+    return allMessages.reverse(); // Od nejstarších po nejnovější
+}
+
 // ─────────────────────────────────────────────
-// EXTRAKCE DAT ZAKÁZKY
+// EXTRAKCE DAT ZAKÁZKY (Vylepšený Regex na km)
 // ─────────────────────────────────────────────
 function extractJobDataFromEmbed(e) {
     const driver = e.author?.name || "Neznámý";
@@ -287,10 +312,12 @@ function extractJobDataFromEmbed(e) {
     ].filter(Boolean).join('\n');
     
     let km = 0;
-    const kmMatch = allText.match(/(?:Uznaná vzdálenost|Distance):\s*([\d\s.,]+)\s*(km|mi)/im) ||
-                    allText.match(/([\d\s.,]{1,6})\s*(km|mi)/i);
+    // Vylepšená detekce kilometrů – zvládá i velké mezery, čárky nebo tečky u tisícovek
+    const kmMatch = allText.match(/(?:Uznaná vzdálenost|Distance|Vzdálenost|Vzdialenosť|Trajet|Strecke|Przejechany dystans):\s*([\d\s.,]+)\s*(km|mi)/im) ||
+                    allText.match(/(?:^|\s)([\d\s.,]{2,8})\s*(km|mi)(?:\s|$)/i);
+    
     if (kmMatch) {
-        km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10);
+        km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10); // Odstraní vše kromě čísel
         if (kmMatch[2] && kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
     }
     
@@ -403,17 +430,28 @@ async function processJobMessage(m) {
         if (!userKey.startsWith('UNLINKED_')) { systemDb.secretCityFoundBy = userKey; saveSystem(); announceSecretCityWordle(); }
     }
 
-    if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
-        const dailyRoute = ROUTES[systemDb.currentDay - 1];
+    // Výpočet dne z času odeslání zprávy (nikoliv z aktuálního času)
+    let jobDay = 0;
+    if (messageTime >= EVENT_START_DATE) {
+        jobDay = Math.floor((messageTime - EVENT_START_DATE) / (24 * 60 * 60 * 1000)) + 1;
+    } else if (isDevMode) {
+        jobDay = systemDb.currentDay || 1;
+    }
+
+    if (jobDay > 0 && jobDay <= ROUTES.length) {
+        const dailyRoute = ROUTES[jobDay - 1];
         const isStart = getCityBase(jobData.rawOrigin) === getCityBase(dailyRoute.start);
         const isDest = getCityBase(jobData.rawDest) === getCityBase(dailyRoute.end);
         const isCargo = dailyRoute.cargos.map(normalizeStr).some(c => jobData.cargo.includes(c) || c.includes(jobData.cargo));
         
         if (isStart && isDest && isCargo) {
-            isEventRoute = true; earnedXP = 100; u.eventJobs++; systemDb.communityJobsToday++;
-            if (!u.completedRoutesDays.includes(systemDb.currentDay)) u.completedRoutesDays.push(systemDb.currentDay);
-            if (systemDb.hunterDneDay !== systemDb.currentDay && !userKey.startsWith('UNLINKED_')) {
-                isNewHunterDne = true; systemDb.hunterDneDay = systemDb.currentDay; systemDb.hunterDneUserId = userKey;
+            isEventRoute = true; earnedXP = 100; u.eventJobs++; 
+            if (jobDay === systemDb.currentDay) {
+                systemDb.communityJobsToday++;
+            }
+            if (!u.completedRoutesDays.includes(jobDay)) u.completedRoutesDays.push(jobDay);
+            if (systemDb.hunterDneDay !== jobDay && !userKey.startsWith('UNLINKED_')) {
+                isNewHunterDne = true; systemDb.hunterDneDay = jobDay; systemDb.hunterDneUserId = userKey;
             }
             saveSystem();
         }
@@ -424,10 +462,12 @@ async function processJobMessage(m) {
     u.xp += earnedXP; u.km += jobData.km;
     u.processedJobs.push(jobId); u.recentJobHashes.push(jobHash);
     systemDb.globalProcessedJobs.push(jobId); systemDb.globalJobHashes.push(jobHash);
-    if (u.processedJobs.length > 500) u.processedJobs = u.processedJobs.slice(-400);
-    if (u.recentJobHashes.length > 100) u.recentJobHashes = u.recentJobHashes.slice(-80);
-    if (systemDb.globalProcessedJobs.length > 10000) systemDb.globalProcessedJobs = systemDb.globalProcessedJobs.slice(-8000);
-    if (systemDb.globalJobHashes.length > 10000) systemDb.globalJobHashes = systemDb.globalJobHashes.slice(-8000);
+    
+    // Zvětšeny limity paměti, aby se smazané hashe nezapomněly u velké VTC
+    if (u.processedJobs.length > 1000) u.processedJobs = u.processedJobs.slice(-800);
+    if (u.recentJobHashes.length > 1000) u.recentJobHashes = u.recentJobHashes.slice(-800);
+    if (systemDb.globalProcessedJobs.length > 50000) systemDb.globalProcessedJobs = systemDb.globalProcessedJobs.slice(-40000);
+    if (systemDb.globalJobHashes.length > 50000) systemDb.globalJobHashes = systemDb.globalJobHashes.slice(-40000);
 
     const q = QUESTS.find(quest => quest.id === u.currentQuestId);
     if (q) {
@@ -454,7 +494,7 @@ async function processJobMessage(m) {
 }
 
 // ─────────────────────────────────────────────
-// AUTO REPROCESS ZAKÁZEK (hledání přehlédnutých)
+// AUTO REPROCESS ZAKÁZEK
 // ─────────────────────────────────────────────
 async function autoReprocessJobs() {
     try {
@@ -555,6 +595,12 @@ async function updateCommunityProgressBar(forceNew = false) {
 
     if (systemDb.communityJobsToday >= route.goal && !systemDb.goalReachedAnnounced) {
         systemDb.goalReachedAnnounced = true;
+        
+        if (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "") {
+            const dailyGoal = getRandomDailyGoal();
+            route.goal = dailyGoal.goal;
+            systemDb.currentDailyRewardText = dailyGoal.reward;
+        }
         saveSystem();
         
         annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme, kdo získá **${systemDb.currentDailyRewardText}**!`).catch(() => {});
@@ -824,20 +870,23 @@ setInterval(() => {
         return;
     }
 
-    if ((now >= EVENT_START_DATE || isDevMode) && systemDb.currentDay === 0) {
-        systemDb.currentDay = 1;
-        systemDb.currentDailyRewardText = "";
-        saveSystem();
-        announceDailyRoute(1);
-        startNewSecretCity();
-    } else if (czTime.getHours() === 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
-        systemDb.currentDay += 1;
+    let expectedDay = systemDb.currentDay;
+    if (now >= EVENT_START_DATE) {
+        expectedDay = Math.floor((now - EVENT_START_DATE) / (24 * 60 * 60 * 1000)) + 1;
+    } else if (isDevMode && systemDb.currentDay === 0) {
+        expectedDay = 1;
+    }
+
+    if (expectedDay > 0 && expectedDay <= 8 && systemDb.currentDay !== expectedDay) {
+        systemDb.currentDay = expectedDay;
         systemDb.communityJobsToday = 0;
         systemDb.hhCountToday = 0;
         systemDb.currentDailyRewardText = "";
         systemDb.goalReachedAnnounced = false;
         saveSystem();
+        
         announceDailyRoute(systemDb.currentDay);
+        
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0;
         saveUsers();
     }
@@ -1009,7 +1058,7 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
     saveUsers();
     await checkMilestoneRoles(targetUser.id);
 
-    await interaction.editReply(`✅ Účet propojen s nickem **${nick}**.${mergedMsg}\n\n⏳ Spouštím hloubkovou kontrolu zakázek od začátku eventu...`);
+    await interaction.editReply(`✅ Účet propojen s nickem **${nick}**.${mergedMsg}\n\n⏳ Spouštím hloubkovou kontrolu zakázek od začátku eventu (tohle může trvat trochu déle)...`);
 
     let processedCount = 0;
     let validCount = 0;
@@ -1019,20 +1068,7 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
             const targetChannel = await client.channels.fetch(channelId).catch(() => null);
             if (!targetChannel) continue;
 
-            let allMessages = [];
-            let lastId;
-            
-            for (let i = 0; i < 20; i++) { 
-                const options = { limit: 100 };
-                if (lastId) options.before = lastId;
-                const fetched = await targetChannel.messages.fetch(options);
-                if (fetched.size === 0) break;
-                allMessages.push(...fetched.values());
-                lastId = fetched.last().id;
-            }
-            
-            allMessages = allMessages.filter(msg => msg.createdTimestamp >= EVENT_START_DATE);
-            allMessages.reverse();
+            const allMessages = await fetchAllEventMessages(targetChannel);
 
             for (const msg of allMessages) {
                 if (msg.embeds.length > 0) {
@@ -1308,19 +1344,12 @@ client.on("interactionCreate", async interaction => {
         const targetChannel = await client.channels.fetch(channelId).catch(() => null);
         if (!targetChannel) return interaction.editReply("❌ Kanál nebyl nalezen.");
 
-        let processedCount = 0, validCount = 0, duplicateCount = 0, lastId, allMessages = [];
-        await interaction.editReply("⏳ Stahuji zprávy z kanálu...");
+        let processedCount = 0, validCount = 0, duplicateCount = 0;
+        await interaction.editReply("⏳ Stahuji zprávy z kanálu bez limitu až k počátku eventu...");
         try {
-            for (let i = 0; i < 10; i++) {
-                const options = { limit: 100 };
-                if (lastId) options.before = lastId;
-                const fetched = await targetChannel.messages.fetch(options);
-                if (fetched.size === 0) break;
-                allMessages.push(...fetched.values());
-                lastId = fetched.last().id;
-            }
-            allMessages.reverse();
-            await interaction.editReply(`⏳ Zpracovávám ${allMessages.length} zpráv...`);
+            const allMessages = await fetchAllEventMessages(targetChannel);
+            await interaction.editReply(`⏳ Zpracovávám ${allMessages.length} nalezených zpráv...`);
+            
             for (const msg of allMessages) {
                 if (msg.embeds.length > 0) {
                     const result = await processJobMessage(msg);
@@ -1409,27 +1438,11 @@ client.on("interactionCreate", async interaction => {
             let totalProcessed = 0, totalValid = 0, totalDuplicates = 0;
             
             for (const channelId of [CH_JOBS_1, CH_JOBS_2]) {
-                await interaction.editReply(`📥 Stahuji zprávy z kanálu ${channelId}...`);
+                await interaction.editReply(`📥 Stahuji VŠECHNY zprávy z kanálu ${channelId} od 17. července (to může trvat)...`);
                 const targetChannel = await client.channels.fetch(channelId).catch(() => null);
                 if (!targetChannel) continue;
                 
-                let allMessages = [];
-                let lastId;
-                
-                for (let i = 0; i < 20; i++) {
-                    const options = { limit: 100 };
-                    if (lastId) options.before = lastId;
-                    const fetched = await targetChannel.messages.fetch(options);
-                    if (fetched.size === 0) break;
-                    allMessages.push(...fetched.values());
-                    lastId = fetched.last().id;
-                }
-                
-                allMessages = allMessages.filter(msg => 
-                    msg.createdTimestamp >= EVENT_START_DATE && 
-                    msg.createdTimestamp <= Date.now()
-                );
-                allMessages.reverse();
+                const allMessages = await fetchAllEventMessages(targetChannel);
                 
                 await interaction.editReply(`⚙️ Zpracovávám ${allMessages.length} zpráv z kanálu ${channelId}...`);
                 
@@ -1456,7 +1469,7 @@ client.on("interactionCreate", async interaction => {
             const totalJobs = linkedUsers.reduce((sum, u) => sum + (u.eventJobs || 0), 0);
             
             return interaction.editReply(
-                `✅ **Kompletní přepočet dokončen!**\n\n` +
+                `✅ **Kompletní neomezený přepočet dokončen!**\n\n` +
                 `📊 **Celkové statistiky:**\n` +
                 `📝 Zkontrolováno zpráv: **${totalProcessed}**\n` +
                 `✅ Uznaných zakázek: **${totalValid}**\n` +
@@ -1470,7 +1483,7 @@ client.on("interactionCreate", async interaction => {
                 `📅 Aktuální den: **${systemDb.currentDay}**\n` +
                 `🎯 Komunitní cíl: **${systemDb.communityJobsToday}** / **${ROUTES[systemDb.currentDay-1]?.goal || '?'}** zakázek\n` +
                 `🎁 Dnešní odměna: **${systemDb.currentDailyRewardText || '?'}**\n\n` +
-                `💾 Původní data zálohována. **Propojení nicků i odměna zachovány!**`
+                `💾 Nové bezedné čtení započítalo i ty nejstarší zprávy.`
             );
             
         } catch (error) {
