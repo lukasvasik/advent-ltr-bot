@@ -149,7 +149,7 @@ let systemDb = {
     hhActiveUntil: 0, hhCountToday: 0, hhMessageId: null,
     secretCity: "", secretCityRevealed: [], secretCityFoundBy: null, nextSecretCityResetUnix: 0,
     hunterDneDay: 0, hunterDneUserId: null, secretExplorerUserId: null, currentDailyRewardText: "",
-    eventClosedAnnounced: false, globalProcessedJobs: [], globalJobHashes: []
+    eventClosedAnnounced: false, globalProcessedJobs: [], globalJobHashes: [], goalReachedAnnounced: false
 };
 
 function loadDatabases() {
@@ -379,7 +379,10 @@ async function processJobMessage(m) {
 
     let isEventRoute = false, earnedXP = 50, isHappyHourJob = false, secretCityFound = false, isNewHunterDne = false, questCompleted = false, earnedQuestXP = 0;
 
-    if (systemDb.secretCity && !systemDb.secretCityFoundBy && getCityBase(jobData.rawDest) === getCityBase(systemDb.secretCity) && jobData.km >= 500) {
+    const secretCityNorm = normalizeStr(systemDb.secretCity);
+    if (systemDb.secretCity && !systemDb.secretCityFoundBy && 
+       (jobData.dest.includes(secretCityNorm) || secretCityNorm.includes(jobData.dest)) && 
+       jobData.km >= 500) {
         secretCityFound = true; earnedXP += 1000;
         if (!userKey.startsWith('UNLINKED_')) { systemDb.secretCityFoundBy = userKey; saveSystem(); announceSecretCityWordle(); }
     }
@@ -464,8 +467,11 @@ async function announceDailyRoute(day) {
 async function updateCommunityProgressBar(forceNew = false) {
     if (systemDb.currentDay === 0 || systemDb.currentDay > 8) return;
     const route = ROUTES[systemDb.currentDay - 1];
-    const percent = Math.min(100, Math.floor((systemDb.communityJobsToday / route.goal) * 100));
-    const imageIndex = Math.floor(percent / 5);
+    
+    // Výpočet reálných a zastropovaných procent
+    const realPercent = Math.floor((systemDb.communityJobsToday / route.goal) * 100);
+    const cappedPercent = Math.min(100, realPercent);
+    const imageIndex = Math.floor(cappedPercent / 5);
     
     const imgUrl = (PROGRESS_BAR_IMAGES[imageIndex] || PROGRESS_BAR_IMAGES[20]) + "?v=" + Date.now();
 
@@ -474,12 +480,23 @@ async function updateCommunityProgressBar(forceNew = false) {
 
     const embed = new EmbedBuilder()
         .setTitle(`📊 Komunitní Gól - Den ${systemDb.currentDay}`)
-        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${percent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText || "Zatím neurčeno"}\n\n*(Aktualizuje se každých 5 minut)*`)
+        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${realPercent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText || "Zatím neurčeno"}\n\n*(Aktualizuje se každých 5 minut)*`)
         .setImage(imgUrl)
         .setColor(EVENT_COLOR);
 
-    if (systemDb.communityJobsToday >= route.goal && !forceNew) {
-        annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme, kdo získá **${systemDb.currentDailyRewardText}**!`);
+    // Odeslání gratulace pouze jednou
+    if (systemDb.communityJobsToday >= route.goal && !systemDb.goalReachedAnnounced) {
+        systemDb.goalReachedAnnounced = true;
+        saveSystem();
+        
+        // Zpráva do public kanálu
+        annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme, kdo získá **${systemDb.currentDailyRewardText}**!`).catch(() => {});
+        
+        // Zpráva do backup kanálu pro vedení
+        const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
+        if (backupCh) {
+            backupCh.send(`🏆 **INFO PRO VEDENÍ:** Komunita právě dosáhla dnešního cíle (${route.goal} zakázek).`).catch(() => {});
+        }
     }
 
     if (forceNew) {
@@ -730,6 +747,7 @@ setInterval(() => {
         systemDb.communityJobsToday = 0;
         systemDb.hhCountToday = 0;
         systemDb.currentDailyRewardText = "";
+        systemDb.goalReachedAnnounced = false;
         saveSystem();
         announceDailyRoute(systemDb.currentDay);
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0;
@@ -815,7 +833,6 @@ const commands = [
         .addUserOption(o => o.setName("hrac").setDescription("Hráč k odpojení").setRequired(true)),
     new SlashCommandBuilder().setName("admin-link").setDescription("🛠️ ADMIN: Ručně propojí hráče s TB nickem.")
         .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true))
-        .addStringOption(o => o.setName("nick").setDescription("TrucksBook / Trucky Nick").setRequired(true)),
     new SlashCommandBuilder().setName("admin-addxp").setDescription("🛠️ ADMIN: Přidá nebo odebere hráči XP.")
         .addUserOption(o => o.setName("hrac").setDescription("Hráč").setRequired(true))
         .addIntegerOption(o => o.setName("xp").setDescription("Počet XP (kladné pro přidání, záporné pro odečtení)").setRequired(true))
@@ -1163,9 +1180,10 @@ client.on("interactionCreate", async interaction => {
                 currentDailyRewardText: systemDb.currentDailyRewardText,
                 secretCity: systemDb.secretCity,
                 secretCityRevealed: systemDb.secretCityRevealed,
-                secretCityFoundBy: systemDb.secretCityFoundBy,
+                // secretCityFoundBy záměrně neukládáme - bot musí město najít z historie znova!
                 nextSecretCityResetUnix: systemDb.nextSecretCityResetUnix,
-                secretExplorerUserId: systemDb.secretExplorerUserId
+                secretExplorerUserId: systemDb.secretExplorerUserId,
+                goalReachedAnnounced: systemDb.goalReachedAnnounced
             };
             
             // 3. VYNUJLUJ STATISTIKY všem uživatelům (ale ZACHOVEJ propojení!)
@@ -1200,9 +1218,10 @@ client.on("interactionCreate", async interaction => {
             systemDb.currentDailyRewardText = savedSettings.currentDailyRewardText || systemDb.currentDailyRewardText || "";
             systemDb.secretCity = savedSettings.secretCity || systemDb.secretCity || "";
             systemDb.secretCityRevealed = savedSettings.secretCityRevealed || systemDb.secretCityRevealed || [];
-            systemDb.secretCityFoundBy = savedSettings.secretCityFoundBy || systemDb.secretCityFoundBy || null;
+            systemDb.secretCityFoundBy = null; // Vynutí zpětné dohledání
             systemDb.nextSecretCityResetUnix = savedSettings.nextSecretCityResetUnix || systemDb.nextSecretCityResetUnix || 0;
             systemDb.secretExplorerUserId = savedSettings.secretExplorerUserId || systemDb.secretExplorerUserId || null;
+            systemDb.goalReachedAnnounced = savedSettings.goalReachedAnnounced || false;
             
             saveUsers();
             saveSystem();
