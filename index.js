@@ -106,6 +106,20 @@ const SECRET_CITIES_LIST = [
 ];
 
 // ─────────────────────────────────────────────
+// VÝPOČET AKTUÁLNÍHO DNE EVENTU
+// ─────────────────────────────────────────────
+function getRealEventDay() {
+    const now = Date.now();
+    if (isDevMode) return systemDb.currentDay > 0 ? systemDb.currentDay : 1;
+    if (now < EVENT_START_DATE) return 0;
+    if (now > EVENT_END_DATE) return 8; // Max 8 dní
+    
+    // Vypočítá přesný den na základě uplynulých milisekund od začátku eventu
+    const diffMs = now - EVENT_START_DATE;
+    return Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+}
+
+// ─────────────────────────────────────────────
 // FUNKCE PRO NÁHODNÉ LOSOVÁNÍ
 // ─────────────────────────────────────────────
 function getRandomQuestId() {
@@ -155,7 +169,7 @@ function loadDatabases() {
     try {
         if (fs.existsSync(USERS_PATH)) {
             usersDb = JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
-            if (usersDb['null']) delete usersDb['null']; // Ochrana před bugem null uživatele
+            if (usersDb['null']) delete usersDb['null']; 
             console.log(`✅ Načteno ${Object.keys(usersDb).length} uživatelů lokálně.`);
         }
         if (fs.existsSync(SYSTEM_PATH)) {
@@ -278,7 +292,6 @@ function extractJobDataFromEmbed(e) {
     const fromField = e.fields?.find(f => f.name?.toLowerCase()?.includes('odkud'));
     const toField = e.fields?.find(f => f.name?.toLowerCase()?.includes('kam'));
     
-    // Odříznutí discord emojis vlajek, které TB někdy vkládá (např. 🇫🇷 Paris)
     let origin = fromField?.value ? fromField.value.replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').trim() : "";
     let dest = toField?.value ? toField.value.replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').trim() : "";
     
@@ -327,16 +340,10 @@ function extractJobDataFromEmbed(e) {
     }
     
     return {
-        km,
-        origin: normalizeStr(origin),
-        dest: normalizeStr(dest),
-        cargo: normalizeStr(cargo || "neznámé"),
-        truck: normalizeStr(truck || "neznámé"),
-        rawOrigin: origin.trim(),
-        rawDest: dest.trim(),
-        rawCargo: cargo || "neznámé",
-        rawTruck: truck || "neznámé",
-        driver
+        km, origin: normalizeStr(origin), dest: normalizeStr(dest),
+        cargo: normalizeStr(cargo || "neznámé"), truck: normalizeStr(truck || "neznámé"),
+        rawOrigin: origin.trim(), rawDest: dest.trim(),
+        rawCargo: cargo || "neznámé", rawTruck: truck || "neznámé", driver
     };
 }
 
@@ -352,7 +359,6 @@ async function processJobMessage(m) {
 
     const e = m.embeds[0];
     const jobData = extractJobDataFromEmbed(e);
-    
     if (!jobData) return { status: 'ignored_no_data' };
     
     const driver = jobData.driver;
@@ -362,7 +368,6 @@ async function processJobMessage(m) {
     
     const jobIdMatch = titleText.match(/#(\d+)/) || allText.match(/#(\d+)/);
     const jobId = jobIdMatch ? `job_${jobIdMatch[1]}` : `msg_${m.id}`;
-    
     const jobHash = jobIdMatch ? `hash_${jobIdMatch[1]}` : `${driverNorm}_${jobData.cargo}_${jobData.dest}_${jobData.origin}_${jobData.km}`;
 
     if (!systemDb.globalProcessedJobs) systemDb.globalProcessedJobs = [];
@@ -455,7 +460,7 @@ async function processJobMessage(m) {
 }
 
 // ─────────────────────────────────────────────
-// AUTO REPROCESS ZAKÁZEK (hledání přehlédnutých)
+// AUTO REPROCESS ZAKÁZEK
 // ─────────────────────────────────────────────
 async function autoReprocessJobs() {
     try {
@@ -518,22 +523,18 @@ async function announceDailyRoute(day) {
 
     const annCh = await client.channels.fetch(CH_ROUTES).catch(() => null);
     if (annCh) {
-        // Promazání starých eventových tras z tohoto kanálu
         const msgs = await annCh.messages.fetch({ limit: 30 });
         for (const [id, msg] of msgs) {
             if (msg.author.id === client.user.id && msg.embeds[0]?.title?.includes("EVENT DEN")) {
                 const match = msg.embeds[0].title.match(/DEN (\d+)/);
                 if (match) {
                     const msgDay = parseInt(match[1]);
-                    if (msgDay !== day) {
-                        await msg.delete().catch(() => null);
-                    }
+                    if (msgDay !== day) await msg.delete().catch(() => null);
                 }
             }
         }
-
         await annCh.send({ content: "@everyone 🚨 **Nová eventová trasa vyhlášena!** 🚨", embeds: [embed] });
-        updateCommunityProgressBar(false); // Už nevnucujeme true
+        updateCommunityProgressBar(false);
     }
 }
 
@@ -541,11 +542,9 @@ async function updateCommunityProgressBar(forceNew = false) {
     if (systemDb.currentDay === 0 || systemDb.currentDay > 8) return;
     const route = ROUTES[systemDb.currentDay - 1];
     
-    // Výpočet reálných a zastropovaných procent
     const realPercent = Math.floor((systemDb.communityJobsToday / route.goal) * 100);
     const cappedPercent = Math.min(100, realPercent);
     const imageIndex = Math.floor(cappedPercent / 5);
-    
     const imgUrl = (PROGRESS_BAR_IMAGES[imageIndex] || PROGRESS_BAR_IMAGES[20]) + "?v=" + Date.now();
 
     const annCh = await client.channels.fetch(CH_DAILY_GOAL).catch(() => null);
@@ -557,25 +556,16 @@ async function updateCommunityProgressBar(forceNew = false) {
         .setImage(imgUrl)
         .setColor(EVENT_COLOR);
 
-    // Odeslání gratulace pouze jednou
     if (systemDb.communityJobsToday >= route.goal && !systemDb.goalReachedAnnounced) {
         systemDb.goalReachedAnnounced = true;
         saveSystem();
-        
-        // Zpráva do public kanálu
         annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme, kdo získá **${systemDb.currentDailyRewardText}**!`).catch(() => {});
-        
-        // Zpráva do backup kanálu pro vedení
         const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
-        if (backupCh) {
-            backupCh.send(`🏆 **INFO PRO VEDENÍ:** Komunita právě dosáhla dnešního cíle (${route.goal} zakázek).`).catch(() => {});
-        }
+        if (backupCh) backupCh.send(`🏆 **INFO PRO VEDENÍ:** Komunita právě dosáhla dnešního cíle (${route.goal} zakázek).`).catch(() => {});
     }
 
     try {
         const msgs = await annCh.messages.fetch({ limit: 50 });
-        
-        // Smazání nedokončených starých gólů (ověření data a 100%)
         for (const [id, msg] of msgs) {
             if (msg.author.id === client.user.id && msg.embeds[0]?.title?.includes("Komunitní Gól - Den")) {
                 const title = msg.embeds[0].title;
@@ -591,21 +581,15 @@ async function updateCommunityProgressBar(forceNew = false) {
                 }
             }
         }
-
         const botMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes(`Komunitní Gól - Den ${systemDb.currentDay}`));
-        
-        if (forceNew && !botMsg) {
-            await annCh.send({ embeds: [embed] });
-            return;
-        }
-
+        if (forceNew && !botMsg) return await annCh.send({ embeds: [embed] });
         if (botMsg) await botMsg.edit({ embeds: [embed] });
         else await annCh.send({ embeds: [embed] });
     } catch (e) {}
 }
 
 // ─────────────────────────────────────────────
-// TAJNÉ MĚSTO
+// TAJNÉ MĚSTO A ROLE
 // ─────────────────────────────────────────────
 function getNextSecretCityResetUnix() {
     const now = new Date();
@@ -640,7 +624,13 @@ async function transferRole(guildId, roleId, oldUserId, newUserId) {
     } catch (e) {}
 }
 
-function startNewSecretCity() {
+async function startNewSecretCity() {
+    // Proaktivní odebrání role předchozímu nálezci tajného města
+    if (systemDb.secretExplorerUserId) {
+        await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, systemDb.secretExplorerUserId, null);
+        systemDb.secretExplorerUserId = null;
+    }
+
     const randomCity = SECRET_CITIES_LIST[Math.floor(Math.random() * SECRET_CITIES_LIST.length)];
     systemDb.secretCity = randomCity;
     systemDb.secretCityRevealed = new Array(randomCity.length).fill(false);
@@ -677,7 +667,6 @@ function revealNextLetter() {
 async function announceSecretCityWordle() {
     const ch = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
     if (!ch) return;
-
     const resetUnix = systemDb.nextSecretCityResetUnix || getNextSecretCityResetUnix();
 
     if (systemDb.secretCityFoundBy) {
@@ -715,9 +704,6 @@ async function announceSecretCityWordle() {
     } catch (e) {}
 }
 
-// ─────────────────────────────────────────────
-// ROLE SYSTÉM
-// ─────────────────────────────────────────────
 async function checkMilestoneRoles(userId) {
     try {
         const u = usersDb[userId];
@@ -752,64 +738,37 @@ async function createBackup() {
             if (fs.existsSync(USERS_PATH)) files.push(new AttachmentBuilder(USERS_PATH));
             if (fs.existsSync(SYSTEM_PATH)) files.push(new AttachmentBuilder(SYSTEM_PATH));
             if (files.length > 0) {
-                await backupCh.send({
-                    content: `💾 Automatická záloha databáze (${new Date().toLocaleString('cs-CZ')})`,
-                    files
-                });
+                await backupCh.send({ content: `💾 Automatická záloha databáze (${new Date().toLocaleString('cs-CZ')})`, files });
                 return true;
             }
         }
         return false;
-    } catch (e) {
-        console.error('❌ Chyba při vytváření zálohy:', e);
-        return false;
-    }
+    } catch (e) { return false; }
 }
 
 async function fetchBackupFromDiscord() {
     try {
         const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
-        if (!backupCh) {
-            console.log('❌ Backup kanál nenalezen');
-            return null;
-        }
-
-        console.log('📥 Stahuji poslední zálohy z Discordu...');
+        if (!backupCh) return null;
         const messages = await backupCh.messages.fetch({ limit: 50 });
-
-        let latestUsersData = null;
-        let latestSystemData = null;
-        let latestTimestamp = 0;
-
+        let latestUsersData = null, latestSystemData = null, latestTimestamp = 0;
         for (const [_, msg] of messages) {
             if (msg.attachments.size > 0) {
                 for (const [_, attachment] of msg.attachments) {
                     try {
-                        const response = await fetch(attachment.url);
-                        const data = await response.json();
-
-                        if (attachment.name.includes('users_db') && msg.createdTimestamp > latestTimestamp) {
-                            latestUsersData = data;
-                            latestTimestamp = msg.createdTimestamp;
-                        }
-                        if (attachment.name.includes('system_db') && msg.createdTimestamp > latestTimestamp) {
-                            latestSystemData = data;
-                            latestTimestamp = msg.createdTimestamp;
-                        }
+                        const response = await fetch(attachment.url); const data = await response.json();
+                        if (attachment.name.includes('users_db') && msg.createdTimestamp > latestTimestamp) { latestUsersData = data; latestTimestamp = msg.createdTimestamp; }
+                        if (attachment.name.includes('system_db') && msg.createdTimestamp > latestTimestamp) { latestSystemData = data; latestTimestamp = msg.createdTimestamp; }
                     } catch (e) {}
                 }
             }
         }
-
         return { users: latestUsersData, system: latestSystemData, timestamp: latestTimestamp };
-    } catch (error) {
-        console.error('❌ Chyba při stahování záloh z Discordu:', error);
-        return null;
-    }
+    } catch (error) { return null; }
 }
 
 // ─────────────────────────────────────────────
-// ČASOVAČE
+// ČASOVAČE A SMYČKA
 // ─────────────────────────────────────────────
 setInterval(async () => {
     createBackup();
@@ -819,10 +778,7 @@ setInterval(() => {
     const now = Date.now();
     const czTime = new Date(new Date(now).toLocaleString("en-US", {timeZone: "Europe/Prague"}));
 
-    // Auto-Recovery zakázek každých 30 minut
-    if (czTime.getMinutes() % 30 === 0) {
-        autoReprocessJobs();
-    }
+    if (czTime.getMinutes() % 30 === 0) autoReprocessJobs();
 
     if (now >= EVENT_END_DATE && !isDevMode && !systemDb.eventClosedAnnounced) {
         systemDb.eventClosedAnnounced = true;
@@ -833,22 +789,29 @@ setInterval(() => {
         return;
     }
 
-    if ((now >= EVENT_START_DATE || isDevMode) && systemDb.currentDay === 0) {
-        systemDb.currentDay = 1;
-        systemDb.currentDailyRewardText = "";
-        saveSystem();
-        announceDailyRoute(1);
-        startNewSecretCity();
-    } else if (czTime.getHours() === 19 && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay < 8) {
-        systemDb.currentDay += 1;
+    // Samoopravný systém dnů s proaktivním odstraňováním starých rolí Huntera
+    const expectedDay = getRealEventDay();
+    if (expectedDay > 0 && expectedDay <= 8 && systemDb.currentDay !== expectedDay) {
+        systemDb.currentDay = expectedDay;
         systemDb.communityJobsToday = 0;
         systemDb.hhCountToday = 0;
         systemDb.currentDailyRewardText = "";
         systemDb.goalReachedAnnounced = false;
+        
+        // Zde bot sebere starému Hunterovi roli, než vyhlásí nový den
+        if (systemDb.hunterDneUserId) {
+            transferRole(GUILD_ID, ROLE_HUNTER_DNE, systemDb.hunterDneUserId, null);
+            systemDb.hunterDneUserId = null;
+        }
+        systemDb.hunterDneDay = expectedDay;
         saveSystem();
+        
         announceDailyRoute(systemDb.currentDay);
+        if (expectedDay === 1) startNewSecretCity(); 
+        
         for (const key in usersDb) usersDb[key].lastQuestSkip = 0;
         saveUsers();
+        console.log(`🔄 Den automaticky synchronizován na: Den ${expectedDay}`);
     }
 
     if ((czTime.getHours() === 8 || czTime.getHours() === 19) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
@@ -869,9 +832,7 @@ setInterval(() => {
                 try {
                     const msg = await ch.messages.fetch(systemDb.hhMessageId);
                     if (msg) await msg.delete();
-                } catch (e) {
-                    console.log("Zpráva Happy Hour už zřejmě neexistuje.");
-                }
+                } catch (e) {}
             }).catch(() => {});
             systemDb.hhMessageId = null;
             systemDb.hhActiveUntil = 0;
@@ -909,10 +870,8 @@ const commands = [
     new SlashCommandBuilder().setName("odmeny").setDescription("Zobrazí přehled odměn, šance na drop a informace o losování."),
     new SlashCommandBuilder().setName("leaderboard").setDescription("Zobrazí žebříček eventu.")
         .addStringOption(o => o.setName("kategorie").setDescription("Podle čeho?").setRequired(true).addChoices(
-            { name: '⭐ Získané XP', value: 'xp' },
-            { name: '🚚 Najeté Kilometry', value: 'km' },
-            { name: '📦 Doručené Zakázky', value: 'jobs' },
-            { name: '📜 Splněné Questy', value: 'quests' }
+            { name: '⭐ Získané XP', value: 'xp' }, { name: '🚚 Najeté Kilometry', value: 'km' },
+            { name: '📦 Doručené Zakázky', value: 'jobs' }, { name: '📜 Splněné Questy', value: 'quests' }
         )),
     new SlashCommandBuilder().setName("test-cteni").setDescription("🛠️ (DEV) Otestuje, jak bot přečte zkopírovaný text zakázky.")
         .addStringOption(o => o.setName("text").setDescription("Vlož text zakázky z bota").setRequired(true)),
@@ -972,10 +931,6 @@ client.on('messageCreate', async (m) => {
             logCh.send(msg).catch(() => {});
         }
     }
-
-    if (res.status.startsWith('duplicate')) {
-        console.log(`🔄 Duplicitní zakázka ignorována: ${res.status}`);
-    }
 });
 
 // ─────────────────────────────────────────────
@@ -990,7 +945,6 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
     let mergedMsg = "";
     let foundUnlinkedKey = null;
 
-    // 1. Sloučení dat z nepřiřazeného UNLINKED_ profilu (pokud existoval)
     for (const key in usersDb) {
         if (key.startsWith('UNLINKED_')) {
             const unlinkedNick = normalizeStr(usersDb[key].tbName);
@@ -1003,37 +957,25 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
 
     if (foundUnlinkedKey) {
         const unlinked = usersDb[foundUnlinkedKey];
-        u.xp += unlinked.xp || 0;
-        u.km += unlinked.km || 0;
-        u.eventJobs += unlinked.eventJobs || 0;
-        u.completedQuests += unlinked.completedQuests || 0;
-        
+        u.xp += unlinked.xp || 0; u.km += unlinked.km || 0; u.eventJobs += unlinked.eventJobs || 0; u.completedQuests += unlinked.completedQuests || 0;
         u.processedJobs = [...new Set([...(u.processedJobs || []), ...(unlinked.processedJobs || [])])];
         u.recentJobHashes = [...new Set([...(u.recentJobHashes || []), ...(unlinked.recentJobHashes || [])])];
         u.completedRoutesDays = [...new Set([...(u.completedRoutesDays || []), ...(unlinked.completedRoutesDays || [])])];
-        
         delete usersDb[foundUnlinkedKey];
         mergedMsg = `\n♻️ Našel jsem v paměti nepřiřazené zakázky z webhooku a rovnou je převedl (+${unlinked.xp} XP, +${unlinked.km} km)!`;
     }
 
     saveUsers();
     await checkMilestoneRoles(targetUser.id);
-
-    // 2. Hloubkový scan kanálů (Recovery od začátku eventu přímo pro tohoto hráče)
     await interaction.editReply(`✅ Účet propojen s nickem **${nick}**.${mergedMsg}\n\n⏳ Spouštím hloubkovou kontrolu zakázek od začátku eventu...`);
 
-    let processedCount = 0;
-    let validCount = 0;
-
+    let processedCount = 0, validCount = 0;
     try {
         for (const channelId of [CH_JOBS_1, CH_JOBS_2]) {
             const targetChannel = await client.channels.fetch(channelId).catch(() => null);
             if (!targetChannel) continue;
 
-            let allMessages = [];
-            let lastId;
-            
-            // Prohledá až 2000 zpráv do historie (pokryje bez problému celý event)
+            let allMessages = [], lastId;
             for (let i = 0; i < 20; i++) { 
                 const options = { limit: 100 };
                 if (lastId) options.before = lastId;
@@ -1049,7 +991,6 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
             for (const msg of allMessages) {
                 if (msg.embeds.length > 0) {
                     const driverName = msg.embeds[0].author?.name || "";
-                    // Testujeme, jestli zakázka patří nově propojenému hráči
                     if (normalizeStr(driverName).includes(normalizeStr(nick)) || normalizeStr(nick).includes(normalizeStr(driverName))) {
                         const result = await processJobMessage(msg);
                         processedCount++;
@@ -1061,7 +1002,6 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
         
         saveUsers();
         await interaction.editReply(`✅ Účet propojen s nickem **${nick}**.${mergedMsg}\n\n🔍 **Výsledek hloubkové kontroly:**\n📝 Zkontrolováno tvých zpráv: **${processedCount}**\n✅ Zpětně uznáno zakázek: **${validCount}**`);
-
     } catch (error) {
         await interaction.editReply(`✅ Účet propojen s nickem **${nick}**.${mergedMsg}\n\n⚠️ Kontrola historie se nedokončila kvůli chybě: ${error.message}`);
     }
@@ -1097,8 +1037,7 @@ client.on("interactionCreate", async interaction => {
         const q = QUESTS.find(quest => quest.id === u.currentQuestId);
         if (!q) return interaction.reply({ content: "❌ Nepodařilo se načíst tvůj quest.", ephemeral: true });
 
-        let tierColor = 0x808080;
-        let tierName = "⚪ Běžný";
+        let tierColor = 0x808080; let tierName = "⚪ Běžný";
         if (q.tier === "rare") { tierColor = 0x0070FF; tierName = "🔵 Vzácný"; }
         if (q.tier === "epic") { tierColor = 0xA335EE; tierName = "🟣 Epický"; }
 
@@ -1123,12 +1062,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "quest-skip") {
         const u = getUser(interaction.user.id, interaction.user.username);
         if (u.lastQuestSkip === 1) return interaction.reply({ content: "❌ Dnes už jsi quest jednou přeskočil/a. Další skip bude možný až po 19:00.", ephemeral: true });
-
-        u.currentQuestId = getRandomQuestId();
-        u.questProgress = 0;
-        u.lastQuestSkip = 1;
-        saveUsers();
-
+        u.currentQuestId = getRandomQuestId(); u.questProgress = 0; u.lastQuestSkip = 1; saveUsers();
         const q = QUESTS.find(quest => quest.id === u.currentQuestId);
         return interaction.reply({ content: `✅ Quest byl přeskočen! Tvůj nový úkol:\n**${q ? q.desc : "Neznámý"}**`, ephemeral: true });
     }
@@ -1161,9 +1095,7 @@ client.on("interactionCreate", async interaction => {
 
         const generateEmbed = (page) => {
             const start = page * ITEMS_PER_PAGE;
-            const end = start + ITEMS_PER_PAGE;
-            const currentItems = sorted.slice(start, end);
-
+            const currentItems = sorted.slice(start, start + ITEMS_PER_PAGE);
             let desc = "";
             currentItems.forEach((u, index) => {
                 let val = "";
@@ -1173,52 +1105,26 @@ client.on("interactionCreate", async interaction => {
                 if (kategorie === "quests") val = `${u.completedQuests || 0} questů`;
                 desc += `${start + index + 1}. **${u.tbName}** - ${val}\n`;
             });
-
-            return new EmbedBuilder()
-                .setTitle(`🏆 Žebříček - ${kategorie.toUpperCase()}`)
-                .setDescription(desc)
-                .setColor(EVENT_COLOR)
-                .setFooter({ text: `Strana ${page + 1} z ${totalPages} | Celkem hráčů: ${sorted.length}` });
+            return new EmbedBuilder().setTitle(`🏆 Žebříček - ${kategorie.toUpperCase()}`).setDescription(desc).setColor(EVENT_COLOR).setFooter({ text: `Strana ${page + 1} z ${totalPages} | Celkem hráčů: ${sorted.length}` });
         };
 
         const generateButtons = (page) => {
             return new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('lb_prev')
-                    .setLabel('◀ Předchozí')
-                    .setStyle(ButtonStyle.Primary)
-                    .setDisabled(page === 0),
-                new ButtonBuilder()
-                    .setCustomId('lb_next')
-                    .setLabel('Další ▶')
-                    .setStyle(ButtonStyle.Primary)
-                    .setDisabled(page === totalPages - 1)
+                new ButtonBuilder().setCustomId('lb_prev').setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(page === 0),
+                new ButtonBuilder().setCustomId('lb_next').setLabel('Další ▶').setStyle(ButtonStyle.Primary).setDisabled(page === totalPages - 1)
             );
         };
 
-        const response = await interaction.reply({
-            embeds: [generateEmbed(currentPage)],
-            components: totalPages > 1 ? [generateButtons(currentPage)] : [],
-            fetchReply: true
-        });
+        const response = await interaction.reply({ embeds: [generateEmbed(currentPage)], components: totalPages > 1 ? [generateButtons(currentPage)] : [], fetchReply: true });
 
         if (totalPages > 1) {
             const collector = response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
-
             collector.on('collect', async i => {
-                if (i.user.id !== interaction.user.id) {
-                    return i.reply({ content: "❌ Toto stránkování patří jinému uživateli. Použij příkaz /leaderboard sám za sebe.", ephemeral: true });
-                }
-
+                if (i.user.id !== interaction.user.id) return i.reply({ content: "❌ Toto stránkování patří jinému uživateli.", ephemeral: true });
                 if (i.customId === 'lb_prev') currentPage--;
                 else if (i.customId === 'lb_next') currentPage++;
-
-                await i.update({
-                    embeds: [generateEmbed(currentPage)],
-                    components: [generateButtons(currentPage)]
-                });
+                await i.update({ embeds: [generateEmbed(currentPage)], components: [generateButtons(currentPage)] });
             });
-
             collector.on('end', () => {
                 const disabledRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('lb_prev').setLabel('◀ Předchozí').setStyle(ButtonStyle.Primary).setDisabled(true),
@@ -1232,14 +1138,10 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "test-cteni") {
         const text = interaction.options.getString("text");
-        const fakeEmbed = {
-            author: { name: "Test" },
-            description: text,
-            fields: []
-        };
+        const fakeEmbed = { author: { name: "Test" }, description: text, fields: [] };
         const jobData = extractJobDataFromEmbed(fakeEmbed);
-        if (!jobData) return interaction.reply({ content: "❌ Bot v textu nenašel platná data zakázky (nebo je menší než 50 km).", ephemeral: true });
-
+        if (!jobData) return interaction.reply({ content: "❌ Bot v textu nenašel platná data zakázky.", ephemeral: true });
+        
         let isEventRoute = false;
         if (systemDb.currentDay > 0 && systemDb.currentDay <= ROUTES.length) {
             const route = ROUTES[systemDb.currentDay - 1];
@@ -1250,66 +1152,45 @@ client.on("interactionCreate", async interaction => {
             isEventRoute = isEventCargo && isStart && isDest;
         }
 
-        const embed = new EmbedBuilder()
-            .setTitle("🛠️ (DEV) Výsledek testu čtení")
-            .addFields(
-                { name: "🚚 Tahač", value: jobData.rawTruck, inline: true },
-                { name: "📦 Náklad", value: jobData.rawCargo, inline: true },
-                { name: "📏 Vzdálenost", value: `${jobData.km} km`, inline: true },
-                { name: "🏁 Trasa", value: `${jobData.rawOrigin} → ${jobData.rawDest}`, inline: false },
+        const embed = new EmbedBuilder().setTitle("🛠️ (DEV) Výsledek testu čtení").addFields(
+                { name: "🚚 Tahač", value: jobData.rawTruck, inline: true }, { name: "📦 Náklad", value: jobData.rawCargo, inline: true },
+                { name: "📏 Vzdálenost", value: `${jobData.km} km`, inline: true }, { name: "🏁 Trasa", value: `${jobData.rawOrigin} → ${jobData.rawDest}`, inline: false },
                 { name: "🎯 Eventová?", value: isEventRoute ? "✅ ANO (100 XP)" : "❌ NE (50 XP)", inline: false }
-            )
-            .setColor(0x00FF00);
-
+            ).setColor(0x00FF00);
         return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     if (interaction.commandName === "dev-override") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         isDevMode = !isDevMode;
         return interaction.reply({ content: `🛠️ Testovací režim (DEV): **${isDevMode ? "ZAPNUTO" : "VYPNUTO"}**.`, ephemeral: true });
     }
 
     if (interaction.commandName === "dev-create-backup") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         await interaction.deferReply({ ephemeral: true });
         const success = await createBackup();
-        if (success) {
-            return interaction.editReply("✅ **Manuální záloha byla úspěšně vytvořena!**");
-        } else {
-            return interaction.editReply("❌ **Chyba při vytváření zálohy.** Zkontroluj konzoli.");
-        }
+        if (success) return interaction.editReply("✅ **Manuální záloha byla úspěšně vytvořena!**");
+        else return interaction.editReply("❌ **Chyba při vytváření zálohy.**");
     }
 
     if (interaction.commandName === "dev-fetch-backup") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         await interaction.deferReply({ ephemeral: true });
         try {
             const backup = await fetchBackupFromDiscord();
-            if (!backup || (!backup.users && !backup.system)) {
-                return interaction.editReply("❌ Nepodařilo se najít žádnou platnou zálohu v backup kanálu.");
-            }
+            if (!backup || (!backup.users && !backup.system)) return interaction.editReply("❌ Nepodařilo se najít žádnou platnou zálohu.");
             let msg = "✅ **Záloha úspěšně načtena z Discordu!**\n\n";
             if (backup.users) { usersDb = backup.users; saveUsers(); msg += `📦 **users_db.json** - načteno ${Object.keys(usersDb).length} uživatelů\n`; }
             if (backup.system) {
-                const oldReward = systemDb.currentDailyRewardText;
-                systemDb = { ...systemDb, ...backup.system };
+                const oldReward = systemDb.currentDailyRewardText; systemDb = { ...systemDb, ...backup.system };
                 if (oldReward && !systemDb.currentDailyRewardText) systemDb.currentDailyRewardText = oldReward;
-                saveSystem();
-                msg += `⚙️ **system_db.json** - načten stav (den ${systemDb.currentDay})\n`;
+                saveSystem(); msg += `⚙️ **system_db.json** - načten stav (den ${systemDb.currentDay})\n`;
             }
             msg += `\n🕐 Čas zálohy: ${new Date(backup.timestamp).toLocaleString('cs-CZ')}`;
             if (systemDb.currentDay > 0) { await updateCommunityProgressBar(false); await announceSecretCityWordle(); }
             return interaction.editReply(msg);
-        } catch (error) {
-            return interaction.editReply(`❌ Chyba: ${error.message}`);
-        }
+        } catch (error) { return interaction.editReply(`❌ Chyba: ${error.message}`); }
     }
 
     if (interaction.commandName === "dev-reprocess") {
@@ -1323,19 +1204,16 @@ client.on("interactionCreate", async interaction => {
         await interaction.editReply("⏳ Stahuji zprávy z kanálu...");
         try {
             for (let i = 0; i < 10; i++) {
-                const options = { limit: 100 };
-                if (lastId) options.before = lastId;
+                const options = { limit: 100 }; if (lastId) options.before = lastId;
                 const fetched = await targetChannel.messages.fetch(options);
                 if (fetched.size === 0) break;
-                allMessages.push(...fetched.values());
-                lastId = fetched.last().id;
+                allMessages.push(...fetched.values()); lastId = fetched.last().id;
             }
             allMessages.reverse();
             await interaction.editReply(`⏳ Zpracovávám ${allMessages.length} zpráv...`);
             for (const msg of allMessages) {
                 if (msg.embeds.length > 0) {
-                    const result = await processJobMessage(msg);
-                    processedCount++;
+                    const result = await processJobMessage(msg); processedCount++;
                     if (result.status === 'added') validCount++;
                     if (result.status.startsWith('duplicate')) duplicateCount++;
                 }
@@ -1345,144 +1223,80 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (interaction.commandName === "fullanalyze") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
-        }
-
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Na tento příkaz nemáš práva.", ephemeral: true });
         await interaction.deferReply({ ephemeral: true });
-        
         try {
-            // 1. Vytvoř zálohu před resetem
             await interaction.editReply("💾 Vytvářím zálohu před resetem...");
             await createBackup();
             
-            // 2. Ulož si nastavení eventu před úpravou
             const savedSettings = {
-                currentDay: systemDb.currentDay,
-                currentDailyRewardText: systemDb.currentDailyRewardText,
-                secretCity: systemDb.secretCity,
-                secretCityRevealed: systemDb.secretCityRevealed,
-                // secretCityFoundBy záměrně neukládáme - bot musí město najít z historie znova!
+                currentDay: systemDb.currentDay, currentDailyRewardText: systemDb.currentDailyRewardText,
+                secretCity: systemDb.secretCity, secretCityRevealed: systemDb.secretCityRevealed,
                 nextSecretCityResetUnix: systemDb.nextSecretCityResetUnix,
-                secretExplorerUserId: systemDb.secretExplorerUserId,
-                goalReachedAnnounced: systemDb.goalReachedAnnounced
+                secretExplorerUserId: systemDb.secretExplorerUserId, goalReachedAnnounced: systemDb.goalReachedAnnounced
             };
             
-            // 3. VYNUJLUJ STATISTIKY všem uživatelům (ale ZACHOVEJ propojení!)
             await interaction.editReply("🗑️ Nuluji statistiky (propojení nicků zůstává)...");
-            
             for (const userId in usersDb) {
                 const u = usersDb[userId];
-                u.xp = 0;
-                u.km = 0;
-                u.eventJobs = 0;
-                u.processedJobs = [];
-                u.recentJobHashes = [];
-                u.completedRoutesDays = [];
-                u.completedQuests = 0;
-                u.questProgress = 0;
-                u.lastQuestSkip = 0;
+                u.xp = 0; u.km = 0; u.eventJobs = 0; u.processedJobs = []; u.recentJobHashes = [];
+                u.completedRoutesDays = []; u.completedQuests = 0; u.questProgress = 0; u.lastQuestSkip = 0;
             }
             
-            // 4. Resetuj systémové proměnné (kromě nastavení eventu)
-            systemDb.communityJobsToday = 0;
-            systemDb.hhActiveUntil = 0;
-            systemDb.hhCountToday = 0;
-            systemDb.hhMessageId = null;
-            systemDb.hunterDneDay = 0;
-            systemDb.hunterDneUserId = null;
-            systemDb.globalProcessedJobs = [];
-            systemDb.globalJobHashes = [];
-            systemDb.eventClosedAnnounced = false;
+            systemDb.communityJobsToday = 0; systemDb.hhActiveUntil = 0; systemDb.hhCountToday = 0; systemDb.hhMessageId = null;
+            systemDb.hunterDneDay = 0; systemDb.hunterDneUserId = null; systemDb.globalProcessedJobs = [];
+            systemDb.globalJobHashes = []; systemDb.eventClosedAnnounced = false;
             
-            // Zachovej nastavení eventu
             systemDb.currentDay = savedSettings.currentDay || systemDb.currentDay || 1;
             systemDb.currentDailyRewardText = savedSettings.currentDailyRewardText || systemDb.currentDailyRewardText || "";
             systemDb.secretCity = savedSettings.secretCity || systemDb.secretCity || "";
             systemDb.secretCityRevealed = savedSettings.secretCityRevealed || systemDb.secretCityRevealed || [];
-            systemDb.secretCityFoundBy = null; // Vynutí zpětné dohledání
+            systemDb.secretCityFoundBy = null; 
             systemDb.nextSecretCityResetUnix = savedSettings.nextSecretCityResetUnix || systemDb.nextSecretCityResetUnix || 0;
             systemDb.secretExplorerUserId = savedSettings.secretExplorerUserId || systemDb.secretExplorerUserId || null;
             systemDb.goalReachedAnnounced = savedSettings.goalReachedAnnounced || false;
             
-            saveUsers();
-            saveSystem();
+            saveUsers(); saveSystem();
             
-            // 5. Projdi oba kanály a přepočítej zakázky
-            let totalProcessed = 0;
-            let totalValid = 0;
-            let totalDuplicates = 0;
-            
+            let totalProcessed = 0, totalValid = 0, totalDuplicates = 0;
             for (const channelId of [CH_JOBS_1, CH_JOBS_2]) {
                 await interaction.editReply(`📥 Stahuji zprávy z kanálu ${channelId}...`);
                 const targetChannel = await client.channels.fetch(channelId).catch(() => null);
                 if (!targetChannel) continue;
                 
-                let allMessages = [];
-                let lastId;
-                
+                let allMessages = [], lastId;
                 for (let i = 0; i < 20; i++) {
-                    const options = { limit: 100 };
-                    if (lastId) options.before = lastId;
+                    const options = { limit: 100 }; if (lastId) options.before = lastId;
                     const fetched = await targetChannel.messages.fetch(options);
                     if (fetched.size === 0) break;
-                    allMessages.push(...fetched.values());
-                    lastId = fetched.last().id;
+                    allMessages.push(...fetched.values()); lastId = fetched.last().id;
                 }
                 
-                allMessages = allMessages.filter(msg => 
-                    msg.createdTimestamp >= EVENT_START_DATE && 
-                    msg.createdTimestamp <= Date.now()
-                );
+                allMessages = allMessages.filter(msg => msg.createdTimestamp >= EVENT_START_DATE && msg.createdTimestamp <= Date.now());
                 allMessages.reverse();
                 
                 await interaction.editReply(`⚙️ Zpracovávám ${allMessages.length} zpráv z kanálu ${channelId}...`);
-                
                 for (const msg of allMessages) {
                     if (msg.embeds.length > 0) {
-                        const result = await processJobMessage(msg);
-                        totalProcessed++;
+                        const result = await processJobMessage(msg); totalProcessed++;
                         if (result.status === 'added') totalValid++;
                         if (result.status.startsWith('duplicate')) totalDuplicates++;
                     }
                 }
             }
             
-            // 6. Obnov progress bar a tajné město
-            if (systemDb.currentDay > 0) {
-                await updateCommunityProgressBar(false);
-            }
-            if (systemDb.secretCity && !systemDb.secretCityFoundBy) {
-                await announceSecretCityWordle();
-            }
+            if (systemDb.currentDay > 0) await updateCommunityProgressBar(false);
+            if (systemDb.secretCity && !systemDb.secretCityFoundBy) await announceSecretCityWordle();
             
-            // 7. Statistika
             const linkedUsers = Object.values(usersDb).filter(u => !u.id?.startsWith?.('UNLINKED_') && u.id !== "null");
-            const totalXP = linkedUsers.reduce((sum, u) => sum + (u.xp || 0), 0);
-            const totalKm = linkedUsers.reduce((sum, u) => sum + (u.km || 0), 0);
-            const totalJobs = linkedUsers.reduce((sum, u) => sum + (u.eventJobs || 0), 0);
-            
             return interaction.editReply(
-                `✅ **Kompletní přepočet dokončen!**\n\n` +
-                `📊 **Celkové statistiky:**\n` +
-                `📝 Zkontrolováno zpráv: **${totalProcessed}**\n` +
-                `✅ Uznaných zakázek: **${totalValid}**\n` +
-                `🔄 Duplicitních: **${totalDuplicates}**\n\n` +
-                `👥 **Hráči:**\n` +
-                `🔗 Propojených účtů: **${linkedUsers.length}** (zachováno)\n` +
-                `⭐ Celkem XP: **${totalXP}**\n` +
-                `🚚 Celkem km: **${totalKm}**\n` +
-                `📦 Celkem zakázek: **${totalJobs}**\n\n` +
-                `📅 Aktuální den: **${systemDb.currentDay}**\n` +
-                `🎯 Komunitní cíl: **${systemDb.communityJobsToday}** / **${ROUTES[systemDb.currentDay-1]?.goal || '?'}** zakázek\n` +
-                `🎁 Dnešní odměna: **${systemDb.currentDailyRewardText || '?'}**\n\n` +
-                `💾 Původní data zálohována. **Propojení nicků zachováno!**`
+                `✅ **Kompletní přepočet dokončen!**\n\n📊 **Celkové statistiky:**\n📝 Zkontrolováno zpráv: **${totalProcessed}**\n✅ Uznaných zakázek: **${totalValid}**\n🔄 Duplicitních: **${totalDuplicates}**\n\n` +
+                `👥 **Hráči:**\n🔗 Propojených účtů: **${linkedUsers.length}** (zachováno)\n⭐ Celkem XP: **${linkedUsers.reduce((sum, u) => sum + (u.xp || 0), 0)}**\n` +
+                `🚚 Celkem km: **${linkedUsers.reduce((sum, u) => sum + (u.km || 0), 0)}**\n📦 Celkem zakázek: **${linkedUsers.reduce((sum, u) => sum + (u.eventJobs || 0), 0)}**\n\n` +
+                `📅 Aktuální den: **${systemDb.currentDay}**\n🎯 Komunitní cíl: **${systemDb.communityJobsToday}** / **${ROUTES[systemDb.currentDay-1]?.goal || '?'}** zakázek\n` +
+                `🎁 Dnešní odměna: **${systemDb.currentDailyRewardText || '?'}**\n\n💾 Původní data zálohována. **Propojení nicků zachováno!**`
             );
-            
-        } catch (error) {
-            console.error('❌ Chyba při fullanalyze:', error);
-            return interaction.editReply(`❌ **Chyba:** ${error.message}\n\nZkuste obnovit data ze zálohy pomocí \`/dev-fetch-backup\`.`);
-        }
+        } catch (error) { return interaction.editReply(`❌ **Chyba:** ${error.message}\n\nZkuste obnovit data ze zálohy.`); }
     }
 
     if (interaction.commandName === "admin-restore") {
@@ -1499,8 +1313,7 @@ client.on("interactionCreate", async interaction => {
             }
             if (systemFile) {
                 const res = await fetch(systemFile.url); const data = await res.json();
-                const oldReward = systemDb.currentDailyRewardText;
-                systemDb = data;
+                const oldReward = systemDb.currentDailyRewardText; systemDb = data;
                 if (oldReward && !systemDb.currentDailyRewardText) systemDb.currentDailyRewardText = oldReward;
                 saveSystem(); msg += "✅ `system_db.json` obnovena.\n";
                 await updateCommunityProgressBar(false); await announceSecretCityWordle();
@@ -1512,43 +1325,28 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "admin-unlink") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
-        
         await interaction.deferReply({ ephemeral: true });
         const targetUser = interaction.options.getUser("hrac");
-        
         if (usersDb[targetUser.id]) { 
             const u = usersDb[targetUser.id];
-            
-            // Vyčistit globální záznamy duplikátů od zakázek tohoto uživatele,
-            // aby po opětovném linknutí mohly být znovu načteny a připsány.
-            if (u.processedJobs && u.processedJobs.length > 0) {
-                systemDb.globalProcessedJobs = systemDb.globalProcessedJobs.filter(id => !u.processedJobs.includes(id));
-            }
-            if (u.recentJobHashes && u.recentJobHashes.length > 0) {
-                systemDb.globalJobHashes = systemDb.globalJobHashes.filter(hash => !u.recentJobHashes.includes(hash));
-            }
-            
-            saveSystem();
-            delete usersDb[targetUser.id]; 
-            saveUsers(); 
-            
-            return interaction.editReply({ content: `✅ Záznam hráče **${targetUser.username}** byl vymazán.\n🔄 Jeho předchozí zakázky byly uvolněny z paměti duplikátů a po novém linknutí půjdou znovu úspěšně načíst!` }); 
+            if (u.processedJobs && u.processedJobs.length > 0) systemDb.globalProcessedJobs = systemDb.globalProcessedJobs.filter(id => !u.processedJobs.includes(id));
+            if (u.recentJobHashes && u.recentJobHashes.length > 0) systemDb.globalJobHashes = systemDb.globalJobHashes.filter(hash => !u.recentJobHashes.includes(hash));
+            saveSystem(); delete usersDb[targetUser.id]; saveUsers(); 
+            return interaction.editReply({ content: `✅ Záznam hráče **${targetUser.username}** byl vymazán.\n🔄 Jeho předchozí zakázky byly uvolněny.` }); 
         }
         return interaction.editReply({ content: `❌ Uživatel **${targetUser.username}** nemá profil.` });
     }
 
     if (interaction.commandName === "admin-link") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
-        const targetUser = interaction.options.getUser("hrac");
-        const nick = interaction.options.getString("nick");
+        const targetUser = interaction.options.getUser("hrac"); const nick = interaction.options.getString("nick");
         await performLinkAndRecovery(interaction, targetUser, nick);
         return;
     }
 
     if (interaction.commandName === "admin-addxp") {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: "❌ Nemáš práva.", ephemeral: true });
-        const targetUser = interaction.options.getUser("hrac");
-        const xpToAdd = interaction.options.getInteger("xp");
+        const targetUser = interaction.options.getUser("hrac"); const xpToAdd = interaction.options.getInteger("xp");
         const u = getUser(targetUser.id, targetUser.username); u.xp += xpToAdd; saveUsers();
         await checkMilestoneRoles(targetUser.id);
         return interaction.reply({ content: `✅ Hráči **${u.tbName}** upraveno XP o **${xpToAdd}**. Nyní: **${u.xp} XP**.`, ephemeral: true });
@@ -1556,11 +1354,10 @@ client.on("interactionCreate", async interaction => {
 });
 
 // ─────────────────────────────────────────────
-// READY EVENT (AUTOMATICKÁ OBNOVA ZE ZÁLOHY PŘI STARTU)
+// READY EVENT
 // ─────────────────────────────────────────────
 client.on("ready", async () => {
     console.log(`✅ Bot úspěšně běží jako ${client.user.tag}`);
-
     console.log("📥 Zkouším načíst data z Discord zálohy (redeploy recovery)...");
     const backup = await fetchBackupFromDiscord();
     
@@ -1569,13 +1366,10 @@ client.on("ready", async () => {
         if (backup.system) {
             const oldReward = systemDb.currentDailyRewardText;
             systemDb = { ...systemDb, ...backup.system };
-            if (oldReward && (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "")) {
-                systemDb.currentDailyRewardText = oldReward;
-            }
+            if (oldReward && (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "")) systemDb.currentDailyRewardText = oldReward;
         }
-        if (usersDb['null']) delete usersDb['null']; // Poslední kontrola proti null bugu
-        saveUsers();
-        saveSystem();
+        if (usersDb['null']) delete usersDb['null'];
+        saveUsers(); saveSystem();
         console.log("✅ Data úspěšně obnovena ze zálohy na Discordu.");
     } else {
         console.log("⚠️ Záloha na Discordu nenalezena, načítám lokální soubory.");
@@ -1591,18 +1385,11 @@ client.on("ready", async () => {
         if (guild) await guild.members.fetch();
 
         const scCh = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
-        if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) {
-            await announceSecretCityWordle();
-        }
-
-        if (systemDb.currentDay > 0) {
-            await updateCommunityProgressBar(false);
-        }
+        if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) await announceSecretCityWordle();
+        if (systemDb.currentDay > 0) await updateCommunityProgressBar(false);
 
         console.log("🎉 Bot je připraven!");
-    } catch (error) {
-        console.error("❌ Chyba při inicializaci:", error);
-    }
+    } catch (error) { console.error("❌ Chyba při inicializaci:", error); }
 });
 
 // ─────────────────────────────────────────────
