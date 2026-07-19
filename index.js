@@ -29,6 +29,7 @@ const CH_DAILY_GOAL = '1505658956775686225';
 const CH_SECRET_CITY = '1527692298131865740';
 const CH_ROUTES = '1505189708693770300';
 const CH_BACKUP = '1505571130956578917';
+const CH_DRAW = '1528371949368250419'; // KANÁL PRO VÝPIS HRÁČŮ DO LOSOVÁNÍ
 
 // ID ROLÍ
 const ROLE_KING = '1527690385822978169';
@@ -147,7 +148,9 @@ let systemDb = {
     currentDay: 0, communityJobsToday: 0,
     hhActiveUntil: 0, hhCountToday: 0, hhMessageId: null,
     secretCity: "", secretCityRevealed: [], secretCityFoundBy: null, nextSecretCityResetUnix: 0,
-    hunterDneDay: 0, hunterDneUserId: null, secretExplorerUserId: null, currentDailyRewardText: "",
+    secretCityGeneratedUnix: 0,
+    hunterDneDay: 0, hunterDneUserId: null, secretExplorerUserId: null, 
+    currentDailyRewardText: "", currentDailyGoal: 0,
     eventClosedAnnounced: false, globalProcessedJobs: [], globalJobHashes: [], goalReachedAnnounced: false
 };
 
@@ -156,12 +159,10 @@ function loadDatabases() {
         if (fs.existsSync(USERS_PATH)) {
             usersDb = JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
             if (usersDb['null']) delete usersDb['null'];
-            console.log(`✅ Načteno ${Object.keys(usersDb).length} uživatelů lokálně.`);
         }
         if (fs.existsSync(SYSTEM_PATH)) {
             const loadedSystem = JSON.parse(fs.readFileSync(SYSTEM_PATH, 'utf8'));
             systemDb = { ...systemDb, ...loadedSystem };
-            console.log(`✅ Načten lokální systémový stav (den ${systemDb.currentDay})`);
         }
     } catch (error) {
         console.error('❌ Chyba při načítání lokálních databází:', error);
@@ -200,30 +201,77 @@ const normalizeStr = (str) => {
 
 const CITY_SYNONYMS = {
     'praha': ['prague', 'prag', 'praha'],
-    'hamburk': ['hamburg', 'hamburk'],
-    'viden': ['wien', 'vienna', 'viden', 'vide'],
-    'stetin': ['szczecin', 'stettin', 'stetin', 'steti'],
-    'linec': ['linz', 'linec'],
-    'berlin': ['berlin'],
-    'poznan': ['poznan', 'posen'],
     'brno': ['brno', 'brunn'],
     'bratislava': ['bratislava', 'pressburg'],
-    'zeneva': ['geneva', 'genf', 'zeneva', 'geneve'],
-    'mnichov': ['munchen', 'munich', 'mnichov'],
-    'londyn': ['london', 'londyn'],
-    'pariz': ['paris', 'pariz'],
+    'hamburk': ['hamburg', 'hamburk'],
+    'berlin': ['berlin'],
+    'bremy': ['bremen', 'bremy'],
+    'dortmund': ['dortmund'],
     'drazdany': ['dresden', 'drazdany'],
+    'duisburg': ['duisburg'],
+    'dusseldorf': ['dusseldorf'],
+    'erfurt': ['erfurt'],
+    'frankfurt nad mohanem': ['frankfurt am main', 'frankfurt', 'frankfurt nad mohanem'],
+    'hannover': ['hannover', 'hanover'],
+    'kassel': ['kassel'],
+    'kiel': ['kiel'],
+    'kolin nad rynem': ['koln', 'cologne', 'kolin nad rynem', 'kolin'],
+    'lipsko': ['leipzig', 'lipsko'],
+    'magdeburg': ['magdeburg'],
+    'mannheim': ['mannheim'],
+    'mnichov': ['munchen', 'munich', 'mnichov'],
     'norimberk': ['nurnberg', 'nuremberg', 'norimberk'],
+    'osnabruck': ['osnabruck'],
+    'rostock': ['rostock'],
+    'stuttgart': ['stuttgart'],
+    'viden': ['wien', 'vienna', 'viden', 'vide'],
+    'linec': ['linz', 'linec'],
     'celovec': ['klagenfurt', 'celovec'],
     'salcburk': ['salzburg', 'salcburk'],
+    'innsbruck': ['innsbruck'],
+    'styrsky hradec': ['graz', 'styrsky hradec'],
+    'stetin': ['szczecin', 'stettin', 'stetin', 'steti'],
+    'poznan': ['poznan', 'posen'],
+    'vratislav': ['wroclaw', 'breslau', 'vratislav'],
+    'londyn': ['london', 'londyn'],
+    'aberdeen': ['aberdeen'],
+    'birmingham': ['birmingham'],
+    'cambridge': ['cambridge'],
+    'cardiff': ['cardiff'],
+    'carlisle': ['carlisle'],
+    'dover': ['dover'],
+    'edinburgh': ['edinburgh'],
+    'felixstowe': ['felixstowe'],
+    'glasgow': ['glasgow'],
+    'grimsby': ['grimsby'],
+    'liverpool': ['liverpool'],
+    'manchester': ['manchester'],
+    'newcastle-upon-tyne': ['newcastle', 'newcastle-upon-tyne'],
+    'plymouth': ['plymouth'],
+    'sheffield': ['sheffield'],
+    'southampton': ['southampton'],
+    'swansea': ['swansea'],
+    'pariz': ['paris', 'pariz'],
+    'calais': ['calais'],
+    'dijon': ['dijon'],
+    'lille': ['lille'],
+    'lyon': ['lyon'],
+    'mety': ['metz', 'mety'],
+    'remes': ['reims', 'remes'],
+    'strasburk': ['strasbourg', 'strasburk'],
     'benatky': ['venezia', 'venice', 'benatky'],
     'milan': ['milano', 'milan'],
     'turin': ['torino', 'turin'],
+    'verona': ['verona'],
+    'zeneva': ['geneva', 'genf', 'zeneva', 'geneve'],
     'zurych': ['zurich', 'zurych', 'curych'],
+    'bern': ['bern'],
     'lucemburk': ['luxembourg', 'luxemburg', 'lucemburk'],
     'brusel': ['brussels', 'bruxelles', 'brussel', 'brusel'],
     'lutych': ['liege', 'luttich', 'lutych'],
-    'vratislav': ['wroclaw', 'breslau', 'vratislav']
+    'amsterdam': ['amsterdam'],
+    'groningen': ['groningen'],
+    'rotterdam': ['rotterdam']
 };
 
 function getCityBase(cityRaw) {
@@ -235,7 +283,7 @@ function getCityBase(cityRaw) {
 }
 
 // ─────────────────────────────────────────────
-// ZÍSKÁNÍ UŽIVATELE A HISTORIE ZPRÁV BEZ LIMITU
+// ZÍSKÁNÍ UŽIVATELE A HISTORIE ZPRÁV
 // ─────────────────────────────────────────────
 function getUser(userId, tbName = null) {
     if (!usersDb[userId]) {
@@ -249,6 +297,7 @@ function getUser(userId, tbName = null) {
             recentJobHashes: [],
             completedRoutesDays: [],
             completedQuests: 0,
+            uniqueQuestsCompleted: [],
             currentQuestId: getRandomQuestId(),
             questProgress: 0,
             lastQuestSkip: 0
@@ -258,6 +307,7 @@ function getUser(userId, tbName = null) {
     const u = usersDb[userId];
     if (!u.recentJobHashes) u.recentJobHashes = [];
     if (!u.completedRoutesDays) u.completedRoutesDays = [];
+    if (!u.uniqueQuestsCompleted) u.uniqueQuestsCompleted = [];
     if (u.completedQuests === undefined || u.completedQuests === null) u.completedQuests = 0;
     if (u.currentQuestId === undefined || u.currentQuestId === null || u.currentQuestId >= QUESTS.length) {
         u.currentQuestId = getRandomQuestId();
@@ -282,7 +332,6 @@ async function fetchAllEventMessages(targetChannel) {
         if (fetched.size === 0) break;
 
         for (const [id, msg] of fetched) {
-            // Kontrola, zda už jsme nepřejeli před začátek eventu
             if (msg.createdTimestamp < EVENT_START_DATE) {
                 keepFetching = false;
             } else {
@@ -291,11 +340,11 @@ async function fetchAllEventMessages(targetChannel) {
         }
         lastId = fetched.last().id;
     }
-    return allMessages.reverse(); // Od nejstarších po nejnovější
+    return allMessages.reverse();
 }
 
 // ─────────────────────────────────────────────
-// EXTRAKCE DAT ZAKÁZKY (Vylepšený Regex na km)
+// EXTRAKCE DAT ZAKÁZKY
 // ─────────────────────────────────────────────
 function extractJobDataFromEmbed(e) {
     const driver = e.author?.name || "Neznámý";
@@ -312,12 +361,11 @@ function extractJobDataFromEmbed(e) {
     ].filter(Boolean).join('\n');
     
     let km = 0;
-    // Vylepšená detekce kilometrů – zvládá i velké mezery, čárky nebo tečky u tisícovek
     const kmMatch = allText.match(/(?:Uznaná vzdálenost|Distance|Vzdálenost|Vzdialenosť|Trajet|Strecke|Przejechany dystans):\s*([\d\s.,]+)\s*(km|mi)/im) ||
                     allText.match(/(?:^|\s)([\d\s.,]{2,8})\s*(km|mi)(?:\s|$)/i);
     
     if (kmMatch) {
-        km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10); // Odstraní vše kromě čísel
+        km = parseInt(kmMatch[1].replace(/[^\d]/g, ''), 10);
         if (kmMatch[2] && kmMatch[2].toLowerCase().includes('mi')) km = Math.round(km * 1.60934);
     }
     
@@ -369,7 +417,7 @@ function extractJobDataFromEmbed(e) {
 // ─────────────────────────────────────────────
 // ZPRACOVÁNÍ ZAKÁZKY
 // ─────────────────────────────────────────────
-async function processJobMessage(m) {
+async function processJobMessage(m, isBulk = false) {
     const messageTime = m.createdTimestamp;
 
     if (!isDevMode && messageTime < EVENT_START_DATE) return { status: 'ignored_old' };
@@ -404,7 +452,7 @@ async function processJobMessage(m) {
         if (dbNick === driverNorm) { userKey = key; break; }
         if (dbNick.includes(driverNorm) || driverNorm.includes(dbNick)) { if (!userKey) userKey = key; }
     }
-    if (!userKey && m.guild) {
+    if (!userKey && m.guild && !isBulk) {
         try {
             const members = await m.guild.members.fetch();
             const foundMember = members.find(member => {
@@ -422,15 +470,16 @@ async function processJobMessage(m) {
 
     let isEventRoute = false, earnedXP = 50, isHappyHourJob = false, secretCityFound = false, isNewHunterDne = false, questCompleted = false, earnedQuestXP = 0;
 
-    const secretCityNorm = normalizeStr(systemDb.secretCity);
+    // OPRAVA: Ochrana proti časovému paradoxu u tajného města
+    const cityGenTime = systemDb.secretCityGeneratedUnix || (systemDb.nextSecretCityResetUnix - (14 * 3600));
     if (systemDb.secretCity && !systemDb.secretCityFoundBy && 
-       (jobData.dest.includes(secretCityNorm) || secretCityNorm.includes(jobData.dest)) && 
-       jobData.km >= 500) {
+       getCityBase(jobData.rawDest) === getCityBase(systemDb.secretCity) && 
+       jobData.km >= 500 &&
+       (messageTime / 1000) >= cityGenTime) {
         secretCityFound = true; earnedXP += 1000;
-        if (!userKey.startsWith('UNLINKED_')) { systemDb.secretCityFoundBy = userKey; saveSystem(); announceSecretCityWordle(); }
+        if (!userKey.startsWith('UNLINKED_')) { systemDb.secretCityFoundBy = userKey; saveSystem(); if(!isBulk) announceSecretCityWordle(); }
     }
 
-    // Výpočet dne z času odeslání zprávy (nikoliv z aktuálního času)
     let jobDay = 0;
     if (messageTime >= EVENT_START_DATE) {
         jobDay = Math.floor((messageTime - EVENT_START_DATE) / (24 * 60 * 60 * 1000)) + 1;
@@ -463,7 +512,6 @@ async function processJobMessage(m) {
     u.processedJobs.push(jobId); u.recentJobHashes.push(jobHash);
     systemDb.globalProcessedJobs.push(jobId); systemDb.globalJobHashes.push(jobHash);
     
-    // Zvětšeny limity paměti, aby se smazané hashe nezapomněly u velké VTC
     if (u.processedJobs.length > 1000) u.processedJobs = u.processedJobs.slice(-800);
     if (u.recentJobHashes.length > 1000) u.recentJobHashes = u.recentJobHashes.slice(-800);
     if (systemDb.globalProcessedJobs.length > 50000) systemDb.globalProcessedJobs = systemDb.globalProcessedJobs.slice(-40000);
@@ -482,13 +530,21 @@ async function processJobMessage(m) {
         if (prog > 0) {
             u.questProgress = (u.questProgress || 0) + prog;
             if (u.questProgress >= (q.targetCount || q.targetKm || q.target)) {
-                u.xp += q.reward; earnedQuestXP = q.reward; u.completedQuests++; u.questProgress = 0; u.currentQuestId = getRandomQuestId(); questCompleted = true;
+                u.xp += q.reward; earnedQuestXP = q.reward; u.completedQuests++;
+                if (!u.uniqueQuestsCompleted.includes(u.currentQuestId)) {
+                    u.uniqueQuestsCompleted.push(u.currentQuestId);
+                }
+                u.questProgress = 0; u.currentQuestId = getRandomQuestId(); questCompleted = true;
             }
         }
     }
 
     saveUsers();
-    if (!userKey.startsWith('UNLINKED_')) await checkMilestoneRoles(userKey);
+    
+    // Během /fullanalyze nepřiřazujeme role u každé zprávy, omezíme tím spam
+    if (!userKey.startsWith('UNLINKED_') && !isBulk) {
+        await checkMilestoneRoles(userKey);
+    }
     
     return { status: 'added', jobData, isEventRoute, questCompleted, earnedXP, earnedQuestXP, driver, userKey, secretCityFound, isHappyHourJob, isNewHunterDne };
 }
@@ -517,14 +573,10 @@ async function autoReprocessJobs() {
                         }
 
                         if (res.secretCityFound) {
-                            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, systemDb.secretExplorerUserId, res.userKey);
-                            systemDb.secretExplorerUserId = res.userKey;
-                            saveSystem();
+                            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, res.userKey);
                         }
                         if (res.isNewHunterDne) {
-                            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, systemDb.hunterDneUserId, res.userKey);
-                            systemDb.hunterDneUserId = res.userKey;
-                            saveSystem();
+                            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, res.userKey);
                         }
                     }
                 }
@@ -536,18 +588,36 @@ async function autoReprocessJobs() {
 }
 
 // ─────────────────────────────────────────────
+// ČIŠTĚNÍ HAPPY HOUR ZPRÁV
+// ─────────────────────────────────────────────
+async function sweepHappyHourMessages() {
+    try {
+        const ch = await client.channels.fetch(CH_ROUTES).catch(() => null);
+        if (!ch) return;
+        const msgs = await ch.messages.fetch({ limit: 20 });
+        for (const [id, msg] of msgs) {
+            if (msg.author.id === client.user.id && msg.content.includes("HAPPY HOUR PRÁVĚ ZAČALA")) {
+                await msg.delete().catch(() => null);
+            }
+        }
+    } catch (e) {}
+}
+
+// ─────────────────────────────────────────────
 // MECHANIKA TRAS A PROGRESS BARU
 // ─────────────────────────────────────────────
 async function announceDailyRoute(day) {
     if (day > 8) return;
     const route = ROUTES[day - 1];
 
-    if (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "") {
+    if (!systemDb.currentDailyRewardText || !systemDb.currentDailyGoal) {
         const dailyGoal = getRandomDailyGoal();
-        route.goal = dailyGoal.goal;
+        systemDb.currentDailyGoal = dailyGoal.goal;
         systemDb.currentDailyRewardText = dailyGoal.reward;
+        saveSystem();
     }
-    saveSystem();
+
+    route.goal = systemDb.currentDailyGoal;
 
     const embed = new EmbedBuilder()
         .setTitle(`🚚 EVENT DEN ${day}/8: Nová trasa vyhlášena!`)
@@ -558,28 +628,35 @@ async function announceDailyRoute(day) {
     const annCh = await client.channels.fetch(CH_ROUTES).catch(() => null);
     if (annCh) {
         const msgs = await annCh.messages.fetch({ limit: 30 });
+        
+        let existingMsg = null;
         for (const [id, msg] of msgs) {
             if (msg.author.id === client.user.id && msg.embeds[0]?.title?.includes("EVENT DEN")) {
                 const match = msg.embeds[0].title.match(/DEN (\d+)/);
                 if (match) {
                     const msgDay = parseInt(match[1]);
-                    if (msgDay !== day) {
-                        await msg.delete().catch(() => null);
-                    }
+                    if (msgDay === day) existingMsg = msg;
+                    else await msg.delete().catch(() => null);
                 }
             }
         }
 
-        await annCh.send({ content: "@everyone 🚨 **Nová eventová trasa vyhlášena!** 🚨", embeds: [embed] });
+        if (existingMsg) {
+            await existingMsg.edit({ embeds: [embed] }).catch(() => null);
+        } else {
+            await annCh.send({ content: "@everyone 🚨 **Nová eventová trasa vyhlášena!** 🚨", embeds: [embed] });
+        }
+        
         updateCommunityProgressBar(false);
     }
 }
 
 async function updateCommunityProgressBar(forceNew = false) {
     if (systemDb.currentDay === 0 || systemDb.currentDay > 8) return;
-    const route = ROUTES[systemDb.currentDay - 1];
     
-    const realPercent = Math.floor((systemDb.communityJobsToday / route.goal) * 100) || 0;
+    const targetGoal = systemDb.currentDailyGoal || ROUTES[systemDb.currentDay - 1].goal;
+    
+    const realPercent = Math.floor((systemDb.communityJobsToday / targetGoal) * 100) || 0;
     const cappedPercent = Math.max(0, Math.min(100, realPercent));
     const imageIndex = Math.floor(cappedPercent / 5);
     const imgUrl = (PROGRESS_BAR_IMAGES[imageIndex] || PROGRESS_BAR_IMAGES[0]) + "?v=" + Date.now();
@@ -589,25 +666,49 @@ async function updateCommunityProgressBar(forceNew = false) {
 
     const embed = new EmbedBuilder()
         .setTitle(`📊 Komunitní Gól - Den ${systemDb.currentDay}`)
-        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${route.goal} zakázek (${realPercent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText || "Zatím neurčeno"}\n\n*(Aktualizuje se každých 5 minut)*`)
+        .setDescription(`**Stav:** ${systemDb.communityJobsToday} / ${targetGoal} zakázek (${realPercent}%)\n**Dnešní drop šance:** ${systemDb.currentDailyRewardText || "Zatím neurčeno"}\n\n*(Aktualizuje se každých 5 minut)*`)
         .setImage(imgUrl)
         .setColor(EVENT_COLOR);
 
-    if (systemDb.communityJobsToday >= route.goal && !systemDb.goalReachedAnnounced) {
+    if (systemDb.communityJobsToday >= targetGoal && !systemDb.goalReachedAnnounced) {
         systemDb.goalReachedAnnounced = true;
         
-        if (!systemDb.currentDailyRewardText || systemDb.currentDailyRewardText === "") {
+        if (!systemDb.currentDailyRewardText || !systemDb.currentDailyGoal) {
             const dailyGoal = getRandomDailyGoal();
-            route.goal = dailyGoal.goal;
+            systemDb.currentDailyGoal = dailyGoal.goal;
             systemDb.currentDailyRewardText = dailyGoal.reward;
         }
         saveSystem();
         
         annCh.send(`🎉 **CÍL SPLNĚN!** Dokázali jste to! Zítra vylosujeme, kdo získá **${systemDb.currentDailyRewardText}**!`).catch(() => {});
         
+        const eligibleUsers = Object.values(usersDb).filter(u => 
+            !u.id.startsWith("UNLINKED_") && 
+            u.completedRoutesDays && 
+            u.completedRoutesDays.includes(systemDb.currentDay)
+        );
+
+        let drawMsg = `🎲 **LOSOVÁNÍ - DEN ${systemDb.currentDay}** 🎲\nKomunitní cíl byl právě splněn! Zde je seznam hráčů, kteří dnes odjeli alespoň 1 eventovou trasu a mají nárok na dnešní odměnu (**${systemDb.currentDailyRewardText}**):\n\n`;
+        
+        if (eligibleUsers.length === 0) {
+            drawMsg += "Nikdo (tohle by se nemělo stát).";
+        } else {
+            eligibleUsers.forEach((u, idx) => {
+                drawMsg += `${idx + 1}. **${u.tbName}**\n`;
+            });
+        }
+
+        const drawCh = await client.channels.fetch(CH_DRAW).catch(() => null);
+        if (drawCh) {
+            const chunks = drawMsg.match(/[\s\S]{1,1900}/g) || [];
+            for (const chunk of chunks) {
+                await drawCh.send(chunk).catch(() => {});
+            }
+        }
+
         const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
         if (backupCh) {
-            backupCh.send(`🏆 **INFO PRO VEDENÍ:** Komunita právě dosáhla dnešního cíle (${route.goal} zakázek).`).catch(() => {});
+            backupCh.send(`🏆 **INFO PRO VEDENÍ:** Komunita právě dosáhla dnešního cíle (${targetGoal} zakázek). Seznam do slosování byl odeslán do určeného kanálu.`).catch(() => {});
         }
     }
 
@@ -664,24 +765,34 @@ function getNextSecretCityResetUnix() {
     return Math.floor((now.getTime() + msUntilReset) / 1000);
 }
 
-async function transferRole(guildId, roleId, oldUserId, newUserId) {
+async function transferRole(guildId, roleId, newUserId) {
     try {
         const guild = await client.guilds.fetch(guildId);
-        if (oldUserId && oldUserId !== newUserId) {
-            const oldMember = await guild.members.fetch(oldUserId).catch(() => null);
-            if (oldMember) await oldMember.roles.remove(roleId).catch(() => null);
+        const role = await guild.roles.fetch(roleId);
+        if (!role) return;
+
+        await guild.members.fetch(); 
+
+        for (const [memberId, member] of role.members) {
+            if (memberId !== newUserId) {
+                await member.roles.remove(roleId).catch(() => null);
+            }
         }
+
         if (newUserId) {
             const newMember = await guild.members.fetch(newUserId).catch(() => null);
             if (newMember) await newMember.roles.add(roleId).catch(() => null);
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error("Chyba při updatu role:", e);
+    }
 }
 
 function startNewSecretCity() {
     const randomCity = SECRET_CITIES_LIST[Math.floor(Math.random() * SECRET_CITIES_LIST.length)];
     systemDb.secretCity = randomCity;
     systemDb.secretCityRevealed = new Array(randomCity.length).fill(false);
+    systemDb.secretCityGeneratedUnix = Math.floor(Date.now() / 1000);
 
     const validIndices = [];
     for (let i = 0; i < randomCity.length; i++) {
@@ -726,7 +837,7 @@ async function announceSecretCityWordle() {
 
         try {
             const msgs = await ch.messages.fetch({ limit: 10 });
-            const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
+            const oldBotMsg = msgs.find(m => m.author.id === client.user.id && (m.embeds[0]?.title?.includes("Najdi Tajné Město") || m.embeds[0]?.title?.includes("Tajné Město bylo odhaleno")));
             if (oldBotMsg) await oldBotMsg.edit({ embeds: [embed] });
             else await ch.send({ embeds: [embed] });
         } catch (e) {}
@@ -747,7 +858,7 @@ async function announceSecretCityWordle() {
 
     try {
         const msgs = await ch.messages.fetch({ limit: 10 });
-        const oldBotMsg = msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.title?.includes("Najdi Tajné Město"));
+        const oldBotMsg = msgs.find(m => m.author.id === client.user.id && (m.embeds[0]?.title?.includes("Najdi Tajné Město") || m.embeds[0]?.title?.includes("Tajné Město bylo odhaleno")));
         if (oldBotMsg) await oldBotMsg.edit({ embeds: [embed] });
         else await ch.send({ embeds: [embed] });
     } catch (e) {}
@@ -761,20 +872,24 @@ async function checkMilestoneRoles(userId) {
         const u = usersDb[userId];
         if (!u) return;
         const guild = await client.guilds.fetch(GUILD_ID);
-        const member = await guild.members.fetch({ user: userId, force: true });
+        const member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
+        if (!member) return;
+        
         const logCh = await client.channels.fetch(CH_LOG).catch(() => null);
 
-        if (u.xp >= 10000 && !member.roles.cache.has(ROLE_KING)) {
-            await member.roles.add(ROLE_KING);
-            if (logCh) logCh.send(`👑 <@${userId}> dosáhl/a 10 000 XP a získává roli **Výroční Král**!`);
-        }
-        if (u.completedQuests >= 10 && !member.roles.cache.has(ROLE_QUESTMASTER)) {
-            await member.roles.add(ROLE_QUESTMASTER);
-            if (logCh) logCh.send(`📜 <@${userId}> splnil/a 10 úkolů a získává roli **Quest Master**!`);
-        }
         if (u.completedRoutesDays.length >= 4 && !member.roles.cache.has(ROLE_3RD_ANNIVERSARY)) {
-            await member.roles.add(ROLE_3RD_ANNIVERSARY);
+            await member.roles.add(ROLE_3RD_ANNIVERSARY).catch(() => null);
             if (logCh) logCh.send(`🎉 <@${userId}> absolvoval/a polovinu eventu a získává roli **3rd Anniversary**!`);
+        }
+
+        if (u.completedRoutesDays.length >= 8 && !member.roles.cache.has(ROLE_KING)) {
+            await member.roles.add(ROLE_KING).catch(() => null);
+            if (logCh) logCh.send(`👑 <@${userId}> odjel/a všechny eventové trasy a získává roli **Výroční Král**!`);
+        }
+
+        if (u.uniqueQuestsCompleted && u.uniqueQuestsCompleted.length >= QUESTS.length && !member.roles.cache.has(ROLE_QUESTMASTER)) {
+            await member.roles.add(ROLE_QUESTMASTER).catch(() => null);
+            if (logCh) logCh.send(`📜 <@${userId}> splnil/a VŠECHNY questy v eventu a získává roli **Quest Master**!`);
         }
     } catch (e) {}
 }
@@ -807,14 +922,9 @@ async function createBackup() {
 async function fetchBackupFromDiscord() {
     try {
         const backupCh = await client.channels.fetch(CH_BACKUP).catch(() => null);
-        if (!backupCh) {
-            console.log('❌ Backup kanál nenalezen');
-            return null;
-        }
+        if (!backupCh) return null;
 
-        console.log('📥 Stahuji poslední zálohy z Discordu...');
         const messages = await backupCh.messages.fetch({ limit: 50 });
-
         let latestUsersData = null;
         let latestSystemData = null;
         let latestTimestamp = 0;
@@ -882,6 +992,7 @@ setInterval(() => {
         systemDb.communityJobsToday = 0;
         systemDb.hhCountToday = 0;
         systemDb.currentDailyRewardText = "";
+        systemDb.currentDailyGoal = 0; 
         systemDb.goalReachedAnnounced = false;
         saveSystem();
         
@@ -904,19 +1015,10 @@ setInterval(() => {
     }
 
     if (systemDb.hhActiveUntil > 0 && now >= systemDb.hhActiveUntil) {
-        if (systemDb.hhMessageId) {
-            client.channels.fetch(CH_ROUTES).then(async ch => {
-                try {
-                    const msg = await ch.messages.fetch(systemDb.hhMessageId);
-                    if (msg) await msg.delete();
-                } catch (e) {
-                    console.log("Zpráva Happy Hour už zřejmě neexistuje.");
-                }
-            }).catch(() => {});
-            systemDb.hhMessageId = null;
-            systemDb.hhActiveUntil = 0;
-            saveSystem();
-        }
+        sweepHappyHourMessages();
+        systemDb.hhMessageId = null;
+        systemDb.hhActiveUntil = 0;
+        saveSystem();
     }
 
     if (czTime.getMinutes() === 0 && systemDb.currentDay > 0 && systemDb.currentDay <= 8 && now < EVENT_END_DATE) {
@@ -989,14 +1091,10 @@ client.on('messageCreate', async (m) => {
 
     if (res.status === 'added' && !res.userKey.startsWith('UNLINKED_')) {
         if (res.secretCityFound) {
-            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, systemDb.secretExplorerUserId, res.userKey);
-            systemDb.secretExplorerUserId = res.userKey;
-            saveSystem();
+            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, res.userKey);
         }
         if (res.isNewHunterDne) {
-            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, systemDb.hunterDneUserId, res.userKey);
-            systemDb.hunterDneUserId = res.userKey;
-            saveSystem();
+            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, res.userKey);
         }
 
         const logCh = await client.channels.fetch(CH_LOG).catch(() => null);
@@ -1011,10 +1109,6 @@ client.on('messageCreate', async (m) => {
             if (res.secretCityFound) msg += ` 🕵️‍♂️ **ODHALIL/A TAJNÉ MĚSTO (+1000 XP)**!`;
             logCh.send(msg).catch(() => {});
         }
-    }
-
-    if (res.status.startsWith('duplicate')) {
-        console.log(`🔄 Duplicitní zakázka ignorována: ${res.status}`);
     }
 });
 
@@ -1050,6 +1144,7 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
         u.processedJobs = [...new Set([...(u.processedJobs || []), ...(unlinked.processedJobs || [])])];
         u.recentJobHashes = [...new Set([...(u.recentJobHashes || []), ...(unlinked.recentJobHashes || [])])];
         u.completedRoutesDays = [...new Set([...(u.completedRoutesDays || []), ...(unlinked.completedRoutesDays || [])])];
+        u.uniqueQuestsCompleted = [...new Set([...(u.uniqueQuestsCompleted || []), ...(unlinked.uniqueQuestsCompleted || [])])];
         
         delete usersDb[foundUnlinkedKey];
         mergedMsg = `\n♻️ Našel jsem v paměti nepřiřazené zakázky z webhooku a rovnou je převedl (+${unlinked.xp} XP, +${unlinked.km} km)!`;
@@ -1352,7 +1447,7 @@ client.on("interactionCreate", async interaction => {
             
             for (const msg of allMessages) {
                 if (msg.embeds.length > 0) {
-                    const result = await processJobMessage(msg);
+                    const result = await processJobMessage(msg, true);
                     processedCount++;
                     if (result.status === 'added') validCount++;
                     if (result.status.startsWith('duplicate')) duplicateCount++;
@@ -1376,9 +1471,11 @@ client.on("interactionCreate", async interaction => {
             const savedSettings = {
                 currentDay: systemDb.currentDay,
                 currentDailyRewardText: systemDb.currentDailyRewardText,
+                currentDailyGoal: systemDb.currentDailyGoal,
                 secretCity: systemDb.secretCity,
                 secretCityRevealed: systemDb.secretCityRevealed,
                 nextSecretCityResetUnix: systemDb.nextSecretCityResetUnix,
+                secretCityGeneratedUnix: systemDb.secretCityGeneratedUnix,
                 secretExplorerUserId: systemDb.secretExplorerUserId,
                 goalReachedAnnounced: systemDb.goalReachedAnnounced
             };
@@ -1408,6 +1505,7 @@ client.on("interactionCreate", async interaction => {
                 u.processedJobs = [];
                 u.recentJobHashes = [];
                 u.completedRoutesDays = [];
+                u.uniqueQuestsCompleted = [];
                 u.completedQuests = 0;
                 u.questProgress = 0;
                 u.lastQuestSkip = 0;
@@ -1425,10 +1523,12 @@ client.on("interactionCreate", async interaction => {
             
             systemDb.currentDay = savedSettings.currentDay || systemDb.currentDay || 1;
             systemDb.currentDailyRewardText = savedSettings.currentDailyRewardText || "";
+            systemDb.currentDailyGoal = savedSettings.currentDailyGoal || 0;
             systemDb.secretCity = savedSettings.secretCity || systemDb.secretCity || "";
             systemDb.secretCityRevealed = savedSettings.secretCityRevealed || systemDb.secretCityRevealed || [];
             systemDb.secretCityFoundBy = null; 
             systemDb.nextSecretCityResetUnix = savedSettings.nextSecretCityResetUnix || systemDb.nextSecretCityResetUnix || 0;
+            systemDb.secretCityGeneratedUnix = savedSettings.secretCityGeneratedUnix || 0;
             systemDb.secretExplorerUserId = savedSettings.secretExplorerUserId || systemDb.secretExplorerUserId || null;
             systemDb.goalReachedAnnounced = savedSettings.goalReachedAnnounced || false;
             
@@ -1448,7 +1548,7 @@ client.on("interactionCreate", async interaction => {
                 
                 for (const msg of allMessages) {
                     if (msg.embeds.length > 0) {
-                        const result = await processJobMessage(msg);
+                        const result = await processJobMessage(msg, true);
                         totalProcessed++;
                         if (result.status === 'added') totalValid++;
                         if (result.status.startsWith('duplicate')) totalDuplicates++;
@@ -1462,8 +1562,16 @@ client.on("interactionCreate", async interaction => {
             if (systemDb.secretCity && !systemDb.secretCityFoundBy) {
                 await announceSecretCityWordle();
             }
+
+            // Hromadné fyzické přidělení rolí na Discordu na konci analýzy
+            await transferRole(GUILD_ID, ROLE_SECRET_EXPLORER, systemDb.secretExplorerUserId);
+            await transferRole(GUILD_ID, ROLE_HUNTER_DNE, systemDb.hunterDneUserId);
             
             const linkedUsers = Object.values(usersDb).filter(u => !u.id?.startsWith?.('UNLINKED_') && u.id !== "null");
+            for (const u of linkedUsers) {
+                await checkMilestoneRoles(u.id);
+            }
+
             const totalXP = linkedUsers.reduce((sum, u) => sum + (u.xp || 0), 0);
             const totalKm = linkedUsers.reduce((sum, u) => sum + (u.km || 0), 0);
             const totalJobs = linkedUsers.reduce((sum, u) => sum + (u.eventJobs || 0), 0);
@@ -1481,7 +1589,7 @@ client.on("interactionCreate", async interaction => {
                 `🚚 Celkem km: **${totalKm}**\n` +
                 `📦 Celkem zakázek: **${totalJobs}**\n\n` +
                 `📅 Aktuální den: **${systemDb.currentDay}**\n` +
-                `🎯 Komunitní cíl: **${systemDb.communityJobsToday}** / **${ROUTES[systemDb.currentDay-1]?.goal || '?'}** zakázek\n` +
+                `🎯 Komunitní cíl: **${systemDb.communityJobsToday}** / **${systemDb.currentDailyGoal || '?'}** zakázek\n` +
                 `🎁 Dnešní odměna: **${systemDb.currentDailyRewardText || '?'}**\n\n` +
                 `💾 Nové bezedné čtení započítalo i ty nejstarší zprávy.`
             );
@@ -1561,25 +1669,26 @@ client.on("interactionCreate", async interaction => {
 });
 
 // ─────────────────────────────────────────────
-// READY EVENT (AUTOMATICKÁ OBNOVA ZE ZÁLOHY PŘI STARTU)
+// READY EVENT (BEZPEČNÝ START & DEPLOY)
 // ─────────────────────────────────────────────
 client.on("ready", async () => {
     console.log(`✅ Bot úspěšně běží jako ${client.user.tag}`);
 
-    console.log("📥 Zkouším načíst data z Discord zálohy (redeploy recovery)...");
+    console.log("📥 Zkouším stáhnout zálohu z Discordu (Deploy Recovery)...");
     const backup = await fetchBackupFromDiscord();
-    
     if (backup && (backup.users || backup.system)) {
-        if (backup.users) usersDb = backup.users;
+        if (backup.users) {
+            usersDb = backup.users;
+            if (usersDb['null']) delete usersDb['null'];
+        }
         if (backup.system) {
             systemDb = { ...systemDb, ...backup.system };
         }
-        if (usersDb['null']) delete usersDb['null']; 
         saveUsers();
         saveSystem();
-        console.log("✅ Data úspěšně obnovena ze zálohy na Discordu.");
+        console.log("✅ Data obnovena ze zálohy na Discordu.");
     } else {
-        console.log("⚠️ Záloha na Discordu nenalezena, načítám lokální soubory.");
+        console.log("⚠️ Discord záloha nenalezena, zkouším načíst lokální soubory.");
         loadDatabases();
     }
 
@@ -1591,16 +1700,18 @@ client.on("ready", async () => {
         const guild = client.guilds.cache.get(GUILD_ID);
         if (guild) await guild.members.fetch();
 
+        sweepHappyHourMessages();
+
         const scCh = await client.channels.fetch(CH_SECRET_CITY).catch(() => null);
         if (scCh && systemDb.secretCity && !systemDb.secretCityFoundBy) {
             await announceSecretCityWordle();
         }
 
         if (systemDb.currentDay > 0) {
-            await updateCommunityProgressBar(false);
+            await announceDailyRoute(systemDb.currentDay);
         }
 
-        console.log("🎉 Bot je připraven!");
+        console.log("🎉 Bot je připraven a data jsou v bezpečí!");
     } catch (error) {
         console.error("❌ Chyba při inicializaci:", error);
     }
