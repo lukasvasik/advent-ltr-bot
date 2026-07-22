@@ -347,10 +347,8 @@ async function fetchAllEventMessages(targetChannel) {
 // EXTRAKCE DAT ZAKÁZKY (UPRAVENO PRO TB I TRUCKY)
 // ─────────────────────────────────────────────
 function extractJobDataFromEmbed(e) {
-    // Trucky občas nedává jméno do author.name, záchytný bod z title jako fallback
     const driver = e.author?.name || e.title || "Neznámý";
     
-    // Přidána podpora anglických polí z Trucky (From, To, Source, Destination atd.)
     const fromField = e.fields?.find(f => f.name?.toLowerCase()?.match(/(odkud|from|source|start)/));
     const toField = e.fields?.find(f => f.name?.toLowerCase()?.match(/(kam|to|destination|end)/));
     
@@ -363,7 +361,6 @@ function extractJobDataFromEmbed(e) {
     ].filter(Boolean).join('\n');
     
     let km = 0;
-    // Přidáno "Driven Distance" a robustnější regex
     const kmMatch = allText.match(/(?:Uznaná vzdálenost|Distance|Driven Distance|Vzdálenost|Vzdialenosť|Trajet|Strecke|Przejechany dystans):\s*([\d\s.,]+)\s*(km|mi)/im) ||
                     allText.match(/(?:^|\s)([\d\s.,]{2,8})\s*(km|mi)(?:\s|$)/i);
     
@@ -373,7 +370,6 @@ function extractJobDataFromEmbed(e) {
     }
     
     let cargo = "";
-    // Očištění funguje i pro Trucky (odřízne "(24 t)" díky .split(/[\(\[\{]/)[0])
     const cargoField = e.fields?.find(f => f.name?.toLowerCase()?.match(/(náklad|cargo)/));
     if (cargoField) {
         cargo = cargoField.value.split(/[\(\[\{]/)[0].trim();
@@ -392,11 +388,13 @@ function extractJobDataFromEmbed(e) {
     }
     
     if (!origin) {
-        const odkudMatch = allText.match(/(?:Odkud|From|Source)\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/i);
+        // ZDE BOHUŽEL CHYBĚLO PÍSMENO "u" NA KONCI REGEXU! Přidáno -> /iu
+        const odkudMatch = allText.match(/(?:Odkud|From|Source)\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/iu);
         if (odkudMatch) origin = odkudMatch[1].trim();
     }
     if (!dest) {
-        const kamMatch = allText.match(/(?:Kam|To|Destination)\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/i);
+        // ZDE BOHUŽEL CHYBĚLO PÍSMENO "u" NA KONCI REGEXU! Přidáno -> /iu
+        const kamMatch = allText.match(/(?:Kam|To|Destination)\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/iu);
         if (kamMatch) dest = kamMatch[1].trim();
     }
     
