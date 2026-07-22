@@ -344,13 +344,15 @@ async function fetchAllEventMessages(targetChannel) {
 }
 
 // ─────────────────────────────────────────────
-// EXTRAKCE DAT ZAKÁZKY
+// EXTRAKCE DAT ZAKÁZKY (UPRAVENO PRO TB I TRUCKY)
 // ─────────────────────────────────────────────
 function extractJobDataFromEmbed(e) {
-    const driver = e.author?.name || "Neznámý";
+    // Trucky občas nedává jméno do author.name, záchytný bod z title jako fallback
+    const driver = e.author?.name || e.title || "Neznámý";
     
-    const fromField = e.fields?.find(f => f.name?.toLowerCase()?.includes('odkud'));
-    const toField = e.fields?.find(f => f.name?.toLowerCase()?.includes('kam'));
+    // Přidána podpora anglických polí z Trucky (From, To, Source, Destination atd.)
+    const fromField = e.fields?.find(f => f.name?.toLowerCase()?.match(/(odkud|from|source|start)/));
+    const toField = e.fields?.find(f => f.name?.toLowerCase()?.match(/(kam|to|destination|end)/));
     
     let origin = fromField?.value ? fromField.value.replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').trim() : "";
     let dest = toField?.value ? toField.value.replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').trim() : "";
@@ -361,7 +363,8 @@ function extractJobDataFromEmbed(e) {
     ].filter(Boolean).join('\n');
     
     let km = 0;
-    const kmMatch = allText.match(/(?:Uznaná vzdálenost|Distance|Vzdálenost|Vzdialenosť|Trajet|Strecke|Przejechany dystans):\s*([\d\s.,]+)\s*(km|mi)/im) ||
+    // Přidáno "Driven Distance" a robustnější regex
+    const kmMatch = allText.match(/(?:Uznaná vzdálenost|Distance|Driven Distance|Vzdálenost|Vzdialenosť|Trajet|Strecke|Przejechany dystans):\s*([\d\s.,]+)\s*(km|mi)/im) ||
                     allText.match(/(?:^|\s)([\d\s.,]{2,8})\s*(km|mi)(?:\s|$)/i);
     
     if (kmMatch) {
@@ -370,7 +373,8 @@ function extractJobDataFromEmbed(e) {
     }
     
     let cargo = "";
-    const cargoField = e.fields?.find(f => f.name?.toLowerCase()?.includes('náklad') || f.name?.toLowerCase()?.includes('cargo'));
+    // Očištění funguje i pro Trucky (odřízne "(24 t)" díky .split(/[\(\[\{]/)[0])
+    const cargoField = e.fields?.find(f => f.name?.toLowerCase()?.match(/(náklad|cargo)/));
     if (cargoField) {
         cargo = cargoField.value.split(/[\(\[\{]/)[0].trim();
     } else {
@@ -379,20 +383,20 @@ function extractJobDataFromEmbed(e) {
     }
     
     let truck = "";
-    const truckField = e.fields?.find(f => f.name?.toLowerCase()?.includes('tahač') || f.name?.toLowerCase()?.includes('truck'));
+    const truckField = e.fields?.find(f => f.name?.toLowerCase()?.match(/(tahač|truck|vehicle)/));
     if (truckField) {
         truck = truckField.value.trim();
     } else {
-        const truckMatch = allText.match(/(?:Tahač|Truck):\s*(.+?)(?:\r?\n|$)/i);
+        const truckMatch = allText.match(/(?:Tahač|Truck|Vehicle):\s*(.+?)(?:\r?\n|$)/i);
         if (truckMatch) truck = truckMatch[1].trim();
     }
     
     if (!origin) {
-        const odkudMatch = allText.match(/Odkud\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/u);
+        const odkudMatch = allText.match(/(?:Odkud|From|Source)\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/i);
         if (odkudMatch) origin = odkudMatch[1].trim();
     }
     if (!dest) {
-        const kamMatch = allText.match(/Kam\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/u);
+        const kamMatch = allText.match(/(?:Kam|To|Destination)\s*\n\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)?(.+?)(?:\r?\n|$)/i);
         if (kamMatch) dest = kamMatch[1].trim();
     }
     
@@ -470,7 +474,6 @@ async function processJobMessage(m, isBulk = false) {
 
     let isEventRoute = false, earnedXP = 50, isHappyHourJob = false, secretCityFound = false, isNewHunterDne = false, questCompleted = false, earnedQuestXP = 0;
 
-    // OPRAVA: Ochrana proti časovému paradoxu u tajného města
     const cityGenTime = systemDb.secretCityGeneratedUnix || (systemDb.nextSecretCityResetUnix - (14 * 3600));
     if (systemDb.secretCity && !systemDb.secretCityFoundBy && 
        getCityBase(jobData.rawDest) === getCityBase(systemDb.secretCity) && 
@@ -541,7 +544,6 @@ async function processJobMessage(m, isBulk = false) {
 
     saveUsers();
     
-    // Během /fullanalyze nepřiřazujeme role u každé zprávy, omezíme tím spam
     if (!userKey.startsWith('UNLINKED_') && !isBulk) {
         await checkMilestoneRoles(userKey);
     }
@@ -1002,7 +1004,7 @@ setInterval(() => {
         saveUsers();
     }
 
-    if ((czTime.getHours() === 8 || czTime.getHours() === 19) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
+    if ((czTime.getHours() === 7 || czTime.getHours() === 19) && czTime.getMinutes() === 0 && systemDb.currentDay > 0 && now < EVENT_END_DATE) {
         startNewSecretCity();
     }
 
@@ -1167,7 +1169,7 @@ async function performLinkAndRecovery(interaction, targetUser, nick) {
 
             for (const msg of allMessages) {
                 if (msg.embeds.length > 0) {
-                    const driverName = msg.embeds[0].author?.name || "";
+                    const driverName = msg.embeds[0].author?.name || msg.embeds[0].title || "";
                     if (normalizeStr(driverName).includes(normalizeStr(nick)) || normalizeStr(nick).includes(normalizeStr(driverName))) {
                         const result = await processJobMessage(msg);
                         processedCount++;
